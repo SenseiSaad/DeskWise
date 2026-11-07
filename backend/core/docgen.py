@@ -300,6 +300,8 @@ _SEPARATOR = re.compile(r"^\s*={10,}\s*$", re.MULTILINE)
 
 def _kind_for(header: str, body: str) -> str:
     low = (header + " " + body[:200]).lower()
+    if "letter" in header.lower():
+        return "form"
     if "email" in header.lower() or "subject:" in body[:300].lower():
         return "email"
     if "table" in header.lower() or "tabular" in low:
@@ -538,7 +540,8 @@ def collect_uploaded_templates(user, kinds: list[str], include_like: bool = Fals
 
 # ------------------------------------------------------------- request plan
 FORM_WORDS = ("form", "farms", "application form", "blank form", "leave form",
-              "application", "form bhar", "form bana", "form chahiye")
+              "application", "letter", "leave letter", "application letter",
+              "form bhar", "form bana", "form chahiye")
 EMAIL_WORDS = ("email", "e-mail", "mail", "draft", "message to", "subject",
                "email likh", "mail likh", "email bhej", "email chahiye")
 TABLE_WORDS = ("table", "tabular", "rows and columns", "table bana")

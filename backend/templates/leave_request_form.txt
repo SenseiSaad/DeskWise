@@ -44,20 +44,28 @@ EMPLOYEE LEAVE / HALF-DAY REQUEST FORM - XYZ COMPANY
 EMAIL TEMPLATE (To Manager / HR)
 ==================================================
 
-Subject: Leave Request ([Full Day / Half Day]) – Saad Waseem – [Date]
+Subject: Leave Application: [Full Name] ([Your Job Title]) | [Start Date] to [End Date] – [Reason for Leave]
 
 Hi [Manager's Name],
 
-Please accept this as my formal request for a [Full-Day / Half-Day] leave on [Date]. 
+I hope you are having a productive week.
 
-- Type: [e.g., Half-Day (Second Half)]
-- Reason: [Brief reason]
-- Coverage: [Colleague's Name] has kindly agreed to cover any urgent matters while I am away.
+I am writing to formally request time off from [Start Date] to [End Date] ([Total Duration]) on account of [Reason for Leave]. As there are significant family commitments and travel arrangements involved, I will need to be away from work during these dates and will resume my regular responsibilities on [End Date].
 
-I can be reached via phone in case of any critical emergencies. Thank you for considering my request.
+To ensure smooth project continuity and prevent any operational disruptions:
+- All my active deliverables, pending reviews, and sprint commitments are being brought to a stable handoff point prior to my departure.
+- [Colleague's Name] has agreed to act as the primary point of contact for any urgent queries or escalated tasks while I am out.
+- Handover notes with all necessary project links and status updates have been shared with [Colleague's Name].
+
+In case of any critical or time-sensitive emergency, please do not hesitate to contact me directly on my mobile phone at [Phone Number]. For non-urgent matters, I will respond promptly upon my return.
+
+Thank you for your understanding, time, and consideration.
 
 Best regards,
 
-Saad Waseem  
+[Full Name]  
 [Your Job Title]  
-obsks23@gmail.com
+Employee ID: [Employee ID]  
+[Department] | [Company Name]  
+Phone: [Phone Number]  
+Email: [Email]
