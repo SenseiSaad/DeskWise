@@ -408,3 +408,19 @@ def test_profile_and_company_fields_are_editable(auth_client, make_company, make
                         {"hr_email": "hr@acme.test", "signature": "Regards, HR",
                          "tone": "formal"}, format="json")
     assert comp.status_code == 200 and comp.json()["tone"] == "formal"
+
+
+def test_conversational_field_extraction():
+    q = (
+        "my name is Saad Waseem, role is Staff Engineer, reason is brother wedding, "
+        "from 2026-11-15 to 2026-11-20, colleague is Deskwise Contributor, phone is +923001234567"
+    )
+    extracted = docgen.extract_explicit_fields(q)
+    assert extracted["full_name"] == "Saad Waseem"
+    assert extracted["role"] == "Staff Engineer"
+    assert extracted["reason"] == "brother wedding"
+    assert extracted["start_date"] == "2026-11-15"
+    assert extracted["end_date"] == "2026-11-20"
+    assert extracted["coverage"] == "Deskwise Contributor"
+    assert extracted["phone"] == "+923001234567"
+

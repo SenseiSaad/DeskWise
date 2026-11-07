@@ -47,7 +47,13 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     # date); only an explicit current-date label may use today's date.
     "date": ("today", "current date", "yyyy-mm-dd", "aaj", "tareekh"),
     "reason": ("brief reason", "reason for leave", "reason", "wajah"),
-    "coverage": ("colleague", "coverage", "handover", "backup"),
+    "coverage": ("colleague", "coverage", "backup", "cover person", "covering colleague"),
+    "handover_notes": ("handover notes", "handover tasks", "pending items", "urgent items"),
+    "start_date": ("start date", "from date", "starting date", "begins"),
+    "end_date": ("end date", "to date", "ending date", "till date", "until date"),
+    "total_duration": ("total days", "total hours", "total duration", "duration"),
+    "start_time": ("start time", "starting time"),
+    "end_time": ("end time", "ending time"),
 }
 
 # Literal example values baked into the rough draft. These are replaced with
@@ -144,14 +150,18 @@ def extract_explicit_fields(question: str) -> dict[str, str]:
     """Read plainly labelled values the user explicitly typed in the request.
 
     This is a conservative label/value parser, not an LLM extraction step:
-    only ``Field: value`` lines are accepted, and bracketed template/example
-    placeholders are ignored. Profile values are the fallback; explicit
-    request values then override them. Unknown fields remain deterministic.
+    accepts ``Field: value`` lines/clauses and conversational inline phrasing
+    (e.g. "my name is X, role is Y, reason is Z, from DATE to DATE").
+    Profile values are the fallback; explicit request values then override them.
+    Unknown fields remain deterministic.
     """
     extracted: dict[str, str] = {}
-    for raw_line in (question or "").splitlines():
-        line = re.sub(r"^\s*(?:(?:\d+[.)])|[-*])\s*", "", raw_line).strip()
-        match = re.match(r"^([^:]{2,80}):\s*(.*?)\s*$", line)
+
+    # 1. Structured clauses separated by newlines, semicolons, or commas before a label:
+    chunks = re.split(r"[\r\n]+|;\s*|,\s*(?=[A-Za-z0-9 _-]{2,40}\s*:)", question or "")
+    for raw_chunk in chunks:
+        chunk = re.sub(r"^\s*(?:(?:\d+[.)])|[-*])\s*", "", raw_chunk).strip()
+        match = re.match(r"^([^:]{2,80}):\s*(.*?)\s*$", chunk)
         if not match:
             continue
         label, value = match.group(1).strip(), match.group(2).strip().strip("`\"'")
@@ -160,6 +170,43 @@ def extract_explicit_fields(question: str) -> dict[str, str]:
         key = _field_key(label)
         if key:
             extracted[key] = value[:300]
+
+    # 2. Date range in natural phrasing: "from <start> to/till/until <end>"
+    if "start_date" not in extracted:
+        date_range = re.search(
+            r"\bfrom\s+([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+(?:\s+[0-9]{4})?)\s+(?:to|till|until)\s+([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+(?:\s+[0-9]{4})?)",
+            question or "",
+            re.IGNORECASE,
+        )
+        if date_range:
+            extracted["start_date"] = date_range.group(1).strip()
+            extracted["end_date"] = date_range.group(2).strip()
+
+    # 3. Conversational key phrases: e.g. "my name is ...", "role is ...", "reason is ..."
+    conversational_patterns = [
+        (r"\b(?:my\s+)?(?:full\s+)?name\s*(?:is|=|:)\s*([^,;\n.]+)", "full_name"),
+        (r"\b(?:my\s+)?role\s*(?:is|=|:)\s*([^,;\n.]+)", "role"),
+        (r"\b(?:my\s+)?(?:job\s+)?title\s*(?:is|=|:)\s*([^,;\n.]+)", "title"),
+        (r"\b(?:my\s+)?designation\s*(?:is|=|:)\s*([^,;\n.]+)", "title"),
+        (r"\b(?:my\s+)?(?:reason(?:\s+for\s+leave)?)\s*(?:is|=|:)\s*([^,;\n.]+)", "reason"),
+        (r"\bleave(?:\s+(?:request|form|application|email|draft|claim))*\s+for\s+([^,;\n]+?)(?:\s+from|\s+on|\s*$)", "reason"),
+        (r"\b(?:my\s+)?manager(?:\s+is|\s*name\s*is|=|:)\s*([^,;\n.]+)", "manager"),
+        (r"\b(?:my\s+)?supervisor\s*(?:is|=|:)\s*([^,;\n.]+)", "manager"),
+        (r"\b(?:my\s+)?department\s*(?:is|=|:)\s*([^,;\n.]+)", "department"),
+        (r"\b(?:coverage|colleague(?:\s+name)?|handover(?:\s+to)?|backup)\s*(?:is|=|:)\s*([^,;\n.]+)", "coverage"),
+        (r"\b(?:my\s+)?phone(?:\s*number)?\s*(?:is|=|:)\s*([^,;\n.]+)", "phone"),
+        (r"\b(?:my\s+)?employee\s*id\s*(?:is|=|:)\s*([^,;\n.]+)", "employee_id"),
+        (r"\b(?:total\s+)?duration\s*(?:is|=|:)\s*([^,;\n.]+)", "total_duration"),
+        (r"\b(?:handover\s+notes?|pending\s+items?)\s*(?:is|=|:)\s*([^,;\n.]+)", "handover_notes"),
+    ]
+    for pattern, key in conversational_patterns:
+        if key not in extracted:
+            m = re.search(pattern, question or "", re.IGNORECASE)
+            if m:
+                val = m.group(1).strip().strip("\"'` ")
+                if val and not ("[" in val and "]" in val):
+                    extracted[key] = val[:300]
+
     return extracted
 
 
@@ -314,6 +361,9 @@ def load_builtin_templates() -> list[TemplateDoc]:
             continue
         for fname in sorted(os.listdir(folder)):
             if fname in names:
+                continue
+            if folder == root:
+                # In project root, only explicit files (e.g. leave_request_form.txt) are templates
                 continue
             low = fname.lower()
             if low.endswith((".txt", ".md")) and any(
@@ -605,6 +655,8 @@ def _parse_structured(kind: str, title: str, text: str) -> dict:
                 "placeholder": bool(_BRACKET.search(value)),
             })
             continue
+        if line.startswith("Missing fields (fill before sending):"):
+            continue
         current.setdefault("lines", []).append(line)
 
     md_lines: list[str] = []
@@ -637,6 +689,8 @@ def _parse_structured(kind: str, title: str, text: str) -> dict:
             line = raw.rstrip()
             if not line.strip():
                 ordered.append("")
+                continue
+            if line.startswith("Missing fields (fill before sending):"):
                 continue
             if re.match(r"^subject:\s*", line, re.IGNORECASE):
                 ordered.append("**" + line + "**")
