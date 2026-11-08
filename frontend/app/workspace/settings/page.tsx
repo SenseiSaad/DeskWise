@@ -18,6 +18,7 @@ import {
 import {
   adminApi,
   analyticsApi,
+  billingApi,
   companyApi2,
   settingsApi,
   type Analytics,
@@ -108,6 +109,7 @@ export default function SettingsPage() {
   const [plans, setPlans] = useState<Plan[]>([])
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [planLoading, setPlanLoading] = useState(true)
+  const [upgradingPlanId, setUpgradingPlanId] = useState<number | null>(null)
 
   // AI config
   const [cfg, setCfg] = useState<LlmConfig | null>(null)
@@ -307,6 +309,19 @@ export default function SettingsPage() {
       loadCompany()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not update plan.')
+    }
+  }
+
+  async function onCheckout(planId: number) {
+    try {
+      setUpgradingPlanId(planId)
+      const res = await billingApi.checkout(planId)
+      if (res.url) {
+        window.location.href = res.url
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not launch checkout.')
+      setUpgradingPlanId(null)
     }
   }
 
@@ -701,15 +716,37 @@ export default function SettingsPage() {
                           </ul>
                         </div>
 
-                        {isPlatformAdmin && !isCurrent && (
-                          <div className="mt-6 border-t border-[#f0ede6] pt-3">
-                            <button
-                              type="button"
-                              onClick={() => onSelectPlan(p.id)}
-                              className="w-full rounded-full border border-[#1d1d1b] py-1.5 text-xs font-medium text-[#1d1d1b] hover:bg-[#1d1d1b] hover:text-white"
-                            >
-                              Assign Plan (Admin)
-                            </button>
+                        {!isCurrent && (
+                          <div className="mt-6 border-t border-[#f0ede6] pt-3 space-y-2">
+                            {p.price_usd > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => onCheckout(p.id)}
+                                disabled={upgradingPlanId === p.id}
+                                className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-[#1d1d1b] py-1.5 text-xs font-medium text-white hover:bg-[#3c3b37] disabled:opacity-50"
+                              >
+                                {upgradingPlanId === p.id ? (
+                                  <>
+                                    <Loader2 className="size-3 animate-spin" />
+                                    Redirecting…
+                                  </>
+                                ) : (
+                                  <>
+                                    <CreditCard className="size-3" />
+                                    Upgrade to {p.name}
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            {isPlatformAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => onSelectPlan(p.id)}
+                                className="w-full rounded-full border border-[#1d1d1b] py-1.5 text-xs font-medium text-[#1d1d1b] hover:bg-[#1d1d1b] hover:text-white"
+                              >
+                                Assign Plan (Admin)
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>

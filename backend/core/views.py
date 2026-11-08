@@ -25,14 +25,19 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from django.views.decorators.csrf import csrf_exempt
 
 from django.conf import settings
+
+import logging
+logger = logging.getLogger(__name__)
 
 from . import rag
 from . import providers
 from . import moderation
 from . import storage
 from . import docgen
+from . import billing
 from . import attendance as attendance_svc
 from .auth import (
     set_auth_cookies, clear_auth_cookies, revoke_user_refresh_tokens,
@@ -1997,9 +2002,102 @@ def usage(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def plans(request):
-    """Public plan catalogue (USD pricing) for the pricing page."""
-    qs = Plan.objects.filter(is_active=True)
-    return Response(PlanSerializer(qs, many=True).data)
+    """Public plan catalogue (USD pricing) for the pricing page.
+
+    Guaranteed never to return 500: auto-seeds if table is empty, and falls
+    back to default specifications if there is unexpected database schema drift.
+    """
+    try:
+        qs = Plan.objects.filter(is_active=True).order_by("price_usd")
+        if not qs.exists():
+            from django.core.management import call_command
+            try:
+                call_command("seed_plans")
+                qs = Plan.objects.filter(is_active=True).order_by("price_usd")
+            except Exception:
+                pass
+        return Response(PlanSerializer(qs, many=True).data)
+    except Exception as exc:
+        logger.exception("Failed to query plans from database: %s", exc)
+        fallback = [
+            {"id": 1, "name": "Free", "price_usd": 0, "billing_period": "month", "max_members": 3, "max_documents": 20, "storage_mb": 512, "monthly_ask_limit": 50, "allow_versions": False, "allow_departments": False, "allow_custom_llm": False, "is_default": True},
+            {"id": 2, "name": "Starter", "price_usd": 15, "billing_period": "month", "max_members": 15, "max_documents": 200, "storage_mb": 5120, "monthly_ask_limit": 1500, "allow_versions": True, "allow_departments": False, "allow_custom_llm": False, "is_default": False},
+            {"id": 3, "name": "Business", "price_usd": 49, "billing_period": "month", "max_members": 50, "max_documents": 1000, "storage_mb": 25600, "monthly_ask_limit": 6000, "allow_versions": True, "allow_departments": True, "allow_custom_llm": True, "is_default": False},
+            {"id": 4, "name": "Enterprise", "price_usd": 129, "billing_period": "month", "max_members": None, "max_documents": None, "storage_mb": None, "monthly_ask_limit": 25000, "allow_versions": True, "allow_departments": True, "allow_custom_llm": True, "is_default": False},
+        ]
+        return Response(fallback)
+
+
+# --------------------------------------------------------- Stripe Billing & Subscriptions
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def billing_status(request):
+    """Return Stripe setup status and company's current subscription."""
+    company = getattr(request.user, "company", None)
+    return Response({
+        "has_stripe": billing.is_stripe_configured(),
+        "stripe_publishable_key": getattr(settings, "STRIPE_PUBLISHABLE_KEY", ""),
+        "plan": PlanSerializer(company.plan).data if company and company.plan else None,
+        "stripe_customer_id": company.stripe_customer_id if company else "",
+        "stripe_subscription_id": company.stripe_subscription_id if company else "",
+        "is_subscribed": bool(company and company.stripe_subscription_id),
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAdmin])
+def billing_checkout(request):
+    """Create a Stripe Checkout Session for self-serve plan upgrade."""
+    plan_id = (request.data or {}).get("plan_id")
+    if not plan_id:
+        return Response({"detail": "plan_id is required."}, status=400)
+    try:
+        session_data = billing.create_checkout_session(
+            user=request.user,
+            plan_id=int(plan_id),
+            success_url=(request.data or {}).get("success_url"),
+            cancel_url=(request.data or {}).get("cancel_url"),
+        )
+        return Response(session_data, status=201)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+    except Exception as exc:
+        logger.exception("Stripe checkout session creation failed: %s", exc)
+        return Response({"detail": f"Stripe error: {exc}"}, status=502)
+
+
+@api_view(["POST"])
+@permission_classes([IsAdmin])
+def billing_portal(request):
+    """Create a Stripe Customer Portal session for card/subscription management."""
+    try:
+        portal_data = billing.create_portal_session(
+            user=request.user,
+            return_url=(request.data or {}).get("return_url"),
+        )
+        return Response(portal_data, status=200)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+    except Exception as exc:
+        logger.exception("Stripe customer portal creation failed: %s", exc)
+        return Response({"detail": f"Stripe error: {exc}"}, status=502)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def billing_webhook(request):
+    """Handle incoming Stripe webhook events."""
+    payload = request.body
+    sig_header = request.headers.get("Stripe-Signature") or request.META.get("HTTP_STRIPE_SIGNATURE")
+    try:
+        res = billing.handle_webhook(payload, sig_header)
+        return Response(res, status=200)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+    except Exception as exc:
+        logger.exception("Stripe webhook processing error: %s", exc)
+        return Response({"detail": "Webhook processing error"}, status=500)
 
 
 @api_view(["POST"])

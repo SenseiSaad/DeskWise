@@ -76,6 +76,11 @@ urlpatterns = [
     path("admin/llm-test", views.llm_test),
     # plans
     path("plans", views.plans),
+    # stripe billing & subscriptions
+    path("billing/status", views.billing_status),
+    path("billing/checkout", views.billing_checkout),
+    path("billing/portal", views.billing_portal),
+    path("billing/webhook", views.billing_webhook),
     # platform admin tools (report-only; root admins cannot join a tenant)
     path("admin/reports", views.platform_reports),
     path("admin/companies", views.list_companies),

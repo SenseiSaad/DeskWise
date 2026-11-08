@@ -715,6 +715,24 @@ export const adminApi = {
   },
 }
 
+// ---- Stripe Billing & Subscriptions ---------------------------------------
+export interface BillingStatus {
+  has_stripe: boolean
+  stripe_publishable_key: string
+  plan: Plan | null
+  stripe_customer_id: string
+  stripe_subscription_id: string
+  is_subscribed: boolean
+}
+
+export const billingApi = {
+  status: (): Promise<BillingStatus> => api.get('/billing/status'),
+  checkout: (planId: number, successUrl?: string, cancelUrl?: string): Promise<{ url: string; session_id: string }> =>
+    api.post('/billing/checkout', { plan_id: planId, success_url: successUrl, cancel_url: cancelUrl }),
+  portal: (returnUrl?: string): Promise<{ url: string }> =>
+    api.post('/billing/portal', { return_url: returnUrl }),
+}
+
 // ---- Attendance + 3-strike discipline (Feature 5) ------------------------
 export interface AttendanceRecord {
   id: number

@@ -309,6 +309,11 @@ ENABLE_ATTENDANCE = os.getenv("ENABLE_ATTENDANCE", "true").lower() in ("1", "tru
 ATTENDANCE_AUTO_FREEZE = os.getenv("ATTENDANCE_AUTO_FREEZE", "false").lower() in ("1", "true", "yes")
 ENABLE_DOCGEN = os.getenv("ENABLE_DOCGEN", "true").lower() in ("1", "true", "yes")
 
+# ── Stripe Billing (Sandbox & Production) ──
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "").strip()
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
+
 # ── Security headers (HTTPS deployments) ──
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"

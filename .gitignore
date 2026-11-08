@@ -50,6 +50,7 @@ Thumbs.db
 # Local dev server logs (start-dev.sh)
 .dev-logs/
 *.log
+.perch/
 
 # Backup archives (may contain customer data)
 backups/

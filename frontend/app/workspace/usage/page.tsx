@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2, Sparkles, AlertTriangle, Check, HardDrive, Users, Building2, ArrowUpRight } from 'lucide-react'
+import { Loader2, Sparkles, AlertTriangle, Check, HardDrive, Users, Building2, ArrowUpRight, CreditCard, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
-import { usageApi, type UsageReport } from '@/lib/api'
+import { usageApi, billingApi, type UsageReport, type BillingStatus } from '@/lib/api'
 import { formatUSD, storageLabel, PLAN_COPY } from '@/lib/pricing'
+import { toast } from '@/components/toaster'
 
 function limitLabel(used: number, remaining: number | null, limit: number | null) {
   if (limit === null) return `${used.toLocaleString()} used · unlimited`
@@ -20,17 +21,55 @@ function pct(used: number, limit: number | null) {
 export default function WorkspaceUsagePage() {
   const { user } = useAuth()
   const [data, setData] = useState<UsageReport | null>(null)
+  const [billing, setBilling] = useState<BillingStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [upgradingId, setUpgradingId] = useState<number | null>(null)
+  const [portalLoading, setPortalLoading] = useState(false)
 
   useEffect(() => {
     if (!user) return
-    usageApi
-      .get()
-      .then(setData)
+    Promise.all([
+      usageApi.get(),
+      billingApi.status().catch(() => null),
+    ])
+      .then(([usageRes, billingRes]) => {
+        setData(usageRes)
+        setBilling(billingRes)
+      })
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not load usage data.'))
       .finally(() => setLoading(false))
   }, [user])
+
+  async function handleUpgrade(planId: number, planName: string) {
+    if (!billing?.has_stripe) {
+      window.location.href = `mailto:hello@openvault.site?subject=${encodeURIComponent(`Upgrade to ${planName}`)}`
+      return
+    }
+    try {
+      setUpgradingId(planId)
+      const res = await billingApi.checkout(planId)
+      if (res.url) {
+        window.location.href = res.url
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create checkout session.')
+      setUpgradingId(null)
+    }
+  }
+
+  async function handlePortal() {
+    try {
+      setPortalLoading(true)
+      const res = await billingApi.portal()
+      if (res.url) {
+        window.location.href = res.url
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not open billing portal.')
+      setPortalLoading(false)
+    }
+  }
 
   if (loading) return <main className="text-[#6b6862]"><Loader2 className="size-4 animate-spin" /></main>
   if (error)
@@ -109,7 +148,20 @@ export default function WorkspaceUsagePage() {
         </div>
 
         <div className="rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-6 shadow-sm">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6862]">Upgrade</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6862]">Subscription &amp; Upgrade</h2>
+            {billing?.is_subscribed && (
+              <button
+                type="button"
+                onClick={handlePortal}
+                disabled={portalLoading}
+                className="inline-flex items-center gap-1 rounded-full border border-[#1d1d1b] px-3 py-1 text-xs font-medium text-[#1d1d1b] hover:bg-[#1d1d1b] hover:text-white disabled:opacity-50"
+              >
+                {portalLoading ? <Loader2 className="size-3 animate-spin" /> : <CreditCard className="size-3" />}
+                Manage billing portal
+              </button>
+            )}
+          </div>
           {upgrades.length ? (
             <ul className="mt-4 space-y-3">
               {upgrades.map((u) => (
@@ -118,12 +170,24 @@ export default function WorkspaceUsagePage() {
                     <p className="text-sm font-semibold text-[#1d1d1b]">{u.name}</p>
                     <p className="text-xs text-[#74726c]">{PLAN_COPY[u.name]?.blurb ?? 'More capacity.'}</p>
                   </div>
-                  <a
-                    href={`mailto:hello@openvault.site?subject=${encodeURIComponent(`Upgrade to ${u.name}`)}`}
-                    className="inline-flex items-center gap-1 rounded-full bg-[#1d1d1b] px-4 py-2 text-xs font-medium text-white hover:bg-[#3c3b37]"
+                  <button
+                    type="button"
+                    onClick={() => handleUpgrade(u.id, u.name)}
+                    disabled={upgradingId === u.id}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#1d1d1b] px-4 py-2 text-xs font-medium text-white hover:bg-[#3c3b37] disabled:opacity-50"
                   >
-                    {formatUSD(u.price_usd)}/mo <ArrowUpRight className="size-3.5" />
-                  </a>
+                    {upgradingId === u.id ? (
+                      <>
+                        <Loader2 className="size-3 animate-spin" />
+                        Redirecting…
+                      </>
+                    ) : (
+                      <>
+                        {billing?.has_stripe ? 'Pay with Card' : 'Upgrade'} ({formatUSD(u.price_usd)}/mo)
+                        <ArrowUpRight className="size-3.5" />
+                      </>
+                    )}
+                  </button>
                 </li>
               ))}
             </ul>
@@ -134,10 +198,17 @@ export default function WorkspaceUsagePage() {
             </p>
           )}
           <p className="mt-4 border-t border-[#f0ede6] pt-3 text-xs leading-relaxed text-[#8c8a83]">
-            Upgrades are activated manually by our team after payment via bank transfer,
-            JazzCash, or Easypaisa — your limits go up the same business day. See full
-            breakdown on the{' '}
-            <Link href="/pricing" className="text-[#37589c] underline">pricing page</Link>.
+            {billing?.has_stripe ? (
+              <>
+                Self-serve cards processed securely via Stripe Sandbox / Live. Offline bank transfer, JazzCash, and Easypaisa manual activation also supported. See full breakdown on the{' '}
+                <Link href="/pricing" className="text-[#37589c] underline">pricing page</Link>.
+              </>
+            ) : (
+              <>
+                Upgrades are activated manually after payment via bank transfer, JazzCash, or Easypaisa — your limits go up the same business day. Connect Stripe keys to enable instant card checkout. See full breakdown on the{' '}
+                <Link href="/pricing" className="text-[#37589c] underline">pricing page</Link>.
+              </>
+            )}
           </p>
         </div>
       </section>
