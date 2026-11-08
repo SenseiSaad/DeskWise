@@ -68,20 +68,41 @@ def create_checkout_session(
     if plan.price_usd == 0:
         raise ValueError("Free tier does not require checkout. It is already attached.")
 
-    # 1. Retrieve or create Stripe customer
-    customer_id = company.stripe_customer_id.strip()
-    if not customer_id:
-        customer = stripe.Customer.create(
-            email=user.email,
-            name=company.name,
-            metadata={
-                "company_id": str(company.id),
-                "created_by_user": str(user.id),
-            },
+    # Prevent subscribing to the exact same plan if already active
+    if company.plan and company.plan.id == plan.id and company.stripe_subscription_id:
+        raise ValueError(
+            f"Already subscribed to {plan.name}. Use the Customer Portal to manage or cancel."
         )
-        customer_id = customer.id
-        company.stripe_customer_id = customer_id
-        company.save(update_fields=["stripe_customer_id"])
+
+    # 1. Retrieve or create Stripe customer with concurrency lock to prevent duplicates
+    with transaction.atomic():
+        company = Company.objects.select_for_update().get(pk=company.id)
+        customer_id = (company.stripe_customer_id or "").strip()
+        if not customer_id:
+            try:
+                # Query Stripe to prevent duplicate customer creation on rapid clicks
+                existing = stripe.Customer.search(
+                    query=f"metadata['company_id']:'{company.id}'",
+                    limit=1,
+                )
+                if existing and existing.data:
+                    customer_id = existing.data[0].id
+            except Exception:
+                pass
+
+            if not customer_id:
+                customer = stripe.Customer.create(
+                    email=user.email,
+                    name=company.name,
+                    metadata={
+                        "company_id": str(company.id),
+                        "created_by_user": str(user.id),
+                    },
+                )
+                customer_id = customer.id
+
+            company.stripe_customer_id = customer_id
+            company.save(update_fields=["stripe_customer_id"])
 
     # 2. Build line items
     # If plan has an explicit stripe_price_id, use it; otherwise generate dynamic price_data.
@@ -118,10 +139,9 @@ def create_checkout_session(
     if not cancel_url:
         cancel_url = f"{base_url}/workspace/usage?checkout=cancelled"
 
-    # 4. Create Checkout Session
+    # 4. Create Checkout Session (dynamic payment methods managed by Stripe dashboard)
     session = stripe.checkout.Session.create(
         customer=customer_id,
-        payment_method_types=["card"],
         mode="subscription",
         line_items=line_items,
         success_url=success_url,
@@ -173,15 +193,22 @@ def handle_webhook(payload: bytes, sig_header: str | None) -> dict[str, Any]:
     """
     _init_stripe()
     webhook_secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", "").strip()
+    is_prod = getattr(settings, "IS_PRODUCTION", False)
 
-    if webhook_secret and sig_header:
+    if is_prod and not webhook_secret:
+        logger.error("STRIPE_WEBHOOK_SECRET must be configured in production.")
+        raise ValueError("Webhook secret is not configured on the server.")
+
+    if webhook_secret:
+        if not sig_header:
+            raise ValueError("Missing Stripe-Signature header.")
         try:
             event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
         except Exception as exc:
             logger.warning("Stripe webhook signature verification failed: %s", exc)
             raise ValueError(f"Invalid webhook signature: {exc}")
     else:
-        # Development or unconfigured secret: parse JSON directly
+        # Development only: parse JSON directly
         try:
             event = json.loads(payload.decode("utf-8"))
         except Exception as exc:
