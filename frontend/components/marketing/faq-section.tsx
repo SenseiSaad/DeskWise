@@ -6,12 +6,12 @@ import { ArrowRight, Minus, Plus } from 'lucide-react'
 
 const FAQS = [
   {
-    q: 'Is OpenVault a public document library?',
+    q: 'Is Deskwise a public document library?',
     a: 'No. There is no public browse area, publisher account, or free-user library. Documents are available only after enterprise sign-in, and only through the permissions the company has granted.',
   },
   {
     q: 'How is this different from a shared drive with AI bolted on?',
-    a: 'Access control runs before retrieval. OpenVault filters the permission-aware document set first, then searches it, then sends only those passages to the model. A restricted file is not part of the evidence the assistant can use.',
+    a: 'Access control runs before retrieval. Deskwise filters the permission-aware document set first, then searches it, then sends only those passages to the model. A restricted file is not part of the evidence the assistant can use.',
   },
   {
     q: 'Can the assistant reveal a file I am not allowed to see?',
@@ -22,7 +22,7 @@ const FAQS = [
     a: 'The hosted default uses Amazon Bedrock in the AWS India geographic profile; only permission-approved passages are sent for generation. The Local Ollama option runs generation on the Ollama endpoint configured for the API. A fully local RAG deployment must also use a private embedding endpoint and re-index documents with it.',
   },
   {
-    q: 'Is OpenVault running entirely on AWS today?',
+    q: 'Is Deskwise running entirely on AWS today?',
     a: 'AWS Amplify serves the live frontend today. The production target is AWS for the backend and AI: Bedrock, ECS/Fargate, RDS, S3, Route 53 and CloudWatch. During development and the private beta, some supporting services may run outside AWS for testing. Tenant isolation and permission filtering are enforced by the application, so the privacy model does not change during the transition. The privacy page lists the services in the current deployment.',
   },
   {

@@ -32,7 +32,7 @@ export function Hero() {
               className="mt-6 max-w-[34rem] animate-fade-up text-[1.05rem] leading-relaxed text-muted-foreground sm:text-lg"
               style={{ animationDelay: '260ms' }}
             >
-              OpenVault turns your company documents into a private, cited AI assistant — one that
+              Deskwise turns your company documents into a private, cited AI assistant — one that
               can only see what the person asking is allowed to see.
             </p>
 

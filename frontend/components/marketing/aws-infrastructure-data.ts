@@ -47,7 +47,7 @@ export const AWS_LAYERS: AwsLayer[] = [
       { label: 'Route 53', detail: 'production DNS target', icon: Globe2 },
     ],
     tags: ['Amplify · live', 'Static export', 'Route 53 at cutover'],
-    note: 'Amplify’s managed Next runtime currently supports through Next 15, so OpenVault ships as a static export.',
+    note: 'Amplify’s managed Next runtime currently supports through Next 15, so Deskwise ships as a static export.',
   },
   {
     id: 'store',

@@ -263,7 +263,7 @@ function AskMock() {
             <span className="grid size-7 place-items-center rounded-full bg-accent text-accent-foreground">
               <Sparkles className="size-3.5" aria-hidden />
             </span>
-            <span className="text-[13px] font-medium">Ask OpenVault</span>
+            <span className="text-[13px] font-medium">Ask Deskwise</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="hidden rounded-md border border-border px-2 py-1 text-[10.5px] text-muted-foreground sm:inline-flex">

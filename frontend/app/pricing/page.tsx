@@ -47,7 +47,7 @@ const FAQ = [
     a: 'Our main AI cost is billed in USD. USD plans keep the price predictable and stop currency movement from changing your bill. We will show a PKR equivalent and support local payment methods.',
   },
   {
-    q: 'Can I use OpenVault now?',
+    q: 'Can I use Deskwise now?',
     a: 'Yes, by invitation. Request early access and we will set up a workspace with your team.',
   },
   {
@@ -84,7 +84,7 @@ export default function PricingPage() {
               className="mt-6 max-w-2xl animate-fade-up text-[1.02rem] leading-relaxed text-muted-foreground sm:text-lg"
               style={{ animationDelay: '260ms' }}
             >
-              OpenVault is in early access and will be fully available soon. We are onboarding a
+              Deskwise is in early access and will be fully available soon. We are onboarding a
               small group of organizations while we finish simple USD plans and local payment
               options. Prices will be published here before general availability.
             </p>
@@ -93,7 +93,7 @@ export default function PricingPage() {
               style={{ animationDelay: '340ms' }}
             >
               <a
-                href="mailto:hello@openvault.site?subject=OpenVault%20early%20access"
+                href="mailto:hello@openvault.site?subject=Deskwise%20early%20access"
                 className="btn btn-primary group"
               >
                 Request early access
@@ -210,7 +210,7 @@ export default function PricingPage() {
               </p>
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <a
-                  href="mailto:hello@openvault.site?subject=OpenVault%20early%20access"
+                  href="mailto:hello@openvault.site?subject=Deskwise%20early%20access"
                   className="btn bg-[#f3efe5] text-[#171511] hover:bg-[#d9a75f] hover:text-[#1a1205]"
                 >
                   Request early access <ArrowRight className="size-4" aria-hidden />

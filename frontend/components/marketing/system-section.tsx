@@ -56,7 +56,7 @@ export function SystemSection() {
               </h2>
             </div>
             <p className="max-w-sm text-sm leading-relaxed text-muted-foreground lg:pb-1">
-              The assistant is only as safe as the retrieval behind it. OpenVault filters what a
+              The assistant is only as safe as the retrieval behind it. Deskwise filters what a
               person can see before a single passage reaches the model.
             </p>
           </div>

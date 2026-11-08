@@ -8,13 +8,13 @@ import { Reveal } from '@/components/reveal'
 export const metadata: Metadata = {
   title: 'Privacy & security',
   description:
-    'How OpenVault protects company knowledge: tenant isolation, least privilege, permission-aware AI, and a complete audit trail.',
+    'How Deskwise protects company knowledge: tenant isolation, least privilege, permission-aware AI, and a complete audit trail.',
 }
 
 const POLICIES = [
   {
     title: 'Private by default',
-    body: 'OpenVault does not expose a public browse, publisher, or free-user area. Documents are available only after enterprise authentication and only through the current user’s permissions.',
+    body: 'Deskwise does not expose a public browse, publisher, or free-user area. Documents are available only after enterprise authentication and only through the current user’s permissions.',
   },
   {
     title: 'Tenant isolation',
@@ -65,7 +65,7 @@ const SERVICES = [
     role: 'DNS',
     location: 'Global anycast network',
     detail:
-      'Provides authoritative DNS for the OpenVault custom domains. It does not receive document or chat content.',
+      'Provides authoritative DNS for the Deskwise custom domains. It does not receive document or chat content.',
   },
   {
     name: 'Vercel Analytics',
@@ -105,7 +105,7 @@ export default function PolicyPage() {
               className="mt-6 max-w-2xl animate-fade-up text-[1.02rem] leading-relaxed text-muted-foreground sm:text-lg"
               style={{ animationDelay: '260ms' }}
             >
-              OpenVault is designed around employer-controlled access. These principles describe the
+              Deskwise is designed around employer-controlled access. These principles describe the
               product behavior that protects company knowledge.
             </p>
             <p
@@ -196,7 +196,7 @@ export default function PolicyPage() {
                 Services that can touch data.
               </h2>
               <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                OpenVault is in private beta. These are the third-party services in the current
+                Deskwise is in private beta. These are the third-party services in the current
                 deployment, what each receives, and where it runs.
               </p>
             </div>

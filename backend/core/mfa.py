@@ -31,7 +31,7 @@ def generate_secret() -> str:
     return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
 
 
-def provisioning_uri(secret: str, email: str, issuer: str = "OpenVault") -> str:
+def provisioning_uri(secret: str, email: str, issuer: str = "Deskwise") -> str:
     """The otpauth:// URI QR codes and manual entry both consume."""
     label = quote(f"{issuer}:{email}")
     return (

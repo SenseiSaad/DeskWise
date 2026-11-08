@@ -115,7 +115,7 @@ def create_checkout_session(
                 "price_data": {
                     "currency": "usd",
                     "product_data": {
-                        "name": f"OpenVault {plan.name} Plan",
+                        "name": f"Deskwise {plan.name} Plan",
                         "description": (
                             f"Subscription to {plan.name} tier: "
                             f"{plan.max_members or 'Unlimited'} members, "

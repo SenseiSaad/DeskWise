@@ -41,7 +41,7 @@ export function AwsInfrastructure() {
               <span className="font-medium text-foreground">Private in every phase.</span> During
               development and the private beta, some supporting services may run outside AWS while
               the production stack is prepared. The privacy model does not depend on the host:
-              tenant isolation and permission filtering are enforced by OpenVault before any model
+              tenant isolation and permission filtering are enforced by Deskwise before any model
               call, and only approved passages leave the API.
             </p>
           </div>

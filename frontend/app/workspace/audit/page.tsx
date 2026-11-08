@@ -21,7 +21,7 @@ import {
 import { adminApi, type AuditRow } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 
-// Shared keyboard focus treatment, matching the rest of OpenVault.
+// Shared keyboard focus treatment, matching the rest of Deskwise.
 const focusRing =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1d1d1b]/25 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7f6f2]'
 

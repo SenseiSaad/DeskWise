@@ -36,7 +36,7 @@ export function SiteHeader() {
     return pathname === item.href || pathname.startsWith(item.href + '/')
   }
   const currentPageItem = NAV.find((item) => active(item))
-  const currentPageLabel = currentPageItem?.label ?? 'OpenVault'
+  const currentPageLabel = currentPageItem?.label ?? 'Deskwise'
 
   // On the landing page, highlight the section currently in view (and Home at
   // the top). Inner pages highlight themselves through pathname matching.

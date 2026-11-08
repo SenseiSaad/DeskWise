@@ -17,7 +17,7 @@ import { Reveal } from '@/components/reveal'
 export const metadata: Metadata = {
   title: 'About',
   description:
-    'OpenVault is a secure layer between your people and the company knowledge they need. Built for private, permission-aware access.',
+    'Deskwise is a secure layer between your people and the company knowledge they need. Built for private, permission-aware access.',
 }
 
 const PRINCIPLES = [
@@ -69,7 +69,7 @@ export default function AboutPage() {
         <div className="container-page">
           <div className="max-w-4xl">
             <p className="animate-fade-up eyebrow" style={{ animationDelay: '80ms' }}>
-              About OpenVault
+              About Deskwise
             </p>
             <h1
               id="about-title"
@@ -83,7 +83,7 @@ export default function AboutPage() {
               className="mt-7 max-w-2xl animate-fade-up text-[1.02rem] leading-relaxed text-muted-foreground sm:text-lg"
               style={{ animationDelay: '260ms' }}
             >
-              OpenVault is an employer-controlled knowledge and document system. It turns scattered
+              Deskwise is an employer-controlled knowledge and document system. It turns scattered
               company files into a searchable, permission-aware workspace without creating another
               public content marketplace.
             </p>
@@ -116,7 +116,7 @@ export default function AboutPage() {
                 </h2>
               </div>
               <p className="max-w-sm text-sm leading-relaxed text-muted-foreground lg:pb-1">
-                OpenVault is not a public document library. It is a controlled workspace for
+                Deskwise is not a public document library. It is a controlled workspace for
                 registered companies and the people they authorize.
               </p>
             </div>

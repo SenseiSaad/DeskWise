@@ -11,7 +11,7 @@ export const PLAN_COPY: Record<
 > = {
   Free: {
     tagline: 'Try it with your team',
-    blurb: 'Everything you need to evaluate OpenVault on real documents.',
+    blurb: 'Everything you need to evaluate Deskwise on real documents.',
     cta: 'start',
   },
   Starter: {

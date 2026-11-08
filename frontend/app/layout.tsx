@@ -22,14 +22,14 @@ const instrumentSerif = Instrument_Serif({
 
 export const metadata: Metadata = {
   title: {
-    default: 'OpenVault — Private company knowledge, permission-aware AI',
-    template: '%s · OpenVault',
+    default: 'Deskwise — Private company knowledge, permission-aware AI',
+    template: '%s · Deskwise',
   },
   description:
-    'OpenVault is a private, permission-aware knowledge system for registered organizations. Search company documents, get cited AI answers, and share precisely — without exposing the rest of your library.',
-  applicationName: 'OpenVault',
+    'Deskwise is a private, permission-aware knowledge system for registered organizations. Search company documents, get cited AI answers, and share precisely — without exposing the rest of your library.',
+  applicationName: 'Deskwise',
   keywords: [
-    'OpenVault',
+    'Deskwise',
     'permission-aware AI',
     'enterprise knowledge management',
     'private document repository',
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     'RAG assistant',
     'multi-tenant knowledge base',
   ],
-  generator: 'OpenVault',
+  generator: 'Deskwise',
   icons: {
     icon: [
       { url: '/icon-light-32x32.png', media: '(prefers-color-scheme: light)' },

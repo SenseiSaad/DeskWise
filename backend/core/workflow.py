@@ -129,7 +129,7 @@ def _create_calendar_event(title, start_dt, end_dt, participants, user) -> dict:
         tz = settings.TIME_ZONE
         body = {
             "summary": title,
-            "description": f"Scheduled via OpenVault assistant for {user.email}.",
+            "description": f"Scheduled via Deskwise assistant for {user.email}.",
             "start": {"dateTime": start_dt.isoformat(), "timeZone": tz},
             "end": {"dateTime": end_dt.isoformat(), "timeZone": tz},
             "attendees": [{"email": p} for p in participants if _EMAIL_RE.match(p)],
@@ -165,7 +165,7 @@ def _send_meeting_email(title, start_dt, participants, user, calendar) -> dict:
         lines.append(f"Participants: {', '.join(participants)}")
     if calendar.get("html_link"):
         lines.append(f"Calendar link: {calendar['html_link']}")
-    lines += ["", "Sent automatically by the OpenVault assistant."]
+    lines += ["", "Sent automatically by the Deskwise assistant."]
     try:
         sent = send_mail(
             subject=f"Meeting scheduled: {title}",

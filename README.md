@@ -1,14 +1,14 @@
-# OpenVault
+# Deskwise
 
 > **Private Multi-Tenant Knowledge Infrastructure with Least-Privilege Document ACLs, Deterministic Document Generation, and Permission-Aware AI for Enterprise Organizations.**
 
-OpenVault is an enterprise document repository and retrieval-augmented generation (RAG) assistant designed for organizations that require strict tenant isolation, least-privilege intra-company access controls, auditable cross-company collaboration, multi-turn AI chat history with citations, legal-safe attendance tracking, and compliance audit readiness.
+Deskwise is an enterprise document repository and retrieval-augmented generation (RAG) assistant designed for organizations that require strict tenant isolation, least-privilege intra-company access controls, auditable cross-company collaboration, multi-turn AI chat history with citations, legal-safe attendance tracking, and compliance audit readiness.
 
 ---
 
 ## Zero-Step Quickstart (Clone & Run in One Line)
 
-OpenVault includes an automated launcher that handles `.env` generation, cryptographic key generation, migrations, demo corpus seeding, and service orchestration automatically:
+Deskwise includes an automated launcher that handles `.env` generation, cryptographic key generation, migrations, demo corpus seeding, and service orchestration automatically:
 
 ```bash
 git clone https://github.com/SenseiSaad/openvault.git OpenVault
@@ -101,7 +101,7 @@ See [`docs/DEPLOY.md`](docs/DEPLOY.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITE
 
 ## Compliance, Legal Safeguards & Feature Flags
 
-OpenVault includes production-grade feature flags and legal compliance guards designed to prevent HR liability and database schema corruption:
+Deskwise includes production-grade feature flags and legal compliance guards designed to prevent HR liability and database schema corruption:
 
 ### 1. Attendance Tracking & Warn-Only Default
 * QR-code check-in with HMAC-SHA256 signed, short-lived tokens bound to the company's access code.
@@ -135,7 +135,7 @@ OpenVault includes production-grade feature flags and legal compliance guards de
 
 ## Subscription Plans & Commercial Pricing
 
-OpenVault enforces plan quotas on member seats, document counts, storage capacity, and monthly AI queries at the API layer:
+Deskwise enforces plan quotas on member seats, document counts, storage capacity, and monthly AI queries at the API layer:
 
 | Tier | Price (USD) | Member Seats | Documents | Storage | Monthly Asks | Included Features |
 |---|---|---|---|---|---|---|

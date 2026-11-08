@@ -11,7 +11,7 @@ const SECTORS = [
 
 export function SectorStrip() {
   return (
-    <section className="border-y border-border bg-surface/45" aria-label="Industries OpenVault supports">
+    <section className="border-y border-border bg-surface/45" aria-label="Industries Deskwise supports">
       <div className="container-page flex flex-col gap-3 py-7 sm:flex-row sm:items-baseline sm:justify-between sm:py-8">
         <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Built for teams that can&apos;t afford a leak

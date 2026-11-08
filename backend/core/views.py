@@ -295,8 +295,8 @@ def register_company(request):
     # Email verification (no-op link when email delivery is console-backed).
     tok, raw = OneTimeToken.issue(user, "verify_email", minutes=60 * 24)
     _email_user(
-        user, "Verify your OpenVault email",
-        f"Welcome to OpenVault.\n\nVerify your email within 24 hours:\n"
+        user, "Verify your Deskwise email",
+        f"Welcome to Deskwise.\n\nVerify your email within 24 hours:\n"
         f"{_frontend_url('/auth/verify?token=' + raw)}\n\n"
         f"If you did not create this account you can ignore this email.",
     )
@@ -522,7 +522,7 @@ def request_verification(request):
     user = User.objects.filter(email__iexact=email, is_active=True).first()
     if user and not user.email_verified:
         tok, raw = OneTimeToken.issue(user, "verify_email", minutes=60 * 24)
-        _email_user(user, "Verify your OpenVault email",
+        _email_user(user, "Verify your Deskwise email",
                     f"Verify your email within 24 hours:\n"
                     f"{_frontend_url('/auth/verify?token=' + raw)}")
     # Same response either way: never reveal whether an email exists.
@@ -553,7 +553,7 @@ def forgot_password(request):
     if user:
         tok, raw = OneTimeToken.issue(user, "password_reset", minutes=30)
         _email_user(
-            user, "Reset your OpenVault password",
+            user, "Reset your Deskwise password",
             f"Reset your password within 30 minutes:\n"
             f"{_frontend_url('/auth/reset?token=' + raw)}\n\n"
             f"If you did not request this, ignore this email — your password is unchanged.",
@@ -1444,7 +1444,7 @@ def users(request):
     )
     # New members verify on first sign-in flow; send them a welcome+verify mail.
     tok, raw = OneTimeToken.issue(user, "verify_email", minutes=60 * 24 * 3)
-    _email_user(user, "Welcome to OpenVault",
+    _email_user(user, "Welcome to Deskwise",
                 f"Your workspace account is ready.\n\nVerify your email:\n"
                 f"{_frontend_url('/auth/verify?token=' + raw)}\n\n"
                 f"Then sign in with the email address your administrator provided.")
@@ -2551,10 +2551,10 @@ def artifact_from_text(request):
     if kind not in dict(GeneratedArtifact.KINDS):
         kind = "text"
     structured = docgen._parse_structured(kind,
-                                          str(d.get("title") or "OpenVault document")[:200],
+                                          str(d.get("title") or "Deskwise document")[:200],
                                           content)
     art = docgen.save_artifact(request.user, {
-        "kind": kind, "title": str(d.get("title") or "OpenVault document")[:200],
+        "kind": kind, "title": str(d.get("title") or "Deskwise document")[:200],
         "subject": structured.get("subject", ""), "content_md": content,
         "structured": structured, "missing_fields": [], "source_template_id": None,
     })

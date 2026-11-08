@@ -31,7 +31,7 @@ export default function AuthPage() {
         <div className="container-page">
           <div className="max-w-3xl">
             <p className="animate-fade-up eyebrow" style={{ animationDelay: '80ms' }}>
-              OpenVault access
+              Deskwise access
             </p>
             <h1
               id="access-title"
@@ -111,7 +111,7 @@ export default function AuthPage() {
           </div>
 
           <p className="mt-6 text-[10.5px] text-muted-foreground">
-            Accounts are created by registered companies. OpenVault never exposes a public browse or
+            Accounts are created by registered companies. Deskwise never exposes a public browse or
             free-user area.
           </p>
         </div>

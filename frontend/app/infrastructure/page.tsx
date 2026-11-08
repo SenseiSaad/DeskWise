@@ -14,7 +14,7 @@ import { Reveal } from '@/components/reveal'
 export const metadata: Metadata = {
   title: 'Deployment infrastructure',
   description:
-    'OpenVault launch architecture: AWS Amplify frontend, Render API and data, Cloudflare DNS, and Amazon Bedrock in AWS India.',
+    'Deskwise launch architecture: AWS Amplify frontend, Render API and data, Cloudflare DNS, and Amazon Bedrock in AWS India.',
 }
 
 const FACTS = [
@@ -52,7 +52,7 @@ export default function InfrastructurePage() {
               className="mt-7 max-w-2xl animate-fade-up text-[1.02rem] leading-relaxed text-muted-foreground sm:text-lg"
               style={{ animationDelay: '260ms' }}
             >
-              OpenVault&apos;s launch setup uses AWS Amplify for the statically exported Next.js
+              Deskwise&apos;s launch setup uses AWS Amplify for the statically exported Next.js
               frontend, Render for the Django API and persistent data, and Amazon Bedrock for
               permission-filtered AI. Cloudflare manages DNS for the custom domains.
             </p>

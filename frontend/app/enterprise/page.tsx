@@ -149,7 +149,7 @@ function EnterpriseInner() {
           </div>
 
           <div className="relative mt-14 max-w-md lg:my-auto lg:mt-0">
-            <p className="eyebrow text-[#d9a75f]">OpenVault for teams</p>
+            <p className="eyebrow text-[#d9a75f]">Deskwise for teams</p>
             <h1 className="display-lg mt-5">
               Knowledge works
               <br />
@@ -375,7 +375,7 @@ function EnterpriseInner() {
                 </button>
 
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-muted-foreground">
-                  <span>New to OpenVault?</span>
+                  <span>New to Deskwise?</span>
                   <button
                     type="button"
                     onClick={() => {

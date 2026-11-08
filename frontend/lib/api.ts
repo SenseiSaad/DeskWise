@@ -1,4 +1,4 @@
-// Tiny API client for the OpenVault backend (Django REST at :8000).
+// Tiny API client for the Deskwise backend (Django REST at :8000).
 // Sessions use HttpOnly cookies: the browser sends them automatically
 // (credentials: 'include') and the raw token never touches JS-land, so XSS
 // cannot steal it. On a 401 we try one silent refresh then replay the request.
@@ -158,7 +158,7 @@ export function artifactDownloadUrl(id: number, fmt: 'md' | 'txt' | 'docx' | 'pd
 }
 
 export const artifactsApi = {
-  fromText: (content: string, kind = 'text', title = 'OpenVault document'): Promise<Artifact> =>
+  fromText: (content: string, kind = 'text', title = 'Deskwise document'): Promise<Artifact> =>
     api.post('/artifacts/from_text', { content, kind, title }),
   get: (id: number): Promise<Artifact> => api.get(`/artifacts/${id}`),
 }

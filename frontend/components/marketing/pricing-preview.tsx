@@ -27,7 +27,7 @@ export function PricingPreview() {
                 <span className="serif text-accent">Coming soon.</span>
               </h2>
               <p className="mt-5 max-w-lg text-sm leading-relaxed text-muted-foreground">
-                OpenVault is in early access and will be fully available soon. We are finalizing
+                Deskwise is in early access and will be fully available soon. We are finalizing
                 USD plans that cover Bedrock usage, hosting and storage without a large markup,
                 with local payment options for Pakistan. Prices will be published before general
                 availability.
@@ -61,7 +61,7 @@ export function PricingPreview() {
                 ))}
               </ul>
               <a
-                href="mailto:hello@openvault.site?subject=OpenVault%20early%20access"
+                href="mailto:hello@openvault.site?subject=Deskwise%20early%20access"
                 className="btn btn-primary mt-6 w-full"
               >
                 Request early access <ArrowRight className="size-3.5" aria-hidden />

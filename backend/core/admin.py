@@ -6,8 +6,8 @@ from .models import (
     DocumentShare, DocumentVersion, Holiday, LLMConfig, Plan, User,
 )
 
-admin.site.site_header = "OpenVault administration"
-admin.site.site_title = "OpenVault admin"
+admin.site.site_header = "Deskwise administration"
+admin.site.site_title = "Deskwise admin"
 admin.site.index_title = "Private knowledge platform management"
 
 

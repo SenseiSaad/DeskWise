@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-// OpenVault mark: an open book whose pages close into a shield, with a brass
+// Deskwise mark: an open book whose pages close into a shield, with a brass
 // keyhole at the spine. The mark is drawn in the brand's ink/blue/brass
 // palette and sits on a parchment chip so it stays legible in both themes.
 export function VaultMark({ className = '' }: { className?: string }) {
@@ -76,13 +76,13 @@ export function Logo({
 }) {
   const chip = size === 'sm' ? 'size-7 rounded-[9px]' : 'size-9 rounded-[11px]'
   const word = size === 'sm' ? 'text-[15px]' : 'text-[17px]'
-  const vaultTone = tone === 'inverse' ? 'text-[#f3efe5]/45' : 'text-muted-foreground'
-  const openTone = tone === 'inverse' ? 'text-[#f3efe5]' : ''
+  const wiseTone = tone === 'inverse' ? 'text-[#f3efe5]/45' : 'text-muted-foreground'
+  const deskTone = tone === 'inverse' ? 'text-[#f3efe5]' : ''
 
   return (
     <Link
       href={href}
-      aria-label="OpenVault home"
+      aria-label="Deskwise home"
       className={`inline-flex items-center gap-2.5 font-display tracking-[-0.045em] ${word} ${className}`}
     >
       <span
@@ -90,8 +90,8 @@ export function Logo({
       >
         <VaultMark className="size-full" />
       </span>
-      <span className={`leading-none ${openTone}`}>
-        Open<span className={vaultTone}>Vault</span>
+      <span className={`leading-none ${deskTone}`}>
+        Desk<span className={wiseTone}>wise</span>
       </span>
     </Link>
   )

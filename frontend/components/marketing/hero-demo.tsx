@@ -70,7 +70,7 @@ export function HeroDemo() {
               <span className="grid size-6 place-items-center rounded-full border border-[#d9a75f]/35 bg-[#d9a75f]/10 text-[#d9a75f]">
                 <ShieldCheck className="size-3" aria-hidden />
               </span>
-              <span className="text-[12px] font-medium text-white/85">OpenVault</span>
+              <span className="text-[12px] font-medium text-white/85">Deskwise</span>
               <span className="text-[11px] text-white/25">/</span>
               <span className="text-[11px] text-white/45">Vault console</span>
             </div>

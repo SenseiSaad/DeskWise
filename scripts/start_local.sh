@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# OpenVault — Zero-Step Local Launcher
+# Deskwise — Zero-Step Local Launcher
 #
 # Usage:
 #   ./scripts/start_local.sh            # Docker Compose mode (recommended)
@@ -186,7 +186,7 @@ esac
 cat <<EOF
 
 ========================================================================
-  OpenVault is LIVE locally!
+  Deskwise is LIVE locally!
 ------------------------------------------------------------------------
   Web App:       http://localhost:3000
   API Health:    http://localhost:8000/api/health

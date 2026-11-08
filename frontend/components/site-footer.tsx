@@ -17,7 +17,7 @@ const COLUMNS: { title: string; links: { href: string; label: string }[] }[] = [
   {
     title: 'Company',
     links: [
-      { href: '/about', label: 'About OpenVault' },
+      { href: '/about', label: 'About Deskwise' },
       { href: '/policy', label: 'Privacy & security' },
       { href: 'mailto:hello@openvault.site', label: 'Contact us' },
     ],
@@ -75,7 +75,7 @@ export function SiteFooter() {
 
         <div className="flex flex-col gap-5 border-t border-border py-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-            <span>© 2026 OpenVault. Private by default.</span>
+            <span>© 2026 Deskwise. Private by default.</span>
             <span>Built at the Enterprise knowledge infrastructure</span>
           </div>
           <div className="flex items-center gap-3">

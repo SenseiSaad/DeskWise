@@ -1143,7 +1143,7 @@ function Bubble({
     const created = await artifactsApi.fromText(
       content,
       isEmail ? 'email' : 'text',
-      'OpenVault answer',
+      'Deskwise answer',
     )
     setArtifactId(created.id)
     return created.id

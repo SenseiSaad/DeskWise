@@ -6,7 +6,7 @@ const CONTROLS = [
   {
     icon: LockKeyhole,
     title: 'Origins are explicit',
-    body: 'The browser calls only the configured API origin. Django CORS and CSRF trust are limited to the OpenVault frontend domain.',
+    body: 'The browser calls only the configured API origin. Django CORS and CSRF trust are limited to the Deskwise frontend domain.',
   },
   {
     icon: KeyRound,

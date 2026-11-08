@@ -843,7 +843,7 @@ def artifact_download_bytes(artifact, fmt: str) -> tuple[bytes, str, str]:
     """Render an artifact as md / txt / docx / pdf / html. Raises ValueError
     for an unsupported format — callers turn that into a clean 400."""
     md = artifact.content_md or ""
-    title = artifact.title or "OpenVault document"
+    title = artifact.title or "Deskwise document"
     if fmt == "md":
         return md.encode("utf-8"), "text/markdown; charset=utf-8", f"{title}.md"
     if fmt == "txt":

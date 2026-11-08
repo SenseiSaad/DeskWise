@@ -65,7 +65,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       .filter((href) => href !== '/workspace' && pathname.startsWith(href))
       .sort((a, b) => b.length - a.length)[0]
     const section = titles[pathname] ?? (key ? titles[key] : 'Workspace')
-    const desired = `${section} · OpenVault`
+    const desired = `${section} · Deskwise`
 
     // The authenticated shell owns its browser title. Next's metadata manager can
     // overwrite document.title during client navigation, so keep this tab's title

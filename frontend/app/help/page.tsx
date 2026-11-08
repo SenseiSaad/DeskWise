@@ -74,7 +74,7 @@ export default function HelpPage() {
               className="mt-6 max-w-2xl animate-fade-up text-[1.02rem] leading-relaxed text-muted-foreground sm:text-lg"
               style={{ animationDelay: '260ms' }}
             >
-              OpenVault is not a public document library. It is a controlled workspace for registered
+              Deskwise is not a public document library. It is a controlled workspace for registered
               companies and the people they authorize.
             </p>
           </div>
