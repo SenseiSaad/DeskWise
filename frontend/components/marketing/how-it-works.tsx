@@ -4,20 +4,20 @@ import { Reveal } from '@/components/reveal'
 
 const STEPS = [
   {
-    title: 'Register your company',
-    body: 'Create your tenant and invite the first admins. Every workspace gets its own members, storage, and five-character partner code.',
+    title: 'Create your account',
+    body: 'Sign up in 30 seconds. Your company gets a dedicated, private space with zero setup hassle.',
   },
   {
-    title: 'Bring the knowledge in',
-    body: 'Upload PDFs, Office files, Markdown, or plain text. Indexing runs in the background; scanned pages go through OCR.',
+    title: 'Upload your documents',
+    body: 'Drag and drop your company policies, employee handbooks, contracts, and standard operating procedures.',
   },
   {
-    title: 'Set the audience',
-    body: 'Choose company-wide, a department, or named people. Restricted files stay out of retrieval until a grant exists.',
+    title: 'Choose who sees what',
+    body: 'Keep sensitive HR or finance files protected. Team members only search what is relevant to their department.',
   },
   {
-    title: 'Ask, share, prove',
-    body: 'Employees ask cited questions. Partners receive one document. Admins keep the audit trail and a CSV export.',
+    title: 'Ask questions & generate forms',
+    body: 'Your team gets instant answers with exact page citations, and generates official leave requests and letters with one click.',
   },
 ]
 
@@ -38,16 +38,16 @@ export function HowItWorks() {
         <Reveal>
           <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
-              <p className="eyebrow text-[#d9a75f]">From folder to vault</p>
+              <p className="eyebrow text-[#d9a75f]">Easy 4-Step Process</p>
               <h2 id="how-heading" className="display-lg mt-5">
-                Four steps to
+                Up and running in
                 <br />
-                <span className="serif text-[#d9a75f]">answers you can defend.</span>
+                <span className="serif text-[#d9a75f]">under five minutes.</span>
               </h2>
             </div>
             <p className="max-w-sm text-sm leading-relaxed text-[#f3efe5]/50 lg:pb-1">
-              Most teams upload their first policies and ask a cited question in under ten minutes.
-              No migration project. No public library to configure.
+              Upload your existing documents and start asking questions immediately.
+              No complex migrations, no coding, and no special software to install.
             </p>
           </div>
         </Reveal>

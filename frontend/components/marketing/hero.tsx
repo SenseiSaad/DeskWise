@@ -15,7 +15,7 @@ export function Hero() {
         <div className="grid items-center gap-16 lg:grid-cols-[1.05fr_0.95fr] lg:gap-12 xl:gap-20">
           <div className="max-w-[42rem]">
             <p className="animate-fade-up eyebrow" style={{ animationDelay: '80ms' }}>
-              Permission-aware knowledge infrastructure
+              AI Assistant for Your Company Documents
             </p>
 
             <h1
@@ -23,17 +23,16 @@ export function Hero() {
               className="display-xl mt-5 animate-fade-up"
               style={{ animationDelay: '160ms' }}
             >
-              Know more.
+              Your company knowledge.
               <br />
-              <span className="serif text-accent">Share less.</span>
+              <span className="serif text-accent">Answered in seconds.</span>
             </h1>
 
             <p
               className="mt-6 max-w-[34rem] animate-fade-up text-[1.05rem] leading-relaxed text-muted-foreground sm:text-lg"
               style={{ animationDelay: '260ms' }}
             >
-              Deskwise turns your company documents into a private, cited AI assistant — one that
-              can only see what the person asking is allowed to see.
+              Deskwise turns your company policies, contracts, and handbooks into a friendly, private AI assistant. Ask any question, get cited answers with exact page numbers, and generate ready-to-use HR forms instantly.
             </p>
 
             <div
@@ -41,11 +40,11 @@ export function Hero() {
               style={{ animationDelay: '360ms' }}
             >
               <Link href="/enterprise?tab=create" className="btn btn-primary group">
-                Open your vault
+                Start free trial
                 <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
               </Link>
-              <Link href="/#how-it-works" className="btn btn-secondary">
-                See how access works
+              <Link href="#features" className="btn btn-secondary">
+                See interactive demo
               </Link>
             </div>
 
@@ -53,7 +52,7 @@ export function Hero() {
               className="mt-7 flex animate-fade-up flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-muted-foreground"
               style={{ animationDelay: '460ms' }}
             >
-              {['Private by default', 'Cited answers', 'USD pricing'].map((item) => (
+              {['No tech skills required', 'Zero data leaks', 'Exact page citations'].map((item) => (
                 <span key={item} className="inline-flex items-center gap-1.5">
                   <Check className="size-3.5 text-accent" aria-hidden /> {item}
                 </span>

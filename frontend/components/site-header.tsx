@@ -12,11 +12,9 @@ type NavItem = { href: string; label: string; anchor?: string }
 
 const NAV: NavItem[] = [
   { href: '/', label: 'Home' },
-  { href: '/#system', label: 'Platform', anchor: '#system' },
+  { href: '/#features', label: 'Features', anchor: '#features' },
   { href: '/#how-it-works', label: 'How it works', anchor: '#how-it-works' },
-  { href: '/#security', label: 'Security', anchor: '#security' },
-  { href: '/infrastructure', label: 'Infrastructure' },
-  { href: '/pricing', label: 'Pricing' },
+  { href: '/#pricing', label: 'Pricing', anchor: '#pricing' },
   { href: '/about', label: 'About' },
 ]
 
@@ -49,7 +47,7 @@ export function SiteHeader() {
     syncHash()
     window.addEventListener('hashchange', syncHash)
 
-    const ids = ['system', 'how-it-works', 'security']
+    const ids = ['features', 'how-it-works', 'system', 'security', 'pricing']
     const sections = ids
       .map((id) => document.getElementById(id))
       .filter((el): el is HTMLElement => Boolean(el))
