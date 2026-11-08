@@ -80,7 +80,7 @@ start() {
       > "$LOG_DIR/backend.log" 2>&1 < /dev/null & )
 
   echo "starting Next.js web on :$WEB_PORT ..."
-  ( cd "$FRONTEND_DIR" && setsid nohup npm run dev \
+  ( cd "$FRONTEND_DIR" && setsid nohup pnpm dev \
       > "$LOG_DIR/frontend.log" 2>&1 < /dev/null & )
 
   sleep 8

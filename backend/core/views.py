@@ -2021,9 +2021,9 @@ def plans(request):
         logger.exception("Failed to query plans from database: %s", exc)
         fallback = [
             {"id": 1, "name": "Free", "price_usd": 0, "billing_period": "month", "max_members": 3, "max_documents": 20, "storage_mb": 512, "monthly_ask_limit": 50, "allow_versions": False, "allow_departments": False, "allow_custom_llm": False, "is_default": True},
-            {"id": 2, "name": "Starter", "price_usd": 15, "billing_period": "month", "max_members": 15, "max_documents": 200, "storage_mb": 5120, "monthly_ask_limit": 1500, "allow_versions": True, "allow_departments": False, "allow_custom_llm": False, "is_default": False},
-            {"id": 3, "name": "Business", "price_usd": 49, "billing_period": "month", "max_members": 50, "max_documents": 1000, "storage_mb": 25600, "monthly_ask_limit": 6000, "allow_versions": True, "allow_departments": True, "allow_custom_llm": True, "is_default": False},
-            {"id": 4, "name": "Enterprise", "price_usd": 129, "billing_period": "month", "max_members": None, "max_documents": None, "storage_mb": None, "monthly_ask_limit": 25000, "allow_versions": True, "allow_departments": True, "allow_custom_llm": True, "is_default": False},
+            {"id": 2, "name": "Go", "price_usd": 19, "billing_period": "month", "max_members": 15, "max_documents": 200, "storage_mb": 5120, "monthly_ask_limit": 1500, "allow_versions": True, "allow_departments": False, "allow_custom_llm": False, "is_default": False},
+            {"id": 3, "name": "Plus", "price_usd": 49, "billing_period": "month", "max_members": 50, "max_documents": 1000, "storage_mb": 25600, "monthly_ask_limit": 6000, "allow_versions": True, "allow_departments": True, "allow_custom_llm": True, "is_default": False},
+            {"id": 4, "name": "Max", "price_usd": 129, "billing_period": "month", "max_members": None, "max_documents": None, "storage_mb": None, "monthly_ask_limit": 25000, "allow_versions": True, "allow_departments": True, "allow_custom_llm": True, "is_default": False},
         ]
         return Response(fallback)
 

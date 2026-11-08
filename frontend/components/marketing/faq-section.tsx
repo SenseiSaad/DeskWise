@@ -1,83 +1,75 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
-import { ArrowRight, Minus, Plus } from 'lucide-react'
+import { Minus, Plus } from 'lucide-react'
 
 const FAQS = [
   {
-    q: 'Do I or my team need technical skills to use Deskwise?',
-    a: 'Not at all. If you know how to send a chat message, you can use Deskwise. Simply ask your questions in everyday English or Roman Urdu, or ask for a form to be filled, and Deskwise does the work.',
+    q: 'Do I need technical skills to use Deskwise?',
+    a: 'No. If you can send a chat message, you can use Deskwise. Ask in everyday English or Roman Urdu and it does the rest.',
   },
   {
-    q: 'Will our company files ever leak or be used to train public AI models?',
-    a: 'Never. Your documents are stored in an encrypted, isolated private company vault. Your data is strictly yours and is never used to train public AI models.',
+    q: 'Will our files leak or train public AI models?',
+    a: 'No. Your documents live in a private space that only your company can reach, and they are never used to train public AI models.',
   },
   {
-    q: 'Can employees see confidential files outside their department?',
-    a: 'No. Access controls run before any search takes place. If an employee belongs to Marketing, they cannot see or ask the AI about private Finance or HR documents unless an administrator grants explicit access.',
+    q: 'Can employees see files outside their department?',
+    a: 'No. Access is checked before every search. Someone in Marketing cannot see or ask about HR or Finance files unless an admin gives them access.',
   },
   {
-    q: 'What file formats can we upload?',
-    a: 'Deskwise supports PDFs, Microsoft Word (.docx), Excel spreadsheets (.csv), PowerPoint (.pptx), text documents, and scanned images with text.',
+    q: 'What files can I upload?',
+    a: 'PDF, Word, Excel/CSV, PowerPoint, plain text, and scanned pages with text.',
   },
   {
-    q: 'How do the generated leave forms and official letters work?',
-    a: 'When you request a leave form or HR letter, Deskwise fills in your profile information, reason, and company format automatically. You can copy it with one click or download it as a ready-to-sign Word (DOCX) or PDF file.',
+    q: 'How do the forms and letters work?',
+    a: 'Ask for a leave request or an HR letter. Deskwise fills in your details and the company format, then you copy it or download it as Word or PDF.',
   },
   {
-    q: 'What payment methods do you support?',
-    a: 'We support all international and local credit and debit cards (Visa, Mastercard) via Stripe secure checkout, as well as direct bank transfers and local mobile payments.',
+    q: 'How do I pay?',
+    a: 'By card (Visa or Mastercard) through secure checkout. Bank transfer is available on request.',
   },
 ]
 
 export function FaqSection() {
   const [open, setOpen] = useState<number | null>(0)
-
   return (
-    <section className="py-20 sm:py-24 lg:py-28" aria-labelledby="faq-heading">
+    <section id="faq" className="scroll-mt-20 border-y border-border bg-surface py-20 sm:py-28" aria-labelledby="faq-heading">
       <div className="container-page">
         <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
           <div className="lg:sticky lg:top-28 lg:self-start">
-            <p className="eyebrow">Frequently Asked Questions</p>
+            <p className="eyebrow">Questions</p>
             <h2 id="faq-heading" className="display-lg mt-5">
-              Everything you
-              <br />
-              <span className="serif text-accent">need to know.</span>
+              Good to <span className="serif text-accent">know.</span>
             </h2>
-            <p className="mt-5 max-w-sm text-sm leading-relaxed text-muted-foreground">
-              Have another question not answered here? Our team is always ready to assist you.
-            </p>
-            <div className="mt-7">
-              <a
-                href="mailto:hello@openvault.site?subject=Deskwise%20Question"
-                className="link-arrow"
-              >
-                Send us an email <ArrowRight className="size-3.5" aria-hidden />
+            <p className="mt-5 max-w-sm text-base leading-relaxed text-muted-foreground">
+              Something else? Email{' '}
+              <a className="font-medium text-accent underline underline-offset-4" href="mailto:hello@openvault.site?subject=Deskwise%20question">
+                hello@openvault.site
               </a>
-            </div>
+              .
+            </p>
           </div>
-
           <div className="divide-y divide-border border-y border-border">
-            {FAQS.map((faq, index) => {
-              const isOpen = open === index
+            {FAQS.map((f, i) => {
+              const isOpen = open === i
               return (
-                <div key={faq.q} className="py-6 sm:py-7">
+                <div key={f.q} className="py-5">
                   <button
                     type="button"
-                    onClick={() => setOpen(isOpen ? null : index)}
+                    onClick={() => setOpen(isOpen ? null : i)}
                     aria-expanded={isOpen}
-                    className="flex w-full items-start justify-between gap-4 text-left font-display text-[16px] font-medium tracking-tight text-foreground sm:text-[17px]"
+                    aria-controls={`faq-${i}`}
+                    className="flex w-full items-start justify-between gap-4 text-left text-lg font-medium"
                   >
-                    <span>{faq.q}</span>
-                    <span className="grid size-6 shrink-0 place-items-center rounded-full border border-border text-muted-foreground">
-                      {isOpen ? <Minus className="size-3.5" /> : <Plus className="size-3.5" />}
+                    <span>{f.q}</span>
+                    <span className="mt-1 grid size-6 shrink-0 place-items-center rounded-full border border-border text-muted-foreground">
+                      {isOpen ? <Minus className="size-3.5" aria-hidden /> : <Plus className="size-3.5" aria-hidden />}
                     </span>
                   </button>
                   {isOpen && (
-                    <div className="mt-4 pr-10 text-sm leading-relaxed text-muted-foreground animate-fade-in">
-                      {faq.a}
-                    </div>
+                    <p id={`faq-${i}`} className="mt-3 pr-10 text-base leading-relaxed text-muted-foreground">
+                      {f.a}
+                    </p>
                   )}
                 </div>
               )

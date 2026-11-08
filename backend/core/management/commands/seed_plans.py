@@ -21,17 +21,17 @@ PLANS = [
         is_default=True,
     ),
     dict(
-        name="Starter", price_usd=15, billing_period="month",
+        name="Go", price_usd=19, billing_period="month",
         max_members=15, max_documents=200, storage_mb=5120, monthly_ask_limit=1500,
         allow_versions=True, allow_departments=False, allow_custom_llm=False,
     ),
     dict(
-        name="Business", price_usd=49, billing_period="month",
+        name="Plus", price_usd=49, billing_period="month",
         max_members=50, max_documents=1000, storage_mb=25600, monthly_ask_limit=6000,
         allow_versions=True, allow_departments=True, allow_custom_llm=True,
     ),
     dict(
-        name="Enterprise", price_usd=129, billing_period="month",
+        name="Max", price_usd=129, billing_period="month",
         max_members=None, max_documents=None, storage_mb=None,
         # Unlimited seats/storage, but token spend stays bounded: one
         # compromised seat can never run an unbounded provider bill.
@@ -48,9 +48,16 @@ class Command(BaseCommand):
         # An earlier release shipped this tier as "SME"; rename it in place so
         # companies already on it keep their plan row (the FK stays valid).
         sme = Plan.objects.filter(name="SME").first()
-        if sme and not Plan.objects.filter(name="Business").exists():
-            sme.name = "Business"
+        if sme and not Plan.objects.filter(name="Plus").exists():
+            sme.name = "Plus"
             sme.save(update_fields=["name"])
+        # Plans were renamed Starter/Business/Enterprise -> Go/Plus/Max; rename
+        # in place so existing subscriptions keep a valid FK.
+        for old, new in (("Starter", "Go"), ("Business", "Plus"), ("Enterprise", "Max")):
+            legacy = Plan.objects.filter(name=old).first()
+            if legacy and not Plan.objects.filter(name=new).exists():
+                legacy.name = new
+                legacy.save(update_fields=["name"])
 
         for spec in PLANS:
             plan, created = Plan.objects.update_or_create(

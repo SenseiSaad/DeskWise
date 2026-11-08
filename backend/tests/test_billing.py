@@ -64,7 +64,7 @@ def test_billing_checkout_creates_session_success(auth_client, make_company, mak
     company = make_company()
     admin = make_user(company, email="admin@acme.test", role="admin")
     client = auth_client(admin)
-    paid_plan = Plan.objects.get_or_create(name="Starter", defaults={"price_usd": 15})[0]
+    paid_plan = Plan.objects.get_or_create(name="Go", defaults={"price_usd": 19})[0]
 
     mock_session = MagicMock()
     mock_session.id = "cs_test_12345"
@@ -105,7 +105,7 @@ def test_billing_portal_session_success(auth_client, make_company, make_user):
 def test_billing_webhook_checkout_completed(client, make_company, make_user):
     company = make_company()
     free_plan = Plan.objects.get_or_create(name="Free", defaults={"price_usd": 0, "is_default": True})[0]
-    business_plan = Plan.objects.get_or_create(name="Business", defaults={"price_usd": 49})[0]
+    business_plan = Plan.objects.get_or_create(name="Plus", defaults={"price_usd": 49})[0]
     company.plan = free_plan
     company.save()
 
@@ -144,7 +144,7 @@ def test_billing_webhook_checkout_completed(client, make_company, make_user):
 def test_billing_webhook_subscription_deleted(client, make_company):
     company = make_company()
     free_plan = Plan.objects.get_or_create(name="Free", defaults={"price_usd": 0, "is_default": True})[0]
-    business_plan = Plan.objects.get_or_create(name="Business", defaults={"price_usd": 49})[0]
+    business_plan = Plan.objects.get_or_create(name="Plus", defaults={"price_usd": 49})[0]
     company.plan = business_plan
     company.stripe_customer_id = "cus_cancel_1"
     company.stripe_subscription_id = "sub_cancel_1"

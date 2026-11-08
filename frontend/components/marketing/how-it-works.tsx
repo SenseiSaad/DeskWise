@@ -1,85 +1,36 @@
-import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
 import { Reveal } from '@/components/reveal'
 
 const STEPS = [
-  {
-    title: 'Create your account',
-    body: 'Sign up in 30 seconds. Your company gets a dedicated, private space with zero setup hassle.',
-  },
-  {
-    title: 'Upload your documents',
-    body: 'Drag and drop your company policies, employee handbooks, contracts, and standard operating procedures.',
-  },
-  {
-    title: 'Choose who sees what',
-    body: 'Keep sensitive HR or finance files protected. Team members only search what is relevant to their department.',
-  },
-  {
-    title: 'Ask questions & generate forms',
-    body: 'Your team gets instant answers with exact page citations, and generates official leave requests and letters with one click.',
-  },
+  { num: '01', title: 'Sign up', body: 'Create your company account in under a minute. No card needed.' },
+  { num: '02', title: 'Upload documents', body: 'Drag in your handbooks, policies and contracts. PDF, Word, Excel and scans all work.' },
+  { num: '03', title: 'Ask', body: 'Ask in plain words. Get the answer, the page it came from, and forms ready to send.' },
 ]
 
 export function HowItWorks() {
   return (
-    <section
-      id="how-it-works"
-      className="relative scroll-mt-24 overflow-hidden bg-[#151412] py-20 text-[#f3efe5] sm:py-24 lg:py-28"
-      aria-labelledby="how-heading"
-    >
-      <div aria-hidden className="dot-grid pointer-events-none absolute inset-0 opacity-[0.12]" />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-24 top-1/3 size-[30rem] rounded-full bg-[radial-gradient(circle,rgba(217,167,95,0.16),transparent_65%)] blur-3xl"
-      />
-
-      <div className="container-page relative">
-        <Reveal>
-          <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="eyebrow text-[#d9a75f]">Easy 4-Step Process</p>
-              <h2 id="how-heading" className="display-lg mt-5">
-                Up and running in
-                <br />
-                <span className="serif text-[#d9a75f]">under five minutes.</span>
-              </h2>
-            </div>
-            <p className="max-w-sm text-sm leading-relaxed text-[#f3efe5]/50 lg:pb-1">
-              Upload your existing documents and start asking questions immediately.
-              No complex migrations, no coding, and no special software to install.
-            </p>
-          </div>
-        </Reveal>
-
-        <div className="mt-14 grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
-          {STEPS.map((step, index) => (
-            <Reveal key={step.title} delay={index * 80}>
-              <article className="relative border-t border-white/15 pt-6">
-                <span className="absolute -top-1 left-0 size-2 rounded-full bg-[#d9a75f]" aria-hidden />
-                <p className="font-mono text-[11px] tracking-[0.12em] text-[#d9a75f]">
-                  {String(index + 1).padStart(2, '0')}
-                </p>
-                <h3 className="mt-8 text-[1.05rem] font-medium tracking-[-0.02em]">{step.title}</h3>
-                <p className="mt-2.5 text-[13px] leading-relaxed text-[#f3efe5]/50">{step.body}</p>
-              </article>
-            </Reveal>
-          ))}
+    <section id="how-it-works" className="scroll-mt-20 py-20 sm:py-28" aria-labelledby="how-heading">
+      <div className="container-page">
+        <div className="max-w-2xl">
+          <p className="eyebrow">How it works</p>
+          <h2 id="how-heading" className="display-lg mt-5">
+            Up and running in <span className="serif text-accent">five minutes.</span>
+          </h2>
         </div>
-
-        <Reveal delay={160}>
-          <div className="mt-14 flex flex-col gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-[12px] text-[#f3efe5]/45">
-              Every plan includes tenant isolation, cited answers, and the audit trail.
-            </p>
-            <Link
-              href="/help"
-              className="inline-flex items-center gap-2 text-sm font-medium text-[#f3efe5]/85 transition-colors hover:text-[#d9a75f]"
-            >
-              Read the field guide <ArrowRight className="size-4" aria-hidden />
-            </Link>
-          </div>
-        </Reveal>
+        <ol className="mt-14 grid gap-10 md:grid-cols-3 md:gap-8">
+          {STEPS.map((s, i) => (
+            <li key={s.num}>
+              <Reveal delay={i * 90}>
+                <span aria-hidden className="font-display text-8xl font-bold leading-none tracking-tighter">
+                  {s.num}
+                </span>
+                <div className="mt-4 border-t border-foreground/80 pt-5">
+                  <h3 className="text-xl font-semibold">{s.title}</h3>
+                  <p className="mt-2 text-base leading-relaxed text-muted-foreground">{s.body}</p>
+                </div>
+              </Reveal>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   )

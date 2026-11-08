@@ -14,18 +14,18 @@ export const PLAN_COPY: Record<
     blurb: 'Everything you need to evaluate Deskwise on real documents.',
     cta: 'start',
   },
-  Starter: {
+  Go: {
     tagline: 'For small teams going live',
     blurb: 'Real workloads: HR policies, contracts, and daily AI questions.',
     cta: 'start',
   },
-  Business: {
+  Plus: {
     tagline: 'For growing companies',
     blurb: 'Departments, file versioning, and the option to bring your own AI key.',
     cta: 'start',
     highlight: true,
   },
-  Enterprise: {
+  Max: {
     tagline: 'Dedicated resources & SLA',
     blurb: 'Unlimited usage, dedicated infrastructure, and an on-prem AI option.',
     cta: 'contact',
@@ -42,20 +42,20 @@ export const FALLBACK_PLANS: Omit<Plan, 'id'>[] = [
     is_default: true,
   },
   {
-    name: 'Starter', price_usd: 15, billing_period: 'month',
+    name: 'Go', price_usd: 19, billing_period: 'month',
     max_members: 15, max_documents: 200, storage_mb: 5120, monthly_ask_limit: 1500,
     allow_versions: true, allow_departments: false, allow_custom_llm: false,
     is_default: false,
   },
   {
-    name: 'Business', price_usd: 49, billing_period: 'month',
+    name: 'Plus', price_usd: 49, billing_period: 'month',
     max_members: 50, max_documents: 1000, storage_mb: 25600, monthly_ask_limit: 6000,
     allow_versions: true, allow_departments: true, allow_custom_llm: true,
     is_default: false,
   },
   {
-    name: 'Enterprise', price_usd: 129, billing_period: 'month',
-    max_members: null, max_documents: null, storage_mb: null, monthly_ask_limit: null,
+    name: 'Max', price_usd: 129, billing_period: 'month',
+    max_members: null, max_documents: null, storage_mb: null, monthly_ask_limit: 25000,
     allow_versions: true, allow_departments: true, allow_custom_llm: true,
     is_default: false,
   },

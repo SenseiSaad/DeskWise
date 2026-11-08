@@ -12,7 +12,7 @@ type NavItem = { href: string; label: string; anchor?: string }
 
 const NAV: NavItem[] = [
   { href: '/', label: 'Home' },
-  { href: '/#features', label: 'Features', anchor: '#features' },
+  { href: '/#story', label: 'Features', anchor: '#story' },
   { href: '/#how-it-works', label: 'How it works', anchor: '#how-it-works' },
   { href: '/#pricing', label: 'Pricing', anchor: '#pricing' },
   { href: '/about', label: 'About' },
@@ -47,7 +47,7 @@ export function SiteHeader() {
     syncHash()
     window.addEventListener('hashchange', syncHash)
 
-    const ids = ['features', 'how-it-works', 'system', 'security', 'pricing']
+    const ids = ['story', 'how-it-works', 'pricing', 'faq']
     const sections = ids
       .map((id) => document.getElementById(id))
       .filter((el): el is HTMLElement => Boolean(el))
@@ -174,7 +174,7 @@ export function SiteHeader() {
                   Sign in
                 </Link>
                 <Link href="/enterprise?tab=create" className="btn btn-primary btn-sm hidden sm:inline-flex">
-                  Get started <ArrowRight className="size-3.5" aria-hidden />
+                  Start free <ArrowRight className="size-3.5" aria-hidden />
                 </Link>
               </>
             )}

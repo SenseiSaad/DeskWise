@@ -1,12 +1,9 @@
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { Hero } from '@/components/marketing/hero'
-import { SectorStrip } from '@/components/marketing/sector-strip'
-import { ProductShowcase } from '@/components/marketing/product-showcase'
+import { ScrollStory } from '@/components/marketing/scroll-story'
 import { HowItWorks } from '@/components/marketing/how-it-works'
-import { SystemSection } from '@/components/marketing/system-section'
-import { SecuritySection } from '@/components/marketing/security-section'
-import { PricingPreview } from '@/components/marketing/pricing-preview'
+import { PricingSection } from '@/components/marketing/pricing-section'
 import { FaqSection } from '@/components/marketing/faq-section'
 import { FinalCta } from '@/components/marketing/final-cta'
 
@@ -15,12 +12,9 @@ export default function Page() {
     <main id="main-content" className="min-h-screen overflow-x-clip">
       <SiteHeader />
       <Hero />
-      <SectorStrip />
-      <ProductShowcase />
+      <ScrollStory />
       <HowItWorks />
-      <SystemSection />
-      <SecuritySection />
-      <PricingPreview />
+      <PricingSection showTable={false} />
       <FaqSection />
       <FinalCta />
       <SiteFooter />
