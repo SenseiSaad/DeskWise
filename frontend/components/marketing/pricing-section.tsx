@@ -1,5 +1,9 @@
+'use client'
+
+import { useState } from 'react'
 import Link from 'next/link'
-import { Check, Minus } from 'lucide-react'
+import { motion, AnimatePresence } from 'motion/react'
+import { Check, ChevronDown, Minus } from 'lucide-react'
 import { Reveal } from '@/components/reveal'
 import { FALLBACK_PLANS, PLAN_COPY, formatUSD, storageLabel } from '@/lib/pricing'
 import type { Plan } from '@/lib/api'
@@ -47,8 +51,10 @@ function Cell({ v }: { v: string | boolean }) {
   )
 }
 
-export function PricingSection({ showTable = true }: { showTable?: boolean }) {
+export function PricingSection({ showTable = false }: { showTable?: boolean }) {
+  const [tableOpen, setTableOpen] = useState(showTable)
   const plans = FALLBACK_PLANS
+
   return (
     <section id="pricing" className="scroll-mt-20 py-20 sm:py-28" aria-labelledby="pricing-title">
       <div className="container-page">
@@ -69,12 +75,12 @@ export function PricingSection({ showTable = true }: { showTable?: boolean }) {
             return (
               <Reveal key={p.name} delay={i * 70}>
                 <div
-                  className={`relative flex h-full flex-col rounded-2xl border bg-surface p-6 ${
-                    hot ? 'border-accent ring-1 ring-accent' : 'border-border'
+                  className={`group relative flex h-full flex-col rounded-2xl border bg-surface p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/5 ${
+                    hot ? 'border-accent ring-1 ring-accent' : 'border-border hover:border-border-strong'
                   }`}
                 >
                   {hot && (
-                    <span className="absolute right-5 top-5 rounded-full bg-accent px-2.5 py-0.5 text-xs font-semibold text-accent-foreground">
+                    <span className="absolute right-5 top-5 rounded-full bg-accent px-2.5 py-0.5 text-xs font-semibold text-accent-foreground shadow-sm">
                       Most popular
                     </span>
                   )}
@@ -86,7 +92,7 @@ export function PricingSection({ showTable = true }: { showTable?: boolean }) {
                   </p>
                   <Link
                     href="/enterprise?tab=create"
-                    className={`btn mt-5 w-full ${hot ? 'btn-accent' : 'btn-secondary'}`}
+                    className={`btn mt-5 w-full transition-all duration-200 ${hot ? 'btn-accent hover-glow' : 'btn-secondary'}`}
                   >
                     {p.price_usd === 0 ? 'Start free' : `Choose ${p.name}`}
                   </Link>
@@ -104,44 +110,73 @@ export function PricingSection({ showTable = true }: { showTable?: boolean }) {
           })}
         </div>
 
-        {showTable && (
-          <div className="mt-20">
-            <h3 className="text-center text-2xl font-semibold tracking-tight sm:text-3xl">Compare plans</h3>
-            <div className="mt-8 overflow-x-auto rounded-2xl border border-border">
-              <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
-                <thead>
-                  <tr className="bg-accent text-accent-foreground">
-                    <th scope="col" className="px-5 py-4 font-semibold">What you get</th>
-                    {plans.map((p) => (
-                      <th key={p.name} scope="col" className="px-4 py-4 text-center font-semibold">{p.name}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border bg-surface">
-                  {TABLE.map((row) => (
-                    <tr key={row.label}>
-                      <th scope="row" className="px-5 py-3.5 font-medium">{row.label}</th>
-                      {plans.map((p) => (
-                        <td key={p.name} className="px-4 py-3.5 text-center">
-                          <Cell v={row.value(p)} />
-                        </td>
+        {/* Buttery smooth comparison table toggle */}
+        <div className="mt-12 text-center">
+          <button
+            type="button"
+            onClick={() => setTableOpen((prev) => !prev)}
+            aria-expanded={tableOpen}
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-5 py-2.5 text-sm font-medium text-foreground transition-all duration-200 hover:border-border-strong hover:bg-surface-2"
+          >
+            <span>{tableOpen ? 'Hide feature comparison' : 'Compare all plan features'}</span>
+            <motion.span
+              animate={{ rotate: tableOpen ? 180 : 0 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              className="grid place-items-center"
+            >
+              <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+            </motion.span>
+          </button>
+        </div>
+
+        <AnimatePresence initial={false}>
+          {tableOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="pt-10">
+                <h3 className="text-center text-2xl font-semibold tracking-tight sm:text-3xl">See features included</h3>
+                <div className="mt-8 overflow-x-auto rounded-2xl border border-border bg-surface shadow-sm">
+                  <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="bg-accent text-accent-foreground">
+                        <th scope="col" className="px-5 py-4 font-semibold">What you get</th>
+                        {plans.map((p) => (
+                          <th key={p.name} scope="col" className="px-4 py-4 text-center font-semibold">{p.name}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border bg-surface">
+                      {TABLE.map((row) => (
+                        <tr key={row.label} className="transition-colors hover:bg-surface-2/60">
+                          <th scope="row" className="px-5 py-3.5 font-medium">{row.label}</th>
+                          {plans.map((p) => (
+                            <td key={p.name} className="px-4 py-3.5 text-center">
+                              <Cell v={row.value(p)} />
+                            </td>
+                          ))}
+                        </tr>
                       ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-6 text-center text-sm text-muted-foreground">
-              Need something custom?{' '}
-              <a
-                href="mailto:hello@openvault.site?subject=Deskwise%20custom%20plan"
-                className="font-medium text-accent underline underline-offset-4"
-              >
-                Talk to us
-              </a>
-            </p>
-          </div>
-        )}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-6 text-center text-sm text-muted-foreground">
+                  Need something custom?{' '}
+                  <a
+                    href="mailto:hello@openvault.site?subject=Deskwise%20custom%20plan"
+                    className="font-medium text-accent underline underline-offset-4 hover:text-accent/80 transition-colors"
+                  >
+                    Talk to us
+                  </a>
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </section>
   )

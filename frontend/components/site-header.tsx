@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, LogOut, Menu, X } from 'lucide-react'
+import { motion, AnimatePresence } from 'motion/react'
 import { useAuth } from '@/lib/auth'
 import { Logo } from './logo'
 import { ThemeToggle } from './theme-toggle'
@@ -183,7 +184,7 @@ export function SiteHeader() {
               ref={menuButtonRef}
               type="button"
               onClick={() => setMenuOpen((open) => !open)}
-              className="grid size-9 place-items-center rounded-full border border-border bg-surface text-foreground transition-colors hover:bg-surface-2 lg:hidden"
+              className="relative grid size-9 place-items-center rounded-full border border-border bg-surface text-foreground transition-all duration-200 hover:border-border-strong hover:bg-surface-2 lg:hidden"
               aria-label={
                 menuOpen
                   ? 'Close navigation menu'
@@ -192,89 +193,120 @@ export function SiteHeader() {
               aria-expanded={menuOpen}
               aria-controls="mobile-navigation"
             >
-              {menuOpen ? <X className="size-4" aria-hidden /> : <Menu className="size-4" aria-hidden />}
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.span
+                  key={menuOpen ? 'close' : 'open'}
+                  initial={{ opacity: 0, rotate: -90, scale: 0.8 }}
+                  animate={{ opacity: 1, rotate: 0, scale: 1 }}
+                  exit={{ opacity: 0, rotate: 90, scale: 0.8 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="grid place-items-center"
+                >
+                  {menuOpen ? <X className="size-4" aria-hidden /> : <Menu className="size-4" aria-hidden />}
+                </motion.span>
+              </AnimatePresence>
             </button>
           </div>
         </div>
       </header>
 
-      {menuOpen && (
-        <div
-          id="mobile-navigation"
-          className="fixed inset-x-0 top-[4.5rem] z-40 flex h-[calc(100dvh-4.5rem)] flex-col border-t border-border bg-background lg:hidden"
-        >
-          <nav aria-label="Mobile navigation" className="container-page flex flex-1 flex-col gap-1 overflow-y-auto py-6">
-            <div className="mb-2 border-b border-border pb-5">
-              <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                Current page
-              </p>
-              <p className="mt-1 text-lg font-medium tracking-[-0.025em]">{currentPageLabel}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Choose a destination. Links open in this tab.
-              </p>
-            </div>
+      <AnimatePresence>
+        {menuOpen && (
+          <motion.div
+            id="mobile-navigation"
+            key="mobile-nav"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'calc(100dvh - 4.5rem)' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-x-0 top-[4.5rem] z-40 flex flex-col border-t border-border bg-background/98 backdrop-blur-2xl lg:hidden overflow-hidden"
+          >
+            <motion.nav
+              aria-label="Mobile navigation"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.28, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
+              className="container-page flex flex-1 flex-col gap-1 overflow-y-auto py-6"
+            >
+              <div className="mb-2 border-b border-border pb-5">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Current page
+                </p>
+                <p className="mt-1 text-lg font-medium tracking-[-0.025em]">{currentPageLabel}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Choose a destination. Links open in this tab.
+                </p>
+              </div>
 
-            {NAV.map((item, index) => {
-              const isCurrent = active(item)
-              return (
-                <Link
-                  key={item.href}
-                  ref={isCurrent ? currentLinkRef : index === 0 ? firstLinkRef : undefined}
-                  href={item.href}
-                  onClick={() => setMenuOpen(false)}
-                  aria-current={isCurrent ? 'page' : undefined}
-                  className={`group flex items-center justify-between border-b border-border py-4 text-[1.35rem] font-medium tracking-[-0.035em] text-foreground ${
-                    isCurrent
-                      ? 'border-l-2 border-l-accent bg-surface/60 pl-3'
-                      : 'pl-1'
-                  }`}
-                >
-                  <span>{item.label}</span>
-                  {isCurrent ? (
-                    <span className="text-[9px] font-semibold uppercase tracking-[0.13em] text-accent">
-                      You are here
-                    </span>
+              {NAV.map((item, index) => {
+                const isCurrent = active(item)
+                return (
+                  <motion.div
+                    key={item.href}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.25, delay: 0.05 + index * 0.03, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <Link
+                      ref={isCurrent ? currentLinkRef : index === 0 ? firstLinkRef : undefined}
+                      href={item.href}
+                      onClick={() => setMenuOpen(false)}
+                      aria-current={isCurrent ? 'page' : undefined}
+                      className={`group flex items-center justify-between border-b border-border py-4 text-[1.35rem] font-medium tracking-[-0.035em] text-foreground transition-all duration-200 ${
+                        isCurrent
+                          ? 'border-l-2 border-l-accent bg-surface/60 pl-3'
+                          : 'pl-1 hover:pl-2'
+                      }`}
+                    >
+                      <span>{item.label}</span>
+                      {isCurrent ? (
+                        <span className="text-[9px] font-semibold uppercase tracking-[0.13em] text-accent">
+                          You are here
+                        </span>
+                      ) : (
+                        <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-1" aria-hidden />
+                      )}
+                    </Link>
+                  </motion.div>
+                )
+              })}
+
+              <div className="mt-auto pt-8">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">Appearance</p>
+                  <ThemeToggle variant="segmented" />
+                </div>
+
+                <div className="mt-5 flex flex-col gap-2.5">
+                  {user ? (
+                    <>
+                      <Link href="/workspace" onClick={() => setMenuOpen(false)} className="btn btn-primary w-full">
+                        Open workspace <ArrowRight className="size-4" aria-hidden />
+                      </Link>
+                      <button onClick={() => { logout(); setMenuOpen(false) }} className="btn btn-secondary w-full">
+                        <LogOut className="size-4" aria-hidden /> Log out
+                      </button>
+                    </>
                   ) : (
-                    <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-1" aria-hidden />
+                    <>
+                      <Link href="/enterprise?tab=create" onClick={() => setMenuOpen(false)} className="btn btn-primary w-full">
+                        Create your organization <ArrowRight className="size-4" aria-hidden />
+                      </Link>
+                      <Link href="/enterprise?role=employee" onClick={() => setMenuOpen(false)} className="btn btn-secondary w-full">
+                        Sign in to your workspace
+                      </Link>
+                    </>
                   )}
-                </Link>
-              )
-            })}
-
-            <div className="mt-auto pt-8">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">Appearance</p>
-                <ThemeToggle variant="segmented" />
+                </div>
+                <p className="mt-5 pb-4 text-xs leading-relaxed text-muted-foreground">
+                  Private by default. No public library, no free-user browsing.
+                </p>
               </div>
-
-              <div className="mt-5 flex flex-col gap-2.5">
-                {user ? (
-                  <>
-                    <Link href="/workspace" onClick={() => setMenuOpen(false)} className="btn btn-primary w-full">
-                      Open workspace <ArrowRight className="size-4" aria-hidden />
-                    </Link>
-                    <button onClick={() => { logout(); setMenuOpen(false) }} className="btn btn-secondary w-full">
-                      <LogOut className="size-4" aria-hidden /> Log out
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Link href="/enterprise?tab=create" onClick={() => setMenuOpen(false)} className="btn btn-primary w-full">
-                      Create your organization <ArrowRight className="size-4" aria-hidden />
-                    </Link>
-                    <Link href="/enterprise?role=employee" onClick={() => setMenuOpen(false)} className="btn btn-secondary w-full">
-                      Sign in to your workspace
-                    </Link>
-                  </>
-                )}
-              </div>
-              <p className="mt-5 pb-4 text-xs leading-relaxed text-muted-foreground">
-                Private by default. No public library, no free-user browsing.
-              </p>
-            </div>
-          </nav>
-        </div>
-      )}
+            </motion.nav>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   )
 }

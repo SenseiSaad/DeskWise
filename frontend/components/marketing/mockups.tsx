@@ -1,3 +1,6 @@
+'use client'
+
+import { motion } from 'motion/react'
 import { Download, FileText, Lock, ShieldCheck } from 'lucide-react'
 
 /** Small token-colored illustrations used by the hero and the scroll story. */
@@ -5,34 +8,46 @@ import { Download, FileText, Lock, ShieldCheck } from 'lucide-react'
 export function ChatMockup({ step = 3 }: { step?: number }) {
   return (
     <div className="space-y-3 text-sm">
-      <div
-        className={`ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground transition-all duration-500 ${
-          step >= 1 ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
-        }`}
+      <motion.div
+        animate={{
+          opacity: step >= 1 ? 1 : 0,
+          y: step >= 1 ? 0 : 8,
+          scale: step >= 1 ? 1 : 0.98,
+        }}
+        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+        className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground shadow-sm"
       >
         How many paid leave days do we get?
-      </div>
-      <div
-        className={`max-w-[92%] rounded-2xl rounded-bl-md border border-border bg-surface-2 px-4 py-3 transition-all duration-500 ${
-          step >= 2 ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
-        }`}
+      </motion.div>
+      <motion.div
+        animate={{
+          opacity: step >= 2 ? 1 : 0,
+          y: step >= 2 ? 0 : 8,
+          scale: step >= 2 ? 1 : 0.98,
+        }}
+        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+        className="max-w-[92%] rounded-2xl rounded-bl-md border border-border bg-surface-2 px-4 py-3 shadow-sm"
       >
         <p>Full-time employees get <strong>20 paid leave days</strong> each year. Please apply 5 working days ahead.</p>
         <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground">
           <FileText className="size-3.5 text-accent" aria-hidden /> Employee Handbook · page 18
         </span>
-      </div>
-      <div
-        className={`max-w-[92%] rounded-2xl border border-border bg-background px-4 py-3 transition-all duration-500 ${
-          step >= 3 ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
-        }`}
+      </motion.div>
+      <motion.div
+        animate={{
+          opacity: step >= 3 ? 1 : 0,
+          y: step >= 3 ? 0 : 8,
+          scale: step >= 3 ? 1 : 0.98,
+        }}
+        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+        className="max-w-[92%] rounded-2xl border border-border bg-background px-4 py-3 shadow-sm"
       >
         <p className="font-medium">Leave request — ready to send</p>
         <div className="mt-2 flex gap-2 text-xs">
           <span className="rounded-md bg-accent px-2.5 py-1 font-medium text-accent-foreground">Download DOCX</span>
           <span className="rounded-md border border-border px-2.5 py-1 text-muted-foreground">PDF</span>
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }
@@ -45,7 +60,7 @@ export function FormMockup() {
     ['Reason', 'Family event'],
   ]
   return (
-    <div className="rounded-xl border border-border bg-background p-4 text-sm">
+    <div className="rounded-xl border border-border bg-background p-4 text-sm transition-all duration-300 hover:border-border-strong hover:shadow-lg">
       <p className="font-semibold">Leave Request</p>
       <dl className="mt-3 divide-y divide-border">
         {rows.map(([k, v]) => (
@@ -56,10 +71,10 @@ export function FormMockup() {
         ))}
       </dl>
       <div className="mt-3 flex gap-2 text-xs">
-        <span className="inline-flex items-center gap-1 rounded-md bg-accent px-2.5 py-1.5 font-medium text-accent-foreground">
+        <span className="inline-flex items-center gap-1 rounded-md bg-accent px-2.5 py-1.5 font-medium text-accent-foreground transition-transform hover:scale-[1.02]">
           <Download className="size-3.5" aria-hidden /> DOCX
         </span>
-        <span className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-muted-foreground">
+        <span className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-muted-foreground transition-transform hover:scale-[1.02]">
           <Download className="size-3.5" aria-hidden /> PDF
         </span>
       </div>
@@ -74,7 +89,7 @@ export function AccessMockup() {
     ['Vendor Contract.pdf', 'Finance only', true],
   ] as const
   return (
-    <div className="rounded-xl border border-border bg-background p-4 text-sm">
+    <div className="rounded-xl border border-border bg-background p-4 text-sm transition-all duration-300 hover:border-border-strong hover:shadow-lg">
       <ul className="divide-y divide-border">
         {files.map(([name, who, locked]) => (
           <li key={name} className="flex items-center justify-between gap-3 py-2.5">
@@ -105,7 +120,7 @@ export function AuditMockup() {
     ['10:03', 'Download blocked'],
   ]
   return (
-    <ol className="rounded-xl border border-border bg-background p-4 text-sm">
+    <ol className="rounded-xl border border-border bg-background p-4 text-sm transition-all duration-300 hover:border-border-strong hover:shadow-lg">
       {rows.map(([t, label], i) => (
         <li key={t} className="relative flex gap-3 pb-3 last:pb-0">
           {i < rows.length - 1 && <span aria-hidden className="absolute left-[5px] top-3 h-full w-px bg-border" />}

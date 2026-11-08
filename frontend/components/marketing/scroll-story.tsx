@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 import { AccessMockup, AuditMockup, ChatMockup, FormMockup } from './mockups'
 
 const CHAPTERS = [
@@ -91,35 +92,42 @@ export function ScrollStory() {
         <div className="relative mt-14 grid gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-20">
           {/* progress rail */}
           <div aria-hidden className="absolute -left-4 top-0 hidden h-full w-px bg-border xl:block">
-            <div className="w-px bg-accent transition-[height] duration-150" style={{ height: `${progress * 100}%` }} />
+            <div
+              className="w-px bg-accent transition-[height] duration-200 ease-out"
+              style={{ height: `${progress * 100}%` }}
+            />
           </div>
 
           {/* sticky numeral (desktop) */}
           <div className="hidden lg:block">
             <div className="sticky top-28">
-              <div className="relative h-[clamp(8rem,18vw,16rem)]" aria-hidden>
-                {CHAPTERS.map((c, i) => (
-                  <span
-                    key={c.num}
-                    className={`absolute inset-0 font-display text-[clamp(8rem,18vw,16rem)] font-bold leading-none tracking-tighter text-foreground transition-all duration-500 motion-reduce:transition-none ${
-                      i === active
-                        ? 'translate-y-0 opacity-100'
-                        : i < active
-                          ? '-translate-y-8 opacity-0'
-                          : 'translate-y-8 opacity-0'
-                    }`}
+              <div className="relative h-[clamp(8rem,18vw,16rem)] overflow-hidden" aria-hidden>
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span
+                    key={CHAPTERS[active].num}
+                    initial={{ opacity: 0, y: 32, filter: 'blur(6px)' }}
+                    animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, y: -32, filter: 'blur(6px)' }}
+                    transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+                    className="absolute inset-0 font-display text-[clamp(8rem,18vw,16rem)] font-bold leading-none tracking-tighter text-foreground block"
                   >
-                    {c.num}
-                  </span>
-                ))}
+                    {CHAPTERS[active].num}
+                  </motion.span>
+                </AnimatePresence>
               </div>
               <div className="mt-6 flex gap-2">
                 {CHAPTERS.map((c, i) => (
-                  <span
+                  <motion.button
                     key={c.num}
-                    className={`h-1.5 rounded-full transition-all duration-300 ${
-                      i === active ? 'w-10 bg-accent' : 'w-4 bg-border-strong'
-                    }`}
+                    type="button"
+                    onClick={() => itemRefs.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                    animate={{
+                      width: i === active ? 40 : 16,
+                      backgroundColor: i === active ? 'var(--accent)' : 'var(--border-strong)',
+                    }}
+                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                    className="h-1.5 rounded-full cursor-pointer focus:outline-none"
+                    aria-label={`Jump to chapter ${c.num}`}
                   />
                 ))}
               </div>
@@ -146,13 +154,17 @@ export function ScrollStory() {
                   <h3 className="text-3xl font-semibold tracking-tight">{c.title}</h3>
                   <p className="mt-1 text-sm font-medium text-accent">{c.label}</p>
                   <p className="mt-4 max-w-lg text-base leading-relaxed text-muted-foreground">{c.body}</p>
-                  <div
-                    className={`mt-6 max-w-md transition-all duration-500 motion-reduce:transition-none ${
-                      i === active ? 'translate-y-0 opacity-100' : 'lg:translate-y-3 lg:opacity-60'
-                    }`}
+                  <motion.div
+                    animate={{
+                      opacity: i === active ? 1 : 0.65,
+                      y: i === active ? 0 : 8,
+                      scale: i === active ? 1 : 0.98,
+                    }}
+                    transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+                    className="mt-6 max-w-md"
                   >
                     {c.visual}
-                  </div>
+                  </motion.div>
                 </div>
               </li>
             ))}

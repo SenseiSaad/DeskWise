@@ -4,6 +4,7 @@ import { Instrument_Sans, Instrument_Serif } from 'next/font/google'
 import { AuthProvider } from '@/lib/auth'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/toaster'
+import { SmoothScroll } from '@/components/smooth-scroll'
 import './globals.css'
 
 const instrumentSans = Instrument_Sans({
@@ -78,7 +79,9 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen antialiased">
         <ThemeProvider defaultTheme="system">
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <SmoothScroll>{children}</SmoothScroll>
+          </AuthProvider>
           <Toaster />
           {process.env.NODE_ENV === 'production' && <Analytics />}
         </ThemeProvider>
