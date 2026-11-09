@@ -191,8 +191,7 @@ export default function AboutPage() {
           <Reveal delay={120}>
             <div className="mt-16 flex flex-col gap-5 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
               <p className="flex items-center gap-2 text-[11.5px] text-[#f3efe5]/50">
-                <Check className="size-3.5 text-[#d9a75f]" aria-hidden /> Built at the University of
-                Global Network · Platform 2026
+                <Check className="size-3.5 text-[#d9a75f]" aria-hidden /> Enterprise-grade security and compliance
               </p>
               <Link href="/policy" className="link-arrow text-[#f3efe5]">
                 Read the security model <ArrowRight className="size-3.5" aria-hidden />

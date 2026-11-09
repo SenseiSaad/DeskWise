@@ -76,7 +76,7 @@ export function SiteFooter() {
         <div className="flex flex-col gap-5 border-t border-border py-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1 text-xs text-muted-foreground">
             <span>© 2026 Deskwise. Private by default.</span>
-            <span>Built at the Enterprise knowledge infrastructure</span>
+            <span>Enterprise knowledge infrastructure.</span>
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden text-xs text-muted-foreground sm:inline">Appearance</span>
