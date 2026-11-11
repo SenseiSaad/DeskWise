@@ -741,8 +741,11 @@ def test_jwt_security_guards_expired_tampered_and_missing(api, isolation_setup):
     assert api.get("/api/auth/me").status_code == 401
 
 
-def test_rate_limiting_enforcement_returns_429(api, settings):
+def test_rate_limiting_enforcement_returns_429(api, settings, monkeypatch):
     """Calling rate-limited endpoints beyond threshold returns 429 with Retry-After."""
+    import time
+    fixed_time = 1700000010.0
+    monkeypatch.setattr(time, "time", lambda: fixed_time)
     settings.RATELIMIT_ENABLED = True
     from django.core.cache import cache
     cache.clear()
