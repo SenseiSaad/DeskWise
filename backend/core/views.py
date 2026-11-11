@@ -86,7 +86,8 @@ def _upload_rejection(f):
     extract_text, which is the single path every consumer goes through.
     """
     try:
-        validate_filename(f.name)
+        clean_name = validate_filename(f.name)
+        f.name = clean_name
         validate_extension(f.name)
         if (f.name or "").lower().endswith((".docx", ".pptx")):
             guard_zip_archive(f.read())
@@ -694,7 +695,8 @@ def upload_document(request):
     # Django's UploadedFile.name setter silently truncates names to 255 chars,
     # so the raw-length check cannot catch long names here — validate the
     # storage key instead (uuid prefix + slug + name must fit one FS component).
-    rel_key = os.path.join(company.slug, f"{uuid.uuid4().hex}_{f.name}")
+    safe_name = os.path.basename(f.name)
+    rel_key = os.path.join(company.slug, f"{uuid.uuid4().hex}_{safe_name}")
     if len(os.path.basename(rel_key)) > 255:
         return Response({"detail": "Filename is too long. Use a name of up to 220 characters."},
                         status=400)
@@ -703,7 +705,7 @@ def upload_document(request):
     from django.db import transaction
     with transaction.atomic():
         doc = Document.objects.create(
-            company=company, filename=f.name, stored_path=stored,
+            company=company, filename=safe_name, stored_path=stored,
             content_type=f.content_type or "", size=f.size,
             category=category, description=description, tags=tags,
             is_okf=is_okf, access_scope=access_scope, department=department,
@@ -755,7 +757,7 @@ def upload_confirm(request):
     key = str(request.data.get("key") or "").strip().lstrip("/")
     filename = os.path.basename(str(request.data.get("filename") or "").strip())
     company = request.user.company
-    if company is None or not key.startswith(f"{company.slug}/"):
+    if company is None or not key or ".." in key or "\\" in key or not key.startswith(f"{company.slug}/"):
         return Response({"detail": "Invalid storage key for your company."}, status=400)
     try:
         validate_filename(filename)
@@ -1019,13 +1021,14 @@ def document_new_version(request, pk):
         document=doc, version_number=doc.version, stored_path=old_path,
         filename=doc.filename, size=old_size, uploaded_by=request.user,
     )
-    rel_key = os.path.join(company.slug, f"{uuid.uuid4().hex}_{f.name}")
+    safe_name = os.path.basename(f.name)
+    rel_key = os.path.join(company.slug, f"{uuid.uuid4().hex}_{safe_name}")
     if len(os.path.basename(rel_key)) > 255:
         return Response({"detail": "Filename is too long. Use a name of up to 220 characters."},
                         status=400)
     stored = storage.save_uploaded_file(rel_key, f, base_dir=settings.DATA_DIR)
     doc.stored_path = stored
-    doc.filename = f.name
+    doc.filename = safe_name
     doc.content_type = f.content_type or ""
     doc.size = f.size
     doc.version += 1

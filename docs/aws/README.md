@@ -53,7 +53,7 @@ claim that all stored application data is in AWS India.
 | API | Render Web Service | Run Django/Gunicorn; use the provided health endpoint. |
 | Database | Render PostgreSQL | Store users, organizations, permissions, and audit events. |
 | Uploads | Render persistent disk | Preserve filesystem-backed documents and generated forms for the single-instance launch. |
-| AI | Amazon Bedrock | Claude Haiku 4.5 India inference profile for chat and Titan Text Embeddings V2 for embeddings. The API key stays in a Render secret. |
+| AI | Amazon Bedrock | Claude 3.5 Haiku India inference profile for chat and Titan Text Embeddings V2 for embeddings. The API key stays in a Render secret. |
 | Email | Amazon SES (planned) | Transactional verification/reset email after domain verification and SES production access. |
 
 ### Important limit of the Render disk
@@ -74,7 +74,7 @@ storage (for example S3/R2) and test a tenant-safe migration/restore.
 | Relational data | RDS for PostgreSQL, automated backups, Performance Insights as needed | Store organizations, users, permissions, and audit records. Use Multi-AZ for production. |
 | Cache | ElastiCache Valkey | Rate-limit/cache support for multi-process production deployments. |
 | Files and keys | EFS, S3, KMS, AWS Backup | EFS for the app's current filesystem-backed documents; S3 for backup/log artifacts; KMS for encryption keys. |
-| AI | Amazon Bedrock Runtime, model access, India inference profile, task IAM role | Invoke Claude Haiku 4.5 and Titan Text Embeddings V2 without embedding AWS credentials in code. |
+| AI | Amazon Bedrock Runtime, model access, India inference profile, task IAM role | Invoke Claude 3.5 Haiku and Titan Text Embeddings V2 without embedding AWS credentials in code. |
 | Monitoring and security | CloudWatch Logs/alarms/dashboards, CloudTrail, GuardDuty, AWS Config, Secrets Manager | Observe service health, record AWS changes, detect threats/config drift, and keep secrets outside images and source. |
 | Email | Amazon SES | Transactional email such as account verification and recovery; request production sending access before launch. |
 
@@ -159,7 +159,7 @@ alarms, backups, and security telemetry.
 
 ### Bedrock is variable usage, not a fixed server
 
-The modeled Claude Haiku 4.5 price in Mumbai is **$1.10 per million input
+The modeled Claude 3.5 Haiku price in Mumbai is **$1.10 per million input
 tokens** and **$5.50 per million output tokens**. For planning, assume 3,000
 input tokens and 500 output tokens per question, plus a small Titan embedding
 allowance:
@@ -237,7 +237,7 @@ gp3 `$0.131/GB-month` per single-AZ allocation; EFS Standard `$0.33/GB-month`;
 S3 Standard `$0.025/GB-month`; Valkey `cache.t4g.micro` `$0.016/hour`; NAT
 gateway budget rate `$0.056/hour` plus `$0.056/GB` processed; CloudFront India
 data out `$0.109/GB` for the first 10 TB and HTTPS requests `$0.012/10,000`;
-Claude Haiku 4.5 `$1.10/$5.50` per million input/output tokens. AWS prices,
+Claude 3.5 Haiku `$1.10/$5.50` per million input/output tokens. AWS prices,
 regional availability, model access, and credit eligibility can change; verify
 before creating resources. Recheck the assumptions in the [AWS Pricing
 Calculator](https://calculator.aws/) and the current [Fargate](https://aws.amazon.com/fargate/pricing/),

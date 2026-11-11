@@ -45,7 +45,7 @@ def test_resolve_platform_env_bedrock_wins_over_stale_row(monkeypatch):
                              api_key="stale-gemini")
     monkeypatch.setattr(providers, "shared_bedrock_key", lambda: "shared-key")
     monkeypatch.setenv("LLM_PROVIDER", "bedrock")
-    monkeypatch.setenv("BEDROCK_MODEL", "in.anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.setenv("BEDROCK_MODEL", "in.anthropic.claude-3-5-haiku-20241022-v1:0")
 
     resolved = providers._resolve(None)
     assert resolved["provider"] == "bedrock"

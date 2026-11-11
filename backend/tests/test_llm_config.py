@@ -74,14 +74,14 @@ def test_online_mode_uses_bedrock_instead_of_a_legacy_gemini_config(monkeypatch)
         api_key="old-gemini-key",
     )
     monkeypatch.setenv("LLM_PROVIDER", "bedrock")
-    monkeypatch.setenv("BEDROCK_MODEL", "in.anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.setenv("BEDROCK_MODEL", "in.anthropic.claude-3-5-haiku-20241022-v1:0")
     monkeypatch.setenv("BEDROCK_REGION", "ap-south-1")
     monkeypatch.setenv("BEDROCK_API_KEY", "bedrock-test-key-long-enough-123456")
 
     provider = providers.get_chat_provider(mode="online")
 
     assert provider.label == "bedrock"
-    assert provider.chat_model == "in.anthropic.claude-haiku-4-5-20251001-v1:0"
+    assert provider.chat_model == "in.anthropic.claude-3-5-haiku-20241022-v1:0"
     assert provider.api_key == "bedrock-test-key-long-enough-123456"
     assert providers._resolve()["key_source"] == "platform_env"
 
@@ -96,27 +96,27 @@ def test_render_bedrock_key_beats_a_stale_platform_bedrock_row(monkeypatch):
         base_url="us-east-1",
     )
     monkeypatch.setenv("LLM_PROVIDER", "bedrock")
-    monkeypatch.setenv("BEDROCK_MODEL", "in.anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.setenv("BEDROCK_MODEL", "in.anthropic.claude-3-5-haiku-20241022-v1:0")
     monkeypatch.setenv("BEDROCK_REGION", "ap-south-1")
     monkeypatch.setenv("BEDROCK_API_KEY", "render-shared-key-long-enough-123456")
 
     resolved = providers._resolve()
     assert resolved["provider"] == "bedrock"
-    assert resolved["model"] == "in.anthropic.claude-haiku-4-5-20251001-v1:0"
+    assert resolved["model"] == "in.anthropic.claude-3-5-haiku-20241022-v1:0"
     assert resolved["api_key"] == "render-shared-key-long-enough-123456"
     assert resolved["base_url"] == "ap-south-1"
     assert resolved["key_source"] == "platform_env"
 
     online = providers.get_chat_provider(mode="online")
     assert online.api_key == "render-shared-key-long-enough-123456"
-    assert online.chat_model == "in.anthropic.claude-haiku-4-5-20251001-v1:0"
+    assert online.chat_model == "in.anthropic.claude-3-5-haiku-20241022-v1:0"
 
 
 def test_embedding_uses_the_render_bedrock_key(monkeypatch):
     LLMConfig.objects.create(
         company=None, provider="bedrock",
         api_key="stale-embedding-key-123456",
-        chat_model="in.anthropic.claude-haiku-4-5-20251001-v1:0",
+        chat_model="in.anthropic.claude-3-5-haiku-20241022-v1:0",
     )
     monkeypatch.setenv("EMBED_PROVIDER", "bedrock")
     monkeypatch.setenv("LLM_PROVIDER", "bedrock")
@@ -141,7 +141,7 @@ def test_llm_config_read_reports_platform_key_without_leaking_it(auth_client, mo
         api_key="old-gemini-key",
     )
     monkeypatch.setenv("LLM_PROVIDER", "bedrock")
-    monkeypatch.setenv("BEDROCK_MODEL", "in.anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.setenv("BEDROCK_MODEL", "in.anthropic.claude-3-5-haiku-20241022-v1:0")
     monkeypatch.setenv("BEDROCK_REGION", "ap-south-1")
     monkeypatch.setenv("BEDROCK_API_KEY", "render-shared-key-long-enough-123456")
 
@@ -149,7 +149,7 @@ def test_llm_config_read_reports_platform_key_without_leaking_it(auth_client, mo
     assert resp.status_code == 200
     body = resp.json()
     assert body["provider"] == "bedrock"
-    assert body["chat_model"] == "in.anthropic.claude-haiku-4-5-20251001-v1:0"
+    assert body["chat_model"] == "in.anthropic.claude-3-5-haiku-20241022-v1:0"
     assert body["key_source"] == "platform_env"
     assert body["platform_key_in_use"] is True
     assert body["has_api_key"] is True
@@ -217,7 +217,7 @@ def test_four_chat_modes_resolve_distinct_providers(monkeypatch):
     monkeypatch.setenv("LLM_URL", "http://localhost:11434")
     monkeypatch.setenv("LLM_MODEL", "llama3.2:3b")
     monkeypatch.setenv("BEDROCK_REGION", "ap-south-1")
-    monkeypatch.setenv("BEDROCK_MODEL", "in.anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.setenv("BEDROCK_MODEL", "in.anthropic.claude-3-5-haiku-20241022-v1:0")
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
     monkeypatch.setenv("GEMINI_MODEL", "gemini-2.5-flash")
     monkeypatch.setenv("SELFHOSTED_LLM_URL", "http://10.0.1.50:11434")
@@ -229,7 +229,7 @@ def test_four_chat_modes_resolve_distinct_providers(monkeypatch):
     p_selfhosted = providers.get_chat_provider(mode="selfhosted")
 
     assert p_local.label == "ollama" and p_local.chat_model == "llama3.2:3b"
-    assert p_bedrock.label == "bedrock" and p_bedrock.chat_model == "in.anthropic.claude-haiku-4-5-20251001-v1:0"
+    assert p_bedrock.label == "bedrock" and p_bedrock.chat_model == "in.anthropic.claude-3-5-haiku-20241022-v1:0"
     assert p_gemini.label == "gemini" and p_gemini.chat_model == "gemini-2.5-flash"
     assert p_selfhosted.label == "selfhosted" and p_selfhosted.chat_model == "qwen2.5:7b"
     assert p_selfhosted.base == "http://10.0.1.50:11434"

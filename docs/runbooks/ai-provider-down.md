@@ -34,7 +34,7 @@ It prints a clear “model access / inference profile” message and exits nonze
 1. **BYO-key tenants are unaffected** — only the platform default provider is
    down.
 2. **Bedrock model access:** AWS console → Bedrock → Model access → request or
-   enable Claude Haiku 4.5 for `ap-south-1`; confirm the `in.` inference
+   enable Claude 3.5 Haiku for `ap-south-1`; confirm the `in.` inference
    profile ARN matches `BEDROCK_MODEL` and the Terraform `bedrock_model_arns`.
 3. **Quota:** request a Service Quotas increase; temporarily lower per-user ask
    limits or switch the platform default to a cheaper model only after checking

@@ -669,7 +669,7 @@ DEFAULT_MODELS = {
     "selfhosted": "qwen2.5:7b",
     "fake": "fake-1",
     # India geographic inference profile — NOT the global one.
-    "bedrock": "in.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "bedrock": "in.anthropic.claude-3-5-haiku-20241022-v1:0",
 }
 
 

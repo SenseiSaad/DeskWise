@@ -13,7 +13,7 @@ def test_json_formatter_emits_usage_fields_without_prompt_text():
     )
     record.event = "llm_usage"
     record.company_id = 7
-    record.model = "in.anthropic.claude-haiku-4-5-20251001-v1:0"
+    record.model = "in.anthropic.claude-3-5-haiku-20241022-v1:0"
     record.provider = "bedrock"
     record.input_tokens = 1200
     record.output_tokens = 300

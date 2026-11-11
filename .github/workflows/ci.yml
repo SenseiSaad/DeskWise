@@ -42,6 +42,8 @@ jobs:
           CSRF_TRUSTED_ORIGINS: http://localhost:3000
       - name: Migration drift check
         run: python manage.py makemigrations --check --dry-run
+      - name: Tenant isolation test matrix
+        run: python -m pytest tests/test_tenant_isolation_matrix.py -v
       - name: Test suite with coverage (gate 70% on core/)
         run: python -m pytest --cov=core --cov-fail-under=70
       - name: Bandit (static analysis)

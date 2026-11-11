@@ -8,7 +8,7 @@ checklist is superseded for the `infra/` stack; the live site is unchanged.
 
 - [ ] AWS account and region `ap-south-1` confirmed; billing alarms enabled.
 - [ ] A **new** subdomain chosen (e.g. `v2.example.com`), parent DNS access.
-- [ ] Bedrock Claude Haiku 4.5 model access + `in.` inference-profile ARN;
+- [ ] Bedrock Claude 3.5 Haiku model access + `in.` inference-profile ARN;
       Titan embedding model ARN; `EMBED_DIM` checked.
 - [ ] SES domain identity verified and **production access** requested; SMTP
       user credentials created.

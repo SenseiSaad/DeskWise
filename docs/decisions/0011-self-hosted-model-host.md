@@ -1,7 +1,7 @@
 # ADR 0011 — Bedrock default; self-hosted Ollama later via the model_host module
 
 **Status:** accepted
-**Decision:** Amazon Bedrock (Claude Haiku 4.5 via the India inference profile +
+**Decision:** Amazon Bedrock (Claude 3.5 Haiku via the India inference profile +
 Titan Text Embeddings v2) is the launch default, authenticated by the ECS task
 role only. `infra/modules/model_host` (OFF by default) provisions an Ollama EC2
 host for a self-hosted open-source model later.

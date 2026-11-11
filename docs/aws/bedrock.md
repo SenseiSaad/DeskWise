@@ -124,7 +124,7 @@ button or call the provider from the backend after enabling model access.
 
 ## Model access and residency notes
 
-- Request access to Claude Haiku 4.5 and Titan Text Embeddings V2 in the AWS
+- Request access to Claude 3.5 Haiku and Titan Text Embeddings V2 in the AWS
   console for the target account/region.
 - Use the `in.` inference profile for chat; do not substitute a `global.` model
   ID when India residency is required.

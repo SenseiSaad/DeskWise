@@ -71,7 +71,7 @@ export const AWS_LAYERS: AwsLayer[] = [
     index: '03',
     icon: BrainCircuit,
     title: 'AI that stays inside the boundary.',
-    body: 'Permission filtering happens before retrieval. Only passages a person is allowed to see are sent to Amazon Bedrock over TLS; Claude Haiku 4.5 answers and Titan V2 produces embeddings in the AWS India profile.',
+    body: 'Permission filtering happens before retrieval. Only passages a person is allowed to see are sent to Amazon Bedrock over TLS; Claude 3.5 Haiku answers and Titan V2 produces embeddings in the AWS India profile.',
     nodes: [
       { label: 'Permission filter', detail: 'access before retrieval', icon: LockKeyhole },
       { label: 'Bedrock runtime', detail: 'server-side secret', icon: Cloud },

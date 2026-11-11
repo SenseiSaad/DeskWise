@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Git pre-commit hook to prevent accidental secret leaks using Gitleaks
+# Enable this hook via: git config core.hooksPath .githooks
+
+set -e
+
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "==> Running Gitleaks pre-commit check on staged files..."
+  gitleaks protect --staged --verbose
+  if [ $? -ne 0 ]; then
+    echo ""
+    echo "❌ COMMIT REJECTED: Gitleaks detected sensitive tokens or secrets staged for commit."
+    echo "Please unstage the offending files and remove the secrets before committing."
+    exit 1
+  fi
+  echo "✅ Gitleaks check passed cleanly."
+else
+  echo "⚠️  WARNING: gitleaks is not installed or not in PATH."
+  echo "Install gitleaks (https://github.com/gitleaks/gitleaks) to enable automated secret leak prevention."
+fi

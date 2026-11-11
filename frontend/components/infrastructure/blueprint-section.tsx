@@ -32,7 +32,7 @@ const PLANES = [
     icon: BrainCircuit,
     purpose:
       'Send only permission-approved passages over TLS to Amazon Bedrock’s India inference profile, then return a cited answer.',
-    services: ['Amazon Bedrock', 'Claude Haiku 4.5', 'Titan Text Embeddings V2'],
+    services: ['Amazon Bedrock', 'Claude 3.5 Haiku', 'Titan Text Embeddings V2'],
   },
   {
     index: '05',

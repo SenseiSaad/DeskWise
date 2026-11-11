@@ -25,7 +25,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--model",
             default=os.getenv(
-                "BEDROCK_MODEL", "in.anthropic.claude-haiku-4-5-20251001-v1:0"
+                "BEDROCK_MODEL", "in.anthropic.claude-3-5-haiku-20241022-v1:0"
             ),
         )
         parser.add_argument(
@@ -63,7 +63,7 @@ class Command(BaseCommand):
             raise CommandError(
                 "Bedrock invoke failed for model %s in %s: %s\n"
                 "Fix: in the AWS console, Bedrock -> Model access, request/enable "
-                "the Claude Haiku 4.5 model for this region (and the `in.` "
+                "the Claude 3.5 Haiku model for this region (and the `in.` "
                 "inference profile). Then re-run this command." % (model, region, exc)
             ) from exc
 

@@ -56,7 +56,7 @@ but some other providers do not report per-chunk usage.
 
 | Model | Input / 1M tokens | Output / 1M tokens | Est. / 1,000 questions* |
 |---|---:|---:|---:|
-| Claude Haiku 4.5 (India `in.` profile) | ~$1.10 | ~$5.50 | **~$6.05** |
+| Claude 3.5 Haiku (India `in.` profile) | ~$1.10 | ~$5.50 | **~$6.05** |
 | Titan Text Embeddings V2 | ~$0.02 / 1M | n/a | ~$0.02 |
 
 \*Assumes 3,000 input + 500 output tokens per question (retrieved passages,

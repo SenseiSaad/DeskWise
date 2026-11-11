@@ -5,7 +5,7 @@ import { Reveal } from '@/components/reveal'
 const STEPS = [
   {
     title: 'Register your company',
-    body: 'Create your tenant and invite the first admins. Every workspace gets its own members, storage, and five-character partner code.',
+    body: 'Create your tenant and invite the first admins. Every workspace gets its own members, storage, and 8-character partner code.',
   },
   {
     title: 'Bring the knowledge in',

@@ -33,12 +33,17 @@ class UploadRejected(ValueError):
 
 
 def validate_filename(filename: str) -> str:
-    """Return the cleaned basename, rejecting empty/oversized names."""
+    """Return the cleaned basename, rejecting empty/oversized/traversal names."""
     import os
 
-    name = os.path.basename(str(filename or "").strip())
-    if not name:
+    raw = str(filename or "").strip()
+    if not raw:
         raise UploadRejected("A file with a valid name is required.")
+    if "/" in raw or "\\" in raw or ".." in raw:
+        raise UploadRejected("Path traversal characters or separators are not allowed in filenames.")
+    name = os.path.basename(raw)
+    if not name or name != raw:
+        raise UploadRejected("Invalid filename.")
     if len(name) > MAX_FILENAME_LENGTH:
         raise UploadRejected(
             f"Filename is too long (max {MAX_FILENAME_LENGTH} characters)."

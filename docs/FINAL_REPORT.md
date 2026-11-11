@@ -140,7 +140,7 @@ estimates, not an invoice:
 |---|---:|---|
 | Production | **~$131/mo** | Fargate ~$42, RDS ~$46, Redis ~$12, ALB ~$19, S3/CloudWatch/SES/DNS/egress ~$12 |
 | Staging | **~$95–$110/mo** while running | Smaller RDS; destroy when not testing |
-| Bedrock | variable | ~$6.05 per 1,000 questions at 3k input / 500 output tokens with Claude Haiku 4.5 |
+| Bedrock | variable | ~$6.05 per 1,000 questions at 3k input / 500 output tokens with Claude 3.5 Haiku |
 
 Excluded: AWS Support, domain registration, taxes, payment fees, WAF/Shield,
 multi-region DR, provisioned Bedrock throughput, engineering time. Budget alarms
@@ -156,7 +156,7 @@ are **$20/$35/$50/$100** in prod and **$10/$15** in staging.
 | 2 | Confirmation that `ap-south-1` is acceptable | Region for all resources | Defaulted; confirm |
 | 3 | New subdomain (e.g. `v2.example.com`) and parent DNS access | Route 53 delegation + ACM | **MISSING** |
 | 4 | Alert email for SNS and budgets | Alarm delivery | **MISSING** |
-| 5 | Bedrock Claude Haiku 4.5 model access + `in.` inference-profile ARN | Chat provider | **UNVERIFIED** |
+| 5 | Bedrock Claude 3.5 Haiku model access + `in.` inference-profile ARN | Chat provider | **UNVERIFIED** |
 | 6 | Titan Text Embeddings V2 model ARN and embedding dimension | Retrieval/index compatibility | **UNVERIFIED** |
 | 7 | SES domain verification + production-access approval + SMTP credentials | Signup/reset email | **MISSING** |
 | 8 | RDS managed master password from Secrets Manager | Build `DATABASE_URL` | Generated after apply |

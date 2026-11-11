@@ -51,7 +51,7 @@ const SERVICES = [
     role: 'AI inference',
     location: 'AWS Asia Pacific (Mumbai)',
     detail:
-      'Receives only the question and the passages the asking user is permitted to see. Claude Haiku 4.5 generates the answer; Titan Text Embeddings V2 creates the vectors used for retrieval.',
+      'Receives only the question and the passages the asking user is permitted to see. Claude 3.5 Haiku generates the answer; Titan Text Embeddings V2 creates the vectors used for retrieval.',
   },
   {
     name: 'Render',

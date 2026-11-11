@@ -27,7 +27,7 @@ const FAQS = [
   },
   {
     q: 'Can we share a document with another company?',
-    a: 'Yes. Find the registered partner by its five-character company code, select one of its employees, and grant one document. Download permission is configurable, access is logged, and revocation is immediate.',
+    a: 'Yes. Find the registered partner by its 8-character company code, select one of its employees, and grant one document. Download permission is configurable, access is logged, and revocation is immediate.',
   },
   {
     q: 'What happens when we reach a plan limit?',

@@ -1,6 +1,7 @@
 Django==5.2.18
 djangorestframework==3.18.3
 djangorestframework-simplejwt==5.5.1
+PyJWT==2.15.1
 cryptography==50.0.2
 django-cors-headers==4.6.0
 numpy==2.2.1

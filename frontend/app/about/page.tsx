@@ -29,7 +29,7 @@ const PRINCIPLES = [
   {
     icon: KeyRound,
     title: 'Short company codes',
-    body: 'Every organization gets a unique five-character code. Admins use it to find a registered partner before selecting a specific recipient.',
+    body: 'Every organization gets a unique 8-character code. Admins use it to find a registered partner before selecting a specific recipient.',
   },
   {
     icon: Network,

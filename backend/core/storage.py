@@ -53,13 +53,14 @@ def _resolve_local_path(key_or_path: str, base_dir: str | None = None) -> str:
     clean = key_or_path.lstrip("./").lstrip("/")
     base_name = os.path.basename(base)
     if clean.startswith(f"{base_name}/"):
-        cand = os.path.abspath(os.path.join(base, clean[len(base_name) + 1 :]))
-        if os.path.exists(cand):
-            return cand
-    cand = os.path.abspath(os.path.join(base, key_or_path))
-    if os.path.exists(cand):
-        return cand
-    return os.path.normpath(os.path.join(base, clean))
+        clean = clean[len(base_name) + 1 :]
+    cand = os.path.normpath(os.path.join(base, clean))
+    real_cand = os.path.realpath(cand)
+    real_base = os.path.realpath(base)
+    if not (real_cand == real_base or real_cand.startswith(real_base + os.sep)):
+        from django.core.exceptions import SuspiciousFileOperation
+        raise SuspiciousFileOperation(f"Path traversal detected: {key_or_path} resolves outside base directory")
+    return cand
 
 
 def save_bytes(key: str, data: bytes, content_type: str = "", base_dir: str | None = None) -> str:

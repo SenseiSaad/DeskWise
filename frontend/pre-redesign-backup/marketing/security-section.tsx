@@ -32,7 +32,7 @@ const ROLES = [
 const CONTROLS = [
   { icon: ShieldCheck, label: 'Tenant-isolated retrieval' },
   { icon: KeyRound, label: 'HttpOnly rotating sessions' },
-  { icon: Building2, label: 'Five-character partner codes' },
+  { icon: Building2, label: '8-character partner codes' },
   { icon: Server, label: 'Local AI or bring your own key' },
 ]
 
