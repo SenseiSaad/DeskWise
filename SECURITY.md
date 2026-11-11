@@ -21,7 +21,7 @@ Deskwise enforces enterprise-grade security controls across both the Next.js fro
 | Version / Branch | Supported | Security Maintenance |
 |---|---|---|
 | `main` (Deskwise v1.0) | :white_check_mark: Yes | Actively patched |
-| Historical Project tags / branches | :x: No | Deprecated / Archived |
+| Historical prototype tags / branches | :x: No | Deprecated / Archived |
 
 ---
 
