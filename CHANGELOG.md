@@ -75,3 +75,19 @@ All actions taken by the Senior Security and Release Engineer during the audit a
 - **Master Corrections Catalog:** Created a 10-point exact replacement matrix in [`CLAIMS_REPORT.md`](file:///home/saad/Desktop/OpenVault_audit_copy/CLAIMS_REPORT.md).
 - **Documentation:** Authored [`CLAIMS_REPORT.md`](file:///home/saad/Desktop/OpenVault_audit_copy/CLAIMS_REPORT.md).
 
+## [Remediation & History Scrub: Option A] - 2026-11-11
+- **Code & Copy Fixes Applied:**
+  - Replaced non-existent model name `"Claude Haiku 4.5"` with `"Claude 3.5 Haiku"` across frontend marketing (`aws-infrastructure-data.ts`, `blueprint-section.tsx`, `policy/page.tsx`), management commands (`check_bedrock.py`), and documentation.
+  - Updated default Bedrock model ARN in `backend/core/providers.py` to valid AWS inference profile (`in.anthropic.claude-3-5-haiku-20241022-v1:0`).
+  - Corrected partner access code length from `"five-character"` to `"8-character"` in frontend marketing copy (`about/page.tsx`, `security-section.tsx`, and backups).
+  - Created [`demo_docs/README.md`](file:///home/saad/Desktop/OpenVault_audit_copy/demo_docs/README.md) explicitly establishing that all regional office references (London, Austin, etc.) and compliance policies are synthetic test data.
+- **Option A History Scrub Executed:**
+  - Generated full safety backup bundle at `/home/saad/Desktop/OpenVault_audit_copy_backup.bundle`.
+  - Executed `git-filter-repo --replace-text` across all 89 commits to purge historical text mentions of academic proposals, student co-authors, and institution references.
+  - Preserved 100% of commit timestamps, author metadata (`obsks23@gmail.com`), commit messages, and repository timeline.
+  - Verified with Gitleaks: 89 commits scanned, 0 leaks found.
+- **Verification:**
+  - Backend: 242/242 pytest tests passing (224 unit/regression + 18 tenant-isolation matrix).
+  - Frontend: 12/12 vitest tests passing; Next.js 16.4.4 production build succeeded with 22/22 routes prerendered.
+
+
