@@ -30,9 +30,9 @@ Chat and retrieval support both local and cloud LLMs:
 
 ---
 
-## AWS Production Deployment (ECS Fargate + RDS pgvector)
+## Target Cloud Architecture (AWS ECS Fargate + RDS pgvector)
 
-The production architecture is codified in Terraform (`infra/`, ~3,900 LOC across 9 modular components):
+The cloud production architecture is fully codified in Terraform (`infra/`, ~3,900 LOC across 9 modular components), linted with `tflint`, and security-scanned with Checkov (258 passed, 0 failed). It is engineered for single-command provisioning via AWS OIDC:
 * **Compute:** AWS ECS Fargate with Application Load Balancer (ALB).
 * **Database & Vectors:** Amazon RDS PostgreSQL 16 with `pgvector` HNSW vector indexes (`core_chunk.embedding_vec`).
 * **Caching & Broker:** Amazon ElastiCache Redis 7 for rate-limiting and task queuing.
@@ -89,7 +89,7 @@ See [`docs/DEPLOY.md`](docs/DEPLOY.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITE
 ### Hybrid Retrieval Engine
 * **Blended Retrieval:** 70% dense vector similarity (cosine distance over 1024-dim Bedrock Titan Text Embeddings v2 or 768-dim Ollama) + 30% BM25 keyword matching with stemming.
 * **Database Acceleration:** Uses PostgreSQL `pgvector` with HNSW indexes in production; falls back to an in-memory NumPy vector scan on local SQLite development.
-* **Grounded Answers:** Returns exact document citations with highlighted passage snippets. Refuses to invent facts if company documents do not contain the answer.
+* **Grounded Answers:** Returns exact document citations with highlighted passage snippets. Prompts instruct the assistant to state explicitly when information is absent from company documentation.
 * **Bilingual Support:** Responds fluently in English, Urdu, and Roman Urdu.
 
 ### Deterministic Document Generation (DocGen)

@@ -90,4 +90,10 @@ All actions taken by the Senior Security and Release Engineer during the audit a
   - Backend: 242/242 pytest tests passing (224 unit/regression + 18 tenant-isolation matrix).
   - Frontend: 12/12 vitest tests passing; Next.js 16.4.4 production build succeeded with 22/22 routes prerendered.
 
+## [Task 7: Sale Package & Diligence Assets] - 2026-11-11
+- **Authored Executive Facts Sheet:** Created [`FACTS_SHEET.md`](file:///home/saad/Desktop/OpenVault_audit_copy/FACTS_SHEET.md) summarizing built features, architecture, 242 passing tests, IP title, and deployment options for prospective acquirers.
+- **Authored Technical Data Room Checklist:** Created [`DATA_ROOM_CHECKLIST.md`](file:///home/saad/Desktop/OpenVault_audit_copy/DATA_ROOM_CHECKLIST.md) indexing all technical, security, licensing, and architectural due diligence artifacts.
+- **Aligned Production Documentation:** Updated [`README.md`](file:///home/saad/Desktop/OpenVault_audit_copy/README.md) and [`docs/DEPLOY.md`](file:///home/saad/Desktop/OpenVault_audit_copy/docs/DEPLOY.md) with honest deployment status, clearly separating the live local / Docker Compose stack from the unapplied AWS ECS Terraform cloud blueprint.
+
+
 

@@ -1,4 +1,42 @@
-# Deploy your own OpenVault
+# Deploying Deskwise
+
+Deskwise provides two production deployment models depending on scale and operational preference:
+1. **Single-Host Production (Docker Compose + Caddy):** Recommended for pilots, early-stage operations, and small-to-medium teams. Runs PostgreSQL 16, Redis 7, Celery worker + beat, Django, Next.js, and Caddy with automatic Let's Encrypt TLS on a single \$10–\$20/mo VPS.
+2. **High-Scale Cloud (AWS ECS Fargate + RDS pgvector):** Enterprise cloud topology codified in modular Terraform (`infra/`) with zero-static-key GitHub OIDC CI/CD.
+
+---
+
+## Option 1: Single-Host Production (Docker Compose + Caddy)
+
+### 1. Requirements
+* A clean Linux host (Ubuntu 22.04 or 24.04 LTS recommended) with Docker Engine 24+ and Docker Compose v2.
+* A registered domain pointing an `A`/`AAAA` record at the host's public IP.
+* Inbound ports 80 and 443 open.
+
+### 2. Deployment Steps
+```bash
+# Clone the repository onto the server
+git clone <your-repo-url> deskwise && cd deskwise
+
+# Create and configure the production environment file
+cp .env.production.example .env.production
+nano .env.production
+# Fill in:
+# - DOMAIN (e.g. app.yourcompany.com)
+# - SECRET_KEY (long random string)
+# - POSTGRES_PASSWORD (long random string)
+# - LLM_PROVIDER (gemini, openai, anthropic, or ollama)
+# - Corresponding API key
+
+# Start the full stack in background:
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+```
+
+Caddy will automatically request and renew SSL certificates. Schema migrations, plan seeding, and admin bootstrapping run automatically before web services start.
+
+---
+
+## Option 2: AWS ECS Fargate & RDS (Terraform Cloud Suite)
 
 This guide deploys a **new** staging environment first. It never points at the
 existing live hostname. No command below is run automatically by this guide;
