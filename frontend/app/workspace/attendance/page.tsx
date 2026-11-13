@@ -97,6 +97,23 @@ export default function AttendancePage() {
     }
   }, [scan])
 
+  // The backend requires a signed, short-lived QR token (ATTENDANCE_QR_REQUIRED).
+  // Tapping the button fetches a fresh token (the one from page load may have
+  // expired) and submits it, which is equivalent to scanning the code. A
+  // deep-link token (?t=) from an actual scan takes priority.
+  async function markPresent() {
+    let token = qrTokenRef.current
+    if (!token) {
+      try {
+        const q = await attendanceApi.qr()
+        token = q.target ? new URL(q.target).searchParams.get('t') : null
+      } catch {
+        token = null
+      }
+    }
+    await scan(token)
+  }
+
   if (!user) return null
 
   const frozen = !!data?.strike?.is_frozen
@@ -159,7 +176,7 @@ export default function AttendancePage() {
               </div>
               <button
                 type="button"
-                onClick={() => scan(qrTokenRef.current)}
+                onClick={markPresent}
                 disabled={scanning || markedToday || frozen}
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-[#1d1d1b] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#3c3b37] disabled:cursor-not-allowed disabled:opacity-50"
               >

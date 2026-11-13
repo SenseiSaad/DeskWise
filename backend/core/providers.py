@@ -25,6 +25,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
 
@@ -161,6 +162,7 @@ class OllamaProvider(BaseProvider):
                    "options": {
                        "temperature": temperature,
                        "num_predict": max_tokens,
+                       "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "2048")),
                        "num_thread": int(os.getenv("OLLAMA_NUM_THREADS", "6")),
                    }}
         with _open(f"{self.base}/api/chat", payload, timeout=_STREAM_TIMEOUT) as r:
@@ -322,31 +324,38 @@ class GeminiProvider(BaseProvider):
     def embed(self, texts):
         if not self.api_key or not texts:
             return None
-        # Try batch embed first
         hdr = {"x-goog-api-key": self.api_key}
-        url = f"{self.base}/models/{self.embed_model}:batchEmbedContents"
-        try:
-            reqs = [{"model": f"models/{self.embed_model}", "content": {"parts": [{"text": t}]}} for t in texts]
-            res = _json(url, {"requests": reqs}, headers=hdr, timeout=6.0)
-            embs = res.get("embeddings", [])
-            if embs and len(embs) == len(texts):
-                if np is not None:
-                    return [np.asarray(e["values"], dtype=np.float32) for e in embs]
-                return [e["values"] for e in embs]
-        except Exception:
-            pass
-        # Fallback to single requests
+        batch_url = f"{self.base}/models/{self.embed_model}:batchEmbedContents"
+        # Try batchEmbedContents in API-safe slices of up to 100 chunks.
         try:
             out = []
-            for t in texts:
-                u = f"{self.base}/models/{self.embed_model}:embedContent"
-                r = _json(u, {"model": f"models/{self.embed_model}", "content": {"parts": [{"text": t}]}}, headers=hdr, timeout=6.0)
-                vals = r["embedding"]["values"]
-                if np is not None:
-                    out.append(np.asarray(vals, dtype=np.float32))
-                else:
-                    out.append(vals)
+            for start in range(0, len(texts), 100):
+                chunk = texts[start:start + 100]
+                reqs = [{"model": f"models/{self.embed_model}", "content": {"parts": [{"text": t}]}}
+                        for t in chunk]
+                res = _json(batch_url, {"requests": reqs}, headers=hdr,
+                            timeout=max(20.0, len(chunk) * 0.5))
+                embs = res.get("embeddings", [])
+                if not embs or len(embs) != len(chunk):
+                    raise ValueError("incomplete batchEmbedContents response")
+                for e in embs:
+                    vals = e["values"]
+                    out.append(np.asarray(vals, dtype=np.float32) if np is not None else vals)
             return out
+        except Exception:
+            pass
+        # Parallel fallback to single requests
+        try:
+            single_url = f"{self.base}/models/{self.embed_model}:embedContent"
+
+            def _one(t):
+                r = _json(single_url, {"model": f"models/{self.embed_model}", "content": {"parts": [{"text": t}]}},
+                          headers=hdr, timeout=15.0)
+                vals = r["embedding"]["values"]
+                return np.asarray(vals, dtype=np.float32) if np is not None else vals
+
+            with ThreadPoolExecutor(max_workers=min(8, len(texts))) as pool:
+                return list(pool.map(_one, texts))
         except Exception:
             return None
 
@@ -586,18 +595,23 @@ class BedrockProvider(BaseProvider):
             return None
         try:
             client = self._client()
-            vecs = []
-            for t in texts:
+            model_id = self.embed_model
+            use_v2_opts = "titan-embed-text-v2" in model_id
+
+            def _one(t):
                 body = {"inputText": t[:8000]}
                 # Only Titan V2 understands the dimensions parameter.
-                if "titan-embed-text-v2" in self.embed_model:
+                if use_v2_opts:
                     body["dimensions"] = 1024
                     body["normalize"] = True
-                r = client.invoke_model(modelId=self.embed_model,
-                                        body=json.dumps(body))
+                r = client.invoke_model(modelId=model_id, body=json.dumps(body))
                 data = json.loads(r["body"].read())
-                vecs.append(np.asarray(data["embedding"], dtype=np.float32))
-            return vecs
+                return np.asarray(data["embedding"], dtype=np.float32)
+
+            if len(texts) == 1:
+                return [_one(texts[0])]
+            with ThreadPoolExecutor(max_workers=min(8, len(texts))) as pool:
+                return list(pool.map(_one, texts))
         except Exception:
             return None
 

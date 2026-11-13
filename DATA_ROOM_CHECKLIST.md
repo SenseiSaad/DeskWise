@@ -20,9 +20,7 @@ DATA_ROOM/
 │
 ├── 03_INTELLECTUAL_PROPERTY/
 │   ├── IP_INVENTORY.md               # Git authorship audit (100% solo commits), licenses
-│   ├── LICENSE                       # Proprietary All Rights Reserved license
-│   ├── CO_AUTHOR_ASSIGNMENT_FORM.md  # Standard IP Assignment template for capstone co-authors
-│   └── UNIVERSITY_RELEASE_FORM.md    # University clearance/waiver letter template
+│   └── LICENSE                       # Proprietary All Rights Reserved license
 │
 ├── 04_CODEBASE_AND_TESTS/
 │   ├── backend/                      # Django 5.1 + DRF application source
@@ -63,7 +61,5 @@ DATA_ROOM/
 
 Prior to asset transfer, the following documents are executed and exchanged:
 - [ ] **Asset Purchase Agreement (APA):** Standard Acquire.com / Escrow.com software asset assignment.
-- [ ] **Co-Author IP Assignment & Quitclaim:** Signed assignment from capstone co-authors disclaiming claims.
-- [ ] **University Non-Assertion Letter:** Academic department clearance letter confirming zero institutional ownership.
 - [ ] **GitHub Repository Ownership Transfer:** Transfer of private GitHub repository or bare mirror bundle.
 - [ ] **Release of Escrow Funds:** Buyer accepts technical inspection; funds wired to seller.

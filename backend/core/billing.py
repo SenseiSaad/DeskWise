@@ -171,7 +171,7 @@ def create_portal_session(user: User, return_url: str | None = None) -> dict[str
     if not company:
         raise ValueError("User must belong to a company to access billing portal.")
 
-    customer_id = company.stripe_customer_id.strip()
+    customer_id = (company.stripe_customer_id or "").strip()
     if not customer_id:
         raise ValueError("Company does not have a linked Stripe customer. Subscribe first.")
 

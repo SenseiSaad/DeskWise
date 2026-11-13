@@ -42,7 +42,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--company-name", default="OpenVault Demo")
-        parser.add_argument("--slug", default="openvault-demo")
+        parser.add_argument("--slug", default="deskwise-demo")
         parser.add_argument("--email", default="")
 
     def handle(self, *args, **options):
@@ -50,7 +50,7 @@ class Command(BaseCommand):
             raise CommandError("seed_demo_company is disabled in production.")
 
         name = str(options["company_name"]).strip()
-        slug = slugify(options["slug"]) or "openvault-demo"
+        slug = slugify(options["slug"]) or "deskwise-demo"
         email = str(options["email"] or "").strip().lower()
         if not email:
             if not sys.stdin.isatty():

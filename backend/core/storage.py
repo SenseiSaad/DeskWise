@@ -1,4 +1,4 @@
-"""Storage abstraction for OpenVault documents and generated workflow artefacts.
+"""Storage abstraction for Deskwise documents and generated workflow artefacts.
 
 Supports two backends transparently:
 1. Amazon S3 (configured when AWS_STORAGE_BUCKET_NAME is set in settings/env) —
@@ -50,7 +50,10 @@ def _resolve_local_path(key_or_path: str, base_dir: str | None = None) -> str:
     if os.path.exists(key_or_path):
         return os.path.abspath(key_or_path)
     # Strip any redundant relative base directory prefix (e.g. "./data/..." or "data/...")
-    clean = key_or_path.lstrip("./").lstrip("/")
+    clean = key_or_path
+    if clean.startswith("./"):
+        clean = clean[2:]
+    clean = clean.lstrip("/")
     base_name = os.path.basename(base)
     if clean.startswith(f"{base_name}/"):
         clean = clean[len(base_name) + 1 :]

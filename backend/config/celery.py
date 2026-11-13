@@ -1,4 +1,4 @@
-"""Celery application for OpenVault background work (indexing, requeues,
+"""Celery application for Deskwise background work (indexing, requeues,
 retention). Inactive unless CELERY_BROKER_URL is configured — without a broker
 the app falls back to in-process threads so local/dev keeps working.
 """

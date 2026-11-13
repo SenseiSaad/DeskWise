@@ -1,4 +1,4 @@
-"""Django settings for the OpenVault API."""
+"""Django settings for the Deskwise API."""
 import logging
 import os
 import tempfile

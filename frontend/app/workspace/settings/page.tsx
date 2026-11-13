@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import {
   Building2,
   Check,
-  ChevronDown,
   Cpu,
   CreditCard,
   KeyRound,
@@ -31,23 +30,23 @@ import {
 import { useAuth } from '@/lib/auth'
 import { authApi } from '@/lib/api'
 import { toast } from '@/components/toaster'
+import { SmoothSelect } from '@/components/ui/smooth-select'
+import { useWorkspaceStore } from '@/lib/workspace-store'
 
 const focusRing =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1d1d1b]/25 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7f6f2]'
 const eyebrow = 'text-xs font-semibold uppercase tracking-[0.16em] text-[#6b6862]'
 const inputClass =
   'h-11 w-full rounded-xl border border-[#d8d5cc] bg-[#fffdfa] px-3.5 text-xs text-[#1d1d1b] outline-none transition-colors placeholder:text-[#6b6862] focus:border-[#1d1d1b]'
-const selectClass =
-  `h-11 w-full appearance-none rounded-xl border border-[#d8d5cc] bg-[#fffdfa] pl-3.5 pr-9 text-xs text-[#1d1d1b] outline-none transition-colors hover:border-[#1d1d1b] focus:border-[#1d1d1b] ${focusRing}`
 const primaryBtn =
   `inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1d1d1b] px-5 text-xs font-medium text-white transition-colors hover:bg-[#3c3b37] disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`
 const ghostBtn =
   `inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[#dcdad3] bg-[#fffdfa] px-4 text-xs font-medium text-[#1d1d1b] transition-colors hover:border-[#1d1d1b] disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`
 const label = 'mb-1 block text-xs font-medium text-[#1d1d1b]'
 
-const BEDROCK_DEFAULT_MODEL = 'in.anthropic.claude-haiku-4-5-20251001-v1:0'
-const BEDROCK_DEFAULT_REGION = 'ap-south-1'
-const OLLAMA_DEFAULT_MODEL = 'qwen2.5:1.5b'
+const BEDROCK_DEFAULT_MODEL = 'us.amazon.nova-lite-v1:0'
+const BEDROCK_DEFAULT_REGION = 'us-east-1'
+const OLLAMA_DEFAULT_MODEL = 'llama3.2:3b'
 const OLLAMA_DEFAULT_URL = 'http://localhost:11434'
 type ActiveLlmProvider = Extract<LlmProvider, 'bedrock' | 'ollama'>
 
@@ -62,9 +61,9 @@ const PROVIDERS: {
 }[] = [
   {
     value: 'bedrock',
-    label: 'AWS Bedrock (India)',
-    blurb: 'The platform default for online answers. Only permission-approved passages are sent to Bedrock.',
-    badge: 'India inference',
+    label: 'AWS Bedrock',
+    blurb: 'Cloud answers via your configured AWS account. Only permission-approved passages are sent to Bedrock.',
+    badge: 'Fast & low cost',
     keyLabel: 'Bedrock API key or ACCESS_KEY_ID:SECRET_ACCESS_KEY',
     modelHint: BEDROCK_DEFAULT_MODEL,
     usesBaseUrl: true,
@@ -73,6 +72,7 @@ const PROVIDERS: {
     value: 'ollama',
     label: 'Local model (Ollama)',
     blurb: 'Uses an Ollama server reachable by the API for chat generation; embeddings remain on the configured platform provider.',
+    badge: 'Local & free',
     modelHint: OLLAMA_DEFAULT_MODEL,
     usesBaseUrl: true,
   },
@@ -82,7 +82,12 @@ type Tab = 'company' | 'plan' | 'ai'
 
 export default function SettingsPage() {
   const { user, isPlatformAdmin } = useAuth()
-  const [tab, setTab] = useState<Tab>('company')
+  // Company profile / plan / AI engine are admin-only (the API enforces it);
+  // everyone else just gets "My Profile".
+  const isAdmin = user?.role === 'admin' || isPlatformAdmin
+  const { settingsState, setSettingsState } = useWorkspaceStore()
+  const tab = settingsState.tab
+  const setTab = (v: Tab) => setSettingsState((s) => ({ ...s, tab: v }))
 
   // Company profile
   const [profile, setProfile] = useState<CompanyProfile | null>(null)
@@ -201,10 +206,16 @@ export default function SettingsPage() {
   }, [hydrateAi])
 
   useEffect(() => {
+    if (!isAdmin) {
+      setCompLoading(false)
+      setPlanLoading(false)
+      setAiLoading(false)
+      return
+    }
     loadCompany()
     loadPlans()
     loadAi()
-  }, [loadCompany, loadPlans, loadAi])
+  }, [isAdmin, loadCompany, loadPlans, loadAi])
 
   async function onSaveCompany(e: FormEvent) {
     e.preventDefault()
@@ -361,7 +372,8 @@ export default function SettingsPage() {
           Manage company profile, subscription quotas (USD), and AI model configurations.
         </p>
 
-        {/* Tab Switcher */}
+        {/* Tab Switcher (admins only) */}
+        {isAdmin && (
         <div className="mt-6 flex gap-2 border-b border-[#eae7df] pb-px text-xs font-medium">
           <button
             type="button"
@@ -397,10 +409,11 @@ export default function SettingsPage() {
             <Cpu className="size-3.5" /> AI Engine
           </button>
         </div>
+        )}
       </header>
 
       {/* Tab 1: Company Profile */}
-      {tab === 'company' && (
+      {isAdmin && tab === 'company' && (
         <section className="mt-6">
           {compLoading ? (
             <p className="flex items-center gap-2 text-xs text-[#6b6862]">
@@ -785,11 +798,11 @@ export default function SettingsPage() {
                     </span>
                     <p className="mt-0.5 text-[#6b6862]">
                       {hasLegacyProviderConfig
-                        ? 'Saving will switch this configuration to Bedrock. Its old provider key will be cleared; enter a Bedrock key or leave it blank to use the Render secret.'
+                        ? 'Saving will switch this configuration to Bedrock. Its old provider key will be cleared; enter a Bedrock key or leave it blank to use your configured AWS credentials.'
                         : cfg?.is_company_override
                         ? 'Your organization is overriding the platform LLM with its own model/key.'
                         : cfg?.platform_key_in_use
-                        ? 'The shared Render Bedrock key and Claude 4.5 default are active for this workspace. You do not need to enter a key.'
+                        ? 'Platform AWS Bedrock credentials and fast Nova Lite defaults are active for this workspace. You do not need to enter a key.'
                         : 'Currently using the system-wide default LLM provider.'}
                     </p>
                   </div>
@@ -811,24 +824,21 @@ export default function SettingsPage() {
               <form onSubmit={onSaveAi} className="space-y-4">
                 <div>
                   <label htmlFor="provider" className={label}>Provider</label>
-                  <div className="relative">
-                    <select
-                      id="provider"
-                      value={provider}
-                      onChange={(e) => {
-                       setProvider(e.target.value as ActiveLlmProvider)
-                        setTestResult(null)
-                      }}
-                      className={selectClass}
-                    >
-                      {PROVIDERS.map((p) => (
-                        <option key={p.value} value={p.value}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#6b6862]" />
-                  </div>
+                  <SmoothSelect<ActiveLlmProvider>
+                    id="provider"
+                    value={provider}
+                    onChange={(val) => {
+                      setProvider(val)
+                      setTestResult(null)
+                    }}
+                    ariaLabel="AI Provider"
+                    options={PROVIDERS.map((p) => ({
+                      value: p.value,
+                      label: p.label,
+                      description: p.modelHint,
+                      badge: p.badge,
+                    }))}
+                  />
                   <p className="mt-1 text-[11px] text-[#6b6862]">
                     {activeProvider.blurb}
                     {activeProvider.badge && (
@@ -868,7 +878,7 @@ export default function SettingsPage() {
                         provider === 'ollama'
                           ? 'http://localhost:11434'
                           : provider === 'bedrock'
-                          ? 'ap-south-1'
+                          ? BEDROCK_DEFAULT_REGION
                           : 'https://api.openai.com/v1'
                       }
                       className={inputClass}
@@ -892,11 +902,11 @@ export default function SettingsPage() {
                         onChange={(e) => setApiKey(e.target.value)}
                         placeholder={
                           cfg?.platform_key_in_use && !cfg?.is_company_override
-                            ? 'Platform key in use — leave blank to keep using it'
+                            ? 'Platform credentials active — leave blank to keep using them'
                             : cfg?.has_api_key && cfg.provider === provider
                               ? '•••••••• (stored, type to replace)'
                               : provider === 'bedrock'
-                                ? 'Paste Bedrock API key (or leave blank to use Render secret)'
+                                ? 'Paste Bedrock key (or leave blank to use configured AWS CLI / IAM credentials)'
                                 : 'Ollama does not require an API key'
                         }
                         className={`${inputClass} pl-10`}
@@ -904,7 +914,7 @@ export default function SettingsPage() {
                     </div>
                     {cfg?.platform_key_in_use && !cfg?.is_company_override && (
                       <p className="mt-1 text-[11px] text-[#6b6862]">
-                        The shared key is managed in Render. Leave this blank unless you need a separate key.
+                        Using platform AWS CLI / IAM credentials automatically. Leave blank unless overriding for this company.
                       </p>
                     )}
                   </div>

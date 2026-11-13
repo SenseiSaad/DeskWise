@@ -7,7 +7,7 @@ import { ChevronDown } from 'lucide-react'
 const FAQS = [
   {
     q: 'Do I need technical skills to use Deskwise?',
-    a: 'No. If you can send a chat message, you can use Deskwise. Ask in everyday English or Roman Urdu and it does the rest.',
+    a: 'No. If you can send a chat message, you can use Deskwise. Ask in English, Spanish, French, German, Arabic, Roman Urdu, and other supported languages (with more coming) and it does the rest.',
   },
   {
     q: 'Will our files leak or train public AI models?',
@@ -45,8 +45,8 @@ export function FaqSection() {
             </h2>
             <p className="mt-5 max-w-sm text-base leading-relaxed text-muted-foreground">
               Something else? Email{' '}
-              <a className="font-medium text-accent underline underline-offset-4" href="mailto:hello@openvault.site?subject=Deskwise%20question">
-                hello@openvault.site
+              <a className="font-medium text-accent underline underline-offset-4" href="mailto:hello@deskwise.site?subject=Deskwise%20question">
+                hello@deskwise.site
               </a>
               .
             </p>

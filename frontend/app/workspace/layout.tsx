@@ -21,15 +21,18 @@ import {
   Users,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
+import { SUPPORTED_LANGUAGES, type UiLanguage } from '@/lib/api'
 import { Logo } from '@/components/logo'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { adminApi, type AdminCompany } from '@/lib/api'
 import { makeT } from '@/lib/i18n'
+import { WorkspaceStoreProvider } from '@/lib/workspace-store'
+import { WorkspaceBackgroundStatusPill } from '@/components/workspace-bg-status'
 
 // Authenticated, tenant-scoped shell for the enterprise workspace. Gates on a
 // signed-in session client-side and redirects guests to the enterprise sign-in.
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading, isEnterprise, logout, refreshUser, isPlatformAdmin, language, setLanguage } = useAuth()
+  const { user, loading, sessionExpired, isEnterprise, logout, refreshUser, isPlatformAdmin, language, setLanguage } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
   const t = makeT(language)
@@ -45,9 +48,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     if (!loading && !isEnterprise) {
-      router.replace('/enterprise?next=' + encodeURIComponent(pathname || '/workspace'))
+      const nextParam = encodeURIComponent(pathname || '/workspace')
+      router.replace(`/enterprise?next=${nextParam}${sessionExpired ? '&expired=1' : ''}`)
     }
-  }, [loading, isEnterprise, router, pathname])
+  }, [loading, isEnterprise, sessionExpired, router, pathname])
 
   useEffect(() => {
     const titles: Record<string, string> = {
@@ -126,8 +130,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="min-h-dvh bg-background text-foreground">
-      <div className="mx-auto flex max-w-7xl flex-col lg:flex-row">
+    <WorkspaceStoreProvider>
+      <div className="min-h-dvh bg-background text-foreground">
+        <div className="mx-auto flex max-w-7xl flex-col lg:flex-row">
         {/* Sidebar (desktop) / top bar (mobile) */}
         <aside className="border-b border-border lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-64 lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r lg:overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-5 py-3.5 lg:py-4">
@@ -203,12 +208,18 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
               <Languages className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <select
                 value={language}
-                onChange={(e) => setLanguage(e.target.value as 'en' | 'ur')}
+                onChange={(e) => setLanguage(e.target.value as UiLanguage)}
                 aria-label="Reply language"
                 className="h-8 appearance-none rounded-lg border border-border bg-surface py-1 pl-7 pr-2 text-[11px] font-medium text-foreground outline-none focus:border-border-strong"
               >
-                <option value="en">English</option>
-                <option value="ur">Roman Urdu</option>
+                {SUPPORTED_LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
+                <option value="" disabled>
+                  More languages coming soon…
+                </option>
               </select>
             </div>
             <ThemeToggle variant="segmented" compact />
@@ -235,12 +246,18 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                   <Languages className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                   <select
                     value={language}
-                    onChange={(e) => setLanguage(e.target.value as 'en' | 'ur')}
+                    onChange={(e) => setLanguage(e.target.value as UiLanguage)}
                     aria-label="Reply language"
                     className="w-full appearance-none rounded-lg border border-border bg-surface py-1 pl-6 pr-2 text-[11px] font-medium text-foreground outline-none focus:border-border-strong"
                   >
-                    <option value="en">English</option>
-                    <option value="ur">Roman Urdu</option>
+                    {SUPPORTED_LANGUAGES.map((l) => (
+                      <option key={l.code} value={l.code}>
+                        {l.label}
+                      </option>
+                    ))}
+                    <option value="" disabled>
+                      More languages coming soon…
+                    </option>
                   </select>
                 </div>
                 <ThemeToggle variant="segmented" compact />
@@ -265,6 +282,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         {/* Content */}
         <div className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-10 lg:py-10">{children}</div>
       </div>
+      <WorkspaceBackgroundStatusPill />
     </div>
+    </WorkspaceStoreProvider>
   )
 }

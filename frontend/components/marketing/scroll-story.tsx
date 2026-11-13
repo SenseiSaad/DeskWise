@@ -9,7 +9,7 @@ const CHAPTERS = [
     num: '01',
     title: 'Ask',
     label: 'Instant answers',
-    body: 'Ask a question in plain English or Roman Urdu. Deskwise reads your company documents and answers with the exact page it found it on.',
+    body: 'Ask a question in English, Spanish, French, German, Arabic, Roman Urdu, or other supported languages. Deskwise reads your company documents and answers with the exact page it found it on.',
     visual: <ChatMockup step={2} />,
   },
   {

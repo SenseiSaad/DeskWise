@@ -8,11 +8,13 @@ Deskwise is an enterprise document repository and retrieval-augmented generation
 
 ## Zero-Step Quickstart (Clone & Run in One Line)
 
-Deskwise includes an automated launcher that handles `.env` generation, cryptographic key generation, migrations, demo corpus seeding, and service orchestration automatically:
+Deskwise includes an automated launcher that handles `.env` generation, cryptographic key generation, migrations, demo corpus seeding, and service orchestration automatically.
+
+**Prerequisites:** Docker Engine/Desktop with the `docker compose` v2 plugin, `git`, `curl`, and free host ports **3000** (web) and **8000** (API). (`--native` mode instead needs Python 3.12+ and Node 20+.) The launcher checks the ports first and tells you if one is busy.
 
 ```bash
-git clone https://github.com/SenseiSaad/openvault.git OpenVault
-cd OpenVault
+git clone https://github.com/SenseiSaad/openvault.git Deskwise
+cd Deskwise
 
 # Option A: Full Docker Compose stack (Next.js :3000 + Django :8000 + SQLite)
 ./scripts/start_local.sh --docker
@@ -20,13 +22,50 @@ cd OpenVault
 # Option B: Native local development (runs with local node + python venv)
 ./scripts/start_local.sh --native
 
-# Stop all running instances:
+# Stop the Docker stack (data volumes are kept):
+docker compose down
+# Stop everything the launcher may have started, including native dev servers:
 ./scripts/start_local.sh --stop
 ```
 
-Chat and retrieval support both local and cloud LLMs:
-* **Local (Zero-Cloud / Offline):** Install [Ollama](https://ollama.com), run `ollama pull nomic-embed-text && ollama pull qwen2.5:3b`, and set `LLM_PROVIDER=ollama`.
-* **Hosted Cloud (Production Default):** Set AWS Bedrock credentials (`BEDROCK_*`) for Claude 3.5 / Haiku + Titan Embeddings v2, or supply `GEMINI_API_KEY` / `OPENAI_API_KEY`.
+The first Docker run builds two images (several minutes) and ends by printing the demo login. It waits for both containers' health checks, so "LIVE" means both are actually healthy. Credentials are also saved in `.dev-logs/demo-credentials.txt`.
+
+### First use
+
+1. Open **http://localhost:3000/auth** and choose *Employer admin*. Either log in with the printed demo credentials (`demo@deskwise.test`) or **register your own company**; registering creates the company and its first admin. With `REQUIRE_EMAIL_VERIFICATION=false` (the default) no email step is needed.
+2. Go to the workspace and **upload a document** (txt/pdf/docx/pptx). Its status shows `pending` until indexing finishes, normally within seconds.
+3. **Ask a question** in chat. Answers stream back with the source documents cited.
+
+Equivalent API check (cookie auth):
+
+```bash
+curl -c jar -X POST localhost:8000/api/auth/register -H 'Content-Type: application/json' \
+  -d '{"company_name":"Acme","email":"you@acme.test","password":"a-long-Passw0rd!"}'
+curl -b jar -F file=@policy.txt localhost:8000/api/documents/upload      # returns indexing_status=pending
+curl -b jar localhost:8000/api/documents/<id>                              # poll until "ready"
+curl -N -b jar -X POST localhost:8000/api/ask -H 'Content-Type: application/json' \
+  -d '{"question":"..."}'                                                 # NDJSON: sources + tokens
+```
+
+### Choosing an LLM (required for answers)
+
+The stack boots without any LLM, but **chat answers need one**. Without it you will see `The configured Ollama server is not reachable` (retrieval still works and the cited `sources` are still returned).
+
+* **Local (Zero-Cloud / Offline), the default (`LLM_PROVIDER=ollama`):** install [Ollama](https://ollama.com) and run `ollama pull nomic-embed-text && ollama pull llama3.2:3b` (the default `LLM_MODEL`; change it in `.env` if you pull another). **Docker containers reach Ollama at `host.docker.internal:11434`, and a default Ollama listens only on `127.0.0.1`**, so make it listen on all interfaces. On Linux with systemd: `sudo systemctl edit ollama`, add `Environment="OLLAMA_HOST=0.0.0.0"` under `[Service]`, then `sudo systemctl restart ollama`. Check from the container: `docker compose exec api curl -s http://host.docker.internal:11434/api/tags`. Note that this exposes Ollama to your network, so firewall it.
+* **Hosted Cloud (Production Default):** Set AWS Bedrock credentials (`BEDROCK_*`) for Claude 3.5 / Haiku + Titan Embeddings v2, or supply `GEMINI_API_KEY` / `OPENAI_API_KEY` in `.env`, then `docker compose up -d`.
+
+### Embeddings and the demo corpus
+
+The demo corpus is seeded with `--skip-embeddings` so startup is fast and works offline. Until you run `docker compose exec api python manage.py reindex_embeddings` (needs the embed provider reachable; ~1000 chunks takes a while), demo documents are searched by keyword (BM25) only. Documents you upload yourself are embedded at upload time when the embed provider is reachable. If it was not reachable, they are stored without vectors; run `reindex_embeddings` once it is.
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `host port 8000/3000 is already in use` | Stop the other process, or set `API_PORT`/`WEB_PORT` in `.env` **and** update `NEXT_PUBLIC_API_URL`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS`, `PUBLIC_BASE_URL` to the new origin. |
+| `Ollama server is not reachable` | See *Choosing an LLM* above. |
+| `required variable ... is missing` from compose | Run the launcher once so it creates `.env`; do not run `docker compose` before that. |
+| Want PostgreSQL + pgvector | Uncomment the `POSTGRES_*` block in `.env`, set `POSTGRES_HOST=db`, then `docker compose --profile pg up -d`. |
 
 ---
 
@@ -181,7 +220,7 @@ python backend/manage.py reindex_embeddings
 python backend/manage.py reindex_embeddings --all
 
 # Create or promote root platform administrators:
-python backend/manage.py create_platform_admin admin@openvault.site
+python backend/manage.py create_platform_admin admin@deskwise.site
 ```
 
 ---

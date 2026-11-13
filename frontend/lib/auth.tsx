@@ -1,8 +1,9 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import {
-  authApi, isMfaResponse, type AuthResponse, type MfaLoginResponse, type User, type UiLanguage,
+  authApi, isMfaResponse, isUiLanguage, SESSION_EXPIRED_EVENT,
+  type AuthResponse, type MfaLoginResponse, type User, type UiLanguage,
 } from './api'
 
 export interface MfaStep {
@@ -14,6 +15,7 @@ export interface MfaStep {
 interface AuthContextValue {
   user: User | null
   loading: boolean // true while restoring the session on first load
+  sessionExpired: boolean
   isEnterprise: boolean
   isPlatformAdmin: boolean
   language: UiLanguage
@@ -40,18 +42,36 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [sessionExpired, setSessionExpired] = useState(false)
+  const userRef = useRef<User | null>(null)
+  userRef.current = user
 
   // The session lives in HttpOnly cookies: ask the server who we are.
   // A 401 triggers one silent refresh inside the API client automatically.
   useEffect(() => {
     authApi
       .me()
-      .then(setUser)
+      .then((u) => {
+        setUser(u)
+        setSessionExpired(false)
+      })
       .catch(() => setUser(null))
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => {
+    const onExpired = () => {
+      if (userRef.current !== null) {
+        setSessionExpired(true)
+        setUser(null)
+      }
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
+  }, [])
+
   const apply = useCallback((res: AuthResponse) => {
+    setSessionExpired(false)
     setUser(res.user)
     return res.user
   }, [])
@@ -121,6 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* clearing cookies server-side is best-effort */
     }
+    setSessionExpired(false)
     setUser(null)
   }, [])
 
@@ -129,9 +150,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         loading,
+        sessionExpired,
         isEnterprise: !!user,
         isPlatformAdmin: !!user && (!!user.is_platform_admin || !!user.is_superuser),
-        language: user?.language === 'ur' ? 'ur' : 'en',
+        language: isUiLanguage(user?.language) ? user.language : 'en',
         setLanguage,
         enterpriseLogin,
         enterpriseRegister,

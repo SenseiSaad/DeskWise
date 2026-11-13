@@ -19,7 +19,7 @@ const COLUMNS: { title: string; links: { href: string; label: string }[] }[] = [
     links: [
       { href: '/about', label: 'About Deskwise' },
       { href: '/policy', label: 'Privacy & security' },
-      { href: 'mailto:hello@openvault.site', label: 'Contact us' },
+      { href: 'mailto:hello@deskwise.site', label: 'Contact us' },
     ],
   },
   {

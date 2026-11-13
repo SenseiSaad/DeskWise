@@ -202,3 +202,121 @@ def test_log_ask_survives_missing_company(make_company, make_user):
     user = make_user(make_company(), email="log@acme.test")
     _log_ask(user, "question", "online", "echo", 3, True, False, 0.0)
     assert AskLog.objects.filter(user=user).count() == 1
+
+
+# -------------------------------------------- two-stage indexing & speedups
+def test_prepare_chunks_searchable_before_embeddings(monkeypatch, make_company, make_user):
+    from core.models import Chunk, Document
+
+    company = make_company()
+    user = make_user(company, email="stage@acme.test", role="admin")
+
+    # Older doc already has dense vectors computed.
+    old_doc = Document.objects.create(
+        company=company, filename="cafeteria.txt", stored_path="cafeteria.txt",
+        size=32, indexing_status="ready", uploaded_by=user,
+    )
+    Chunk.objects.create(
+        document=old_doc, company=company, ord=0,
+        text="Office cafeteria lunch menu changes every Tuesday morning.",
+        embedding=rag._to_bytes([1.0, 0.0, 0.0, 0.0]),
+    )
+
+    # New doc finishes Stage 1 only (embedding=None while Stage 2 runs).
+    new_doc = Document.objects.create(
+        company=company, filename="stipend.txt", stored_path="stipend.txt",
+        size=48, indexing_status="pending", uploaded_by=user,
+    )
+    rows, pieces = rag.prepare_document_chunks(
+        new_doc, b"Remote equipment stipend is $750 per employee annually."
+    )
+    assert len(rows) == 1
+    assert rows[0].embedding is None
+    assert "$750" in new_doc.preview_text
+
+    # Even with query vectors enabled, the unembedded new doc must rank #1 via BM25.
+    monkeypatch.setattr(rag, "embed", lambda texts: [[1.0, 0.0, 0.0, 0.0]])
+    hits = rag.retrieve(user, "What is the remote equipment stipend?", k=1)
+    assert len(hits) == 1
+    assert hits[0].document_id == new_doc.id
+
+    # Stage 2 attaches vectors cleanly without recreating rows.
+    class FakeEmbed:
+        label = "fake"
+        embed_model_name = "test-embed-v1"
+
+        def embed(self, texts):
+            return [[0.0, 1.0, 0.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr(rag.providers, "get_embed_provider", lambda: FakeEmbed())
+    rag.attach_document_embeddings(new_doc, rows, pieces)
+    new_doc.refresh_from_db()
+    assert new_doc.embed_model == "test-embed-v1"
+    assert Chunk.objects.get(pk=rows[0].pk).embedding is not None
+
+
+def test_gemini_and_bedrock_parallel_embed(monkeypatch):
+    from core import providers
+
+    calls = []
+
+    def fake_json(url, payload, headers=None, timeout=6.0):
+        calls.append((url, len(payload["requests"])))
+        return {
+            "embeddings": [{"values": [float(i), 1.0]} for i, _ in enumerate(payload["requests"])]
+        }
+
+    monkeypatch.setattr(providers, "_json", fake_json)
+    g = providers.GeminiProvider(api_key="gem-k", chat_model="gemini-2.5-flash")
+    vecs = g.embed([f"chunk-{i}" for i in range(105)])
+    assert vecs is not None and len(vecs) == 105
+    assert [n for _, n in calls] == [100, 5]
+
+    class FakeBody:
+        def __init__(self, idx):
+            self.idx = idx
+
+        def read(self):
+            return json.dumps({"embedding": [float(self.idx), 0.5]}).encode()
+
+    class FakeBedrockClient:
+        def invoke_model(self, modelId, body):
+            text = json.loads(body)["inputText"]
+            idx = int(text.split("-")[1])
+            return {"body": FakeBody(idx)}
+
+    b = providers.BedrockProvider(api_key="", region="ap-south-1", chat_model="")
+    monkeypatch.setattr(b, "_client", lambda: FakeBedrockClient())
+    b_vecs = b.embed([f"item-{i}" for i in range(12)])
+    assert b_vecs is not None and len(b_vecs) == 12
+    assert [int(v[0]) for v in b_vecs] == list(range(12))
+
+
+def test_retrieve_excludes_unrelated_noise_documents(monkeypatch, make_company, make_user):
+    """Unrelated files with generic/zero score must not pad Sources when a strong match exists."""
+    company = make_company("Noise Filter Co")
+    user = make_user(company, email="nf@acme.test", role="employee")
+
+    equip = Document.objects.create(company=company, filename="equipment.txt", stored_path="e")
+    travel = Document.objects.create(company=company, filename="travel.txt", stored_path="t")
+    sec = Document.objects.create(company=company, filename="security.txt", stored_path="s")
+
+    Chunk.objects.create(
+        company=company, document=equip, ord=0,
+        text="Laptop & Equipment Policy: every full-time engineer gets an annual $1,850 laptop allowance.",
+        embedding=rag._to_bytes([0.9, 0.1, 0.0]),
+    )
+    Chunk.objects.create(
+        company=company, document=travel, ord=0,
+        text="Corporate Travel Guidelines: domestic meal reimbursement is capped at $75 per day.",
+        embedding=rag._to_bytes([0.1, 0.9, 0.0]),
+    )
+    Chunk.objects.create(
+        company=company, document=sec, ord=0,
+        text="Information Security Policy: all production logs are retained for 365 days.",
+        embedding=rag._to_bytes([0.1, 0.0, 0.9]),
+    )
+
+    monkeypatch.setattr(rag, "embed", lambda texts: [[0.9, 0.1, 0.0]])
+    hits = rag.retrieve(user, "What is the annual laptop allowance in our equipment policy?", k=4)
+    assert [h.document.filename for h in hits] == ["equipment.txt"]

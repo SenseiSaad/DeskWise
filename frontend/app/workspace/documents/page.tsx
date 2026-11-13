@@ -1,21 +1,25 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
 import {
   AlertCircle,
   Building2,
+  Check,
+  CheckCircle2,
   ChevronDown,
+  CloudUpload,
   Download,
   Eye,
   FileText,
   History,
-  Layers,
   Loader2,
   Lock,
   Pencil,
   RefreshCw,
   Search,
   Share2,
+  Sparkles,
   Tag,
   Trash2,
   Upload,
@@ -38,16 +42,20 @@ import {
 import { useAuth } from '@/lib/auth'
 import { toast } from '@/components/toaster'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { SmoothCollapse, SmoothDialogFrame, SmoothSelect } from '@/components/ui/smooth-select'
+import { useWorkspaceStore } from '@/lib/workspace-store'
 
-type Sort = 'recent' | 'downloads' | 'name'
+const EASE = [0.22, 1, 0.36, 1] as const
+
+type Sort = 'recent' | 'downloads' | 'name' | 'size'
 const eyebrow = 'text-xs font-semibold uppercase tracking-[0.16em] text-[#6b6862]'
 const focusRing =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1d1d1b]/25 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7f6f2]'
 const inputClass =
-  'h-11 w-full rounded-xl border border-[#d8d5cc] bg-[#fffdfa] px-3.5 text-sm text-[#1d1d1b] outline-none placeholder:text-[#6b6862] focus:border-[#1d1d1b]'
-const primaryBtn = `inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1d1d1b] px-4 text-xs font-medium text-white hover:bg-[#3c3b37] disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`
-const ghostBtn = `inline-flex items-center justify-center gap-1.5 rounded-full border border-[#dcdad3] bg-[#fffdfa] px-3 py-1.5 text-xs font-medium text-[#1d1d1b] hover:border-[#1d1d1b] disabled:opacity-60 ${focusRing}`
-const dangerBtn = `inline-flex items-center gap-1.5 rounded-full border border-[#e6c9c1] bg-[#fffdfa] px-3 py-1.5 text-xs font-medium text-[#9a3b2c] hover:border-[#9a3b2c] hover:bg-[#fbe4e0] disabled:opacity-50 ${focusRing}`
+  'h-11 w-full rounded-xl border border-[#d8d5cc] bg-[#fffdfa] px-3.5 text-sm text-[#1d1d1b] outline-none transition-colors placeholder:text-[#6b6862] focus:border-[#1d1d1b]'
+const primaryBtn = `inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1d1d1b] px-4 text-xs font-medium text-white transition-all duration-150 hover:bg-[#3c3b37] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`
+const ghostBtn = `inline-flex items-center justify-center gap-1.5 rounded-full border border-[#dcdad3] bg-[#fffdfa] px-3 py-1.5 text-xs font-medium text-[#1d1d1b] transition-all duration-150 hover:border-[#1d1d1b] hover:bg-[#faf8f3] active:scale-[0.98] disabled:opacity-60 ${focusRing}`
+const dangerBtn = `inline-flex items-center gap-1.5 rounded-full border border-[#e6c9c1] bg-[#fffdfa] px-3 py-1.5 text-xs font-medium text-[#9a3b2c] transition-all duration-150 hover:border-[#9a3b2c] hover:bg-[#fbe4e0] active:scale-[0.98] disabled:opacity-50 ${focusRing}`
 
 function formatBytes(n: number) {
   if (!n || n < 0) return '0 B'
@@ -81,20 +89,20 @@ function AccessBadge({
 }) {
   if (scope === 'restricted') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[#fff0d3] px-2 py-0.5 text-[11px] font-medium text-[#8a6316]">
+      <span className="inline-flex items-center gap-1 rounded-full bg-[#fff0d3] px-2.5 py-0.5 text-[11px] font-medium text-[#8a6316]">
         <Lock className="size-3" /> Selected people
       </span>
     )
   }
   if (scope === 'department') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[#e8edfb] px-2 py-0.5 text-[11px] font-medium text-[#2d529f]">
+      <span className="inline-flex items-center gap-1 rounded-full bg-[#e8edfb] px-2.5 py-0.5 text-[11px] font-medium text-[#2d529f]">
         <Users className="size-3" /> {deptName || 'Department'}
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-[#e6f1e4] px-2 py-0.5 text-[11px] font-medium text-[#4a7a5a]">
+    <span className="inline-flex items-center gap-1 rounded-full bg-[#e6f1e4] px-2.5 py-0.5 text-[11px] font-medium text-[#4a7a5a]">
       <Building2 className="size-3" /> Company-wide
     </span>
   )
@@ -109,23 +117,23 @@ function IndexingBadge({
 }) {
   if (status === 'pending') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-        <Loader2 className="size-3 animate-spin" /> Indexing…
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200/70">
+        <Loader2 className="size-3 animate-spin" /> Preparing…
       </span>
     )
   }
   if (status === 'failed') {
     return (
       <span className="inline-flex items-center gap-1">
-        <span className="inline-flex items-center gap-1 rounded-full bg-[#fbe4e0] px-2 py-0.5 text-[10px] font-medium text-[#9a3b2c]">
-          Index failed
+        <span className="inline-flex items-center gap-1 rounded-full bg-[#fbe4e0] px-2.5 py-0.5 text-[10px] font-medium text-[#9a3b2c]">
+          Needs retry
         </span>
         {onRetry && (
           <button
             type="button"
             onClick={onRetry}
-            title="Retry indexing"
-            className="rounded p-0.5 text-xs text-[#9a3b2c] hover:bg-[#fbe4e0]"
+            title="Retry preparation"
+            className="rounded-full p-1 text-xs text-[#9a3b2c] transition-colors hover:bg-[#fbe4e0]"
           >
             <RefreshCw className="size-3" />
           </button>
@@ -141,26 +149,59 @@ function UploadPanel({
   onToggle,
   categories,
   departments,
-  onUploaded,
 }: {
   open: boolean
   onToggle: () => void
   categories: string[]
   departments: Department[]
-  onUploaded: (doc: EnterpriseDoc) => void
+  onUploaded?: (doc: EnterpriseDoc) => void
 }) {
-  const [files, setFiles] = useState<File[]>([])
-  const [uploadProgress, setUploadProgress] = useState('')
-  const [category, setCategory] = useState('')
-  const [description, setDescription] = useState('')
-  const [tagsInput, setTagsInput] = useState('')
-  const [scope, setScope] = useState<'company' | 'restricted' | 'department'>('company')
-  const [deptId, setDeptId] = useState<number | ''>('')
-  const [isOkf, setIsOkf] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const {
+    stagedFiles: files,
+    setStagedFiles: setFiles,
+    docsState,
+    setDocsState,
+    enqueueUploads,
+  } = useWorkspaceStore()
+  const draft = docsState.uploadDraft
+  const category = draft.category
+  const description = draft.description
+  const tagsInput = draft.tagsInput
+  const scope = draft.accessScope
+  const deptId = draft.departmentId
+  const isOkf = draft.isOkf
+  const setCategory = (v: string) =>
+    setDocsState((s) => ({ ...s, uploadDraft: { ...s.uploadDraft, category: v } }))
+  const setDescription = (v: string) =>
+    setDocsState((s) => ({ ...s, uploadDraft: { ...s.uploadDraft, description: v } }))
+  const setTagsInput = (v: string) =>
+    setDocsState((s) => ({ ...s, uploadDraft: { ...s.uploadDraft, tagsInput: v } }))
+  const setScope = (v: 'company' | 'restricted' | 'department') =>
+    setDocsState((s) => ({ ...s, uploadDraft: { ...s.uploadDraft, accessScope: v } }))
+  const setDeptId = (v: number | '') =>
+    setDocsState((s) => ({ ...s, uploadDraft: { ...s.uploadDraft, departmentId: v } }))
+  const setIsOkf = (v: boolean) =>
+    setDocsState((s) => ({ ...s, uploadDraft: { ...s.uploadDraft, isOkf: v } }))
+  const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  async function submit(e: FormEvent<HTMLFormElement>) {
+  function handleDrop(e: DragEvent<HTMLLabelElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(false)
+    const dropped = Array.from(e.dataTransfer.files || [])
+    if (dropped.length > 0) {
+      setFiles([...files, ...dropped])
+    }
+  }
+
+  function removeFileAt(index: number) {
+    const next = files.filter((_, i) => i !== index)
+    setFiles(next)
+    if (next.length === 0 && fileRef.current) fileRef.current.value = ''
+  }
+
+  function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (files.length === 0) {
       toast.error('Choose at least one file to upload.')
@@ -170,101 +211,197 @@ function UploadPanel({
       toast.error('Please select a department.')
       return
     }
-    setBusy(true)
-    let succeeded = 0
     const tags = tagsInput
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean)
 
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i]
-      if (files.length > 1) {
-        setUploadProgress(`Uploading ${i + 1} of ${files.length}: ${f.name}…`)
-      }
-      const form = new FormData()
-      form.append('file', f)
-      form.append('category', category.trim())
-      form.append('description', description.trim())
-      form.append('access_scope', scope)
-      if (scope === 'department' && deptId) {
-        form.append('department', String(deptId))
-      }
-      if (tags.length > 0) {
-        form.append('tags', JSON.stringify(tags))
-      }
-      form.append('is_okf', String(isOkf))
+    enqueueUploads(files, {
+      category: category.trim(),
+      description: description.trim(),
+      tags,
+      isOkf,
+      accessScope: scope,
+      departmentId: deptId,
+    })
 
-      try {
-        const doc = await workApi.upload(form)
-        onUploaded(doc)
-        succeeded++
-      } catch (err) {
-        toast.error(`Failed to upload ${f.name}: ${err instanceof Error ? err.message : 'Upload error'}`)
-      }
-    }
-
-    if (succeeded > 0) {
-      toast.success(
-        files.length === 1
-          ? `"${files[0].name}" uploaded.`
-          : `${succeeded} documents uploaded successfully.`,
-      )
-    }
-    setFiles([])
-    setUploadProgress('')
-    setCategory('')
-    setDescription('')
-    setTagsInput('')
-    setScope('company')
-    setDeptId('')
-    setIsOkf(false)
+    setDocsState((s) => ({
+      ...s,
+      uploadOpen: false,
+      uploadDraft: {
+        category: '',
+        description: '',
+        tagsInput: '',
+        accessScope: 'company',
+        departmentId: '',
+        isOkf: false,
+      },
+    }))
     if (fileRef.current) fileRef.current.value = ''
-    setBusy(false)
   }
 
+  const departmentOptions = [
+    { value: '', label: 'Choose department…', description: 'Select which team can access these files' },
+    ...departments.map((d) => ({
+      value: String(d.id),
+      label: d.name,
+      badge: `${d.member_count} members`,
+    })),
+  ]
+
+  const step1Done = files.length > 0
+  const step2Done = step1Done && (scope !== 'department' || Boolean(deptId))
+
   return (
-    <div className="rounded-2xl border border-[#dedbd3] bg-[#fffdfa]">
+    <div className="overflow-hidden rounded-2xl border border-[#dedbd3] bg-[#fffdfa] shadow-sm shadow-[#1d1d1b]/[0.03] transition-shadow hover:shadow-md hover:shadow-[#1d1d1b]/[0.05]">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className={`flex w-full items-center justify-between gap-3 rounded-2xl px-5 py-4 text-left ${focusRing}`}
+        className={`flex w-full items-center justify-between gap-3 rounded-2xl px-5 py-4 text-left transition-colors hover:bg-[#faf8f3]/70 ${focusRing}`}
       >
-        <span className="flex items-center gap-3">
-          <span className="grid size-9 place-items-center rounded-xl bg-[#1d1d1b] text-white">
+        <span className="flex items-center gap-3.5">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#1d1d1b] text-white shadow-sm">
             <Upload className="size-4" />
           </span>
           <span>
-            <span className="block text-sm font-semibold">Upload a document</span>
-            <span className="block text-xs text-[#6b6862]">Add a file and choose who can access it.</span>
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-[#1d1d1b]">Upload a document</span>
+              {files.length > 0 && (
+                <span className="rounded-full bg-[#e6f1e4] px-2 py-0.5 text-[10px] font-medium text-[#3c694a]">
+                  {files.length} staged
+                </span>
+              )}
+            </span>
+            <span className="mt-0.5 block text-xs text-[#6b6862]">
+              Drop files, set who can open them, and track every step live.
+            </span>
           </span>
         </span>
-        <ChevronDown
-          className={`size-5 text-[#6b6862] transition-transform ${open ? 'rotate-180' : ''}`}
-        />
+        <motion.span
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={{ duration: 0.2, ease: EASE }}
+          className="grid size-8 shrink-0 place-items-center rounded-full bg-[#f4f2ec] text-[#5d5b55]"
+        >
+          <ChevronDown className="size-4" />
+        </motion.span>
       </button>
 
-      {open && (
-        <form onSubmit={submit} className="space-y-4 border-t border-[#eae7df] p-5">
+      <SmoothCollapse open={open}>
+        <form onSubmit={submit} className="space-y-5 border-t border-[#eae7df] p-5">
+          {/* Visible 3-step upload pipeline */}
+          <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-2.5 text-[11px]">
+            <div className={`flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-colors ${step1Done ? 'bg-[#e6f1e4]/70 text-[#2f5b36]' : 'bg-white text-[#1d1d1b] shadow-xs'}`}>
+              <span className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${step1Done ? 'bg-[#3c694a] text-white' : 'bg-[#1d1d1b] text-white'}`}>
+                {step1Done ? <Check className="size-3" /> : '1'}
+              </span>
+              <span className="truncate font-medium">Choose files</span>
+            </div>
+            <div className={`flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-colors ${step2Done ? 'bg-[#e6f1e4]/70 text-[#2f5b36]' : step1Done ? 'bg-white text-[#1d1d1b] shadow-xs' : 'text-[#6b6862]'}`}>
+              <span className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${step2Done ? 'bg-[#3c694a] text-white' : step1Done ? 'bg-[#1d1d1b] text-white' : 'bg-[#e6e3dc] text-[#6b6862]'}`}>
+                {step2Done ? <Check className="size-3" /> : '2'}
+              </span>
+              <span className="truncate font-medium">Set access</span>
+            </div>
+            <div className="flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-[#6b6862]">
+              <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#e6e3dc] text-[10px] font-semibold text-[#6b6862]">
+                3
+              </span>
+              <span className="truncate font-medium">Upload & prepare</span>
+            </div>
+          </div>
+
           <div>
-            <label htmlFor="up-file" className="mb-1.5 block text-xs font-medium text-[#1d1d1b]">
-              File(s)
+            <div className="mb-1.5 flex items-center justify-between">
+              <label htmlFor="up-file" className="text-xs font-medium text-[#1d1d1b]">
+                Files
+              </label>
+              <span className="text-[11px] text-[#6b6862]">PDF, DOCX, XLSX, TXT, MD, CSV</span>
+            </div>
+            <label
+              htmlFor="up-file"
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDragOver(true)
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              className={`group flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 py-6 text-center transition-all duration-150 ${
+                dragOver
+                  ? 'scale-[1.01] border-[#1d1d1b] bg-[#f4f1e8]'
+                  : 'border-[#dcd7cc] bg-[#faf8f3]/70 hover:border-[#1d1d1b]/50 hover:bg-[#f6f3eb]'
+              }`}
+            >
+              <input
+                ref={fileRef}
+                id="up-file"
+                type="file"
+                multiple
+                onChange={(e) => setFiles(Array.from(e.target.files || []))}
+                className="sr-only"
+              />
+              <span className="grid size-11 place-items-center rounded-2xl bg-[#efeae0] text-[#1d1d1b] transition-transform duration-150 group-hover:scale-105">
+                <CloudUpload className="size-5" />
+              </span>
+              <span className="mt-3 text-xs font-semibold text-[#1d1d1b]">
+                Click to browse or drag & drop files here
+              </span>
+              <span className="mt-1 text-[11px] text-[#6b6862]">
+                Uploads continue in the background even if you switch tabs
+              </span>
             </label>
-            <input
-              ref={fileRef}
-              id="up-file"
-              type="file"
-              multiple
-              required
-              onChange={(e) => setFiles(Array.from(e.target.files || []))}
-              className="block w-full rounded-xl border border-[#d8d5cc] bg-[#fffdfa] text-xs file:mr-4 file:border-0 file:bg-[#f2efe8] file:px-4 file:py-2.5"
-            />
-            {files.length > 1 && (
-              <p className="mt-1 text-xs text-[#6b6862]">
-                {files.length} files selected ({formatBytes(files.reduce((acc, f) => acc + f.size, 0))})
-              </p>
-            )}
+
+            <AnimatePresence>
+              {files.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.16, ease: EASE }}
+                  className="mt-3 rounded-xl border border-[#e6e2d8] bg-[#faf8f3] p-3"
+                >
+                  <div className="mb-2 flex items-center justify-between text-[11px] text-[#4c4943]">
+                    <span className="font-semibold">
+                      {files.length} {files.length === 1 ? 'file' : 'files'} ready ({formatBytes(files.reduce((acc, f) => acc + f.size, 0))})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFiles([])
+                        if (fileRef.current) fileRef.current.value = ''
+                      }}
+                      className="font-medium text-[#6b6862] underline-offset-2 hover:text-[#1d1d1b] hover:underline"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {files.map((f, idx) => (
+                      <motion.span
+                        key={`${f.name}-${f.size}-${idx}`}
+                        layout
+                        initial={{ opacity: 0, scale: 0.94 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.94 }}
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#e0dcd2] bg-white px-2.5 py-1 text-[11px] text-[#1d1d1b] shadow-2xs"
+                      >
+                        <FileText className="size-3 shrink-0 text-[#6b6862]" />
+                        <span className="max-w-[11rem] truncate font-medium">{f.name}</span>
+                        <span className="text-[10px] text-[#8a867e]">{formatBytes(f.size)}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeFileAt(idx)}
+                          aria-label={`Remove ${f.name}`}
+                          className="ml-0.5 rounded-full p-0.5 text-[#6b6862] hover:bg-[#f2efe8] hover:text-[#1d1d1b]"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </motion.span>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -274,21 +411,33 @@ function UploadPanel({
               </label>
               <input
                 id="up-category"
-                list="up-category-options"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. HR or Finance"
+                placeholder="e.g. HR, Finance, Operations"
                 className={inputClass}
               />
-              <datalist id="up-category-options">
-                {categories.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
+              {categories.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {categories.slice(0, 5).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setCategory(c)}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                        category === c
+                          ? 'bg-[#1d1d1b] text-white'
+                          : 'bg-[#f0ede6] text-[#5d5b55] hover:bg-[#e5e1d7]'
+                      }`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label htmlFor="up-tags" className="mb-1.5 block text-xs font-medium text-[#1d1d1b]">
-                Tags (comma-separated)
+                Tags <span className="font-normal text-[#6b6862]">(optional, comma-separated)</span>
               </label>
               <input
                 id="up-tags"
@@ -302,7 +451,7 @@ function UploadPanel({
 
           <div>
             <label htmlFor="up-description" className="mb-1.5 block text-xs font-medium text-[#1d1d1b]">
-              Description
+              Short description <span className="font-normal text-[#6b6862]">(optional)</span>
             </label>
             <input
               id="up-description"
@@ -313,121 +462,124 @@ function UploadPanel({
             />
           </div>
 
-          <fieldset className="rounded-xl border border-[#eae7df] bg-[#faf8f3] p-4">
-            <legend className="px-1 text-xs font-medium text-[#1d1d1b]">Who can access this document?</legend>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <label
-                className={`cursor-pointer rounded-xl border p-3.5 ${
-                  scope === 'company'
-                    ? 'border-[#1d1d1b] bg-white ring-2 ring-[#1d1d1b]/10'
-                    : 'border-[#dcdad3]'
-                }`}
-              >
-                <input
-                  type="radio"
-                  className="sr-only"
-                  checked={scope === 'company'}
-                  onChange={() => setScope('company')}
-                />
-                <span className="flex items-center gap-2 text-xs font-medium text-[#1d1d1b]">
-                  <Building2 className="size-3.5" /> Entire company
-                </span>
-                <span className="mt-1 block text-[11px] leading-relaxed text-[#6b6862]">
-                  All active members can search and view it.
-                </span>
-              </label>
-
-              <label
-                className={`cursor-pointer rounded-xl border p-3.5 ${
-                  scope === 'department'
-                    ? 'border-[#1d1d1b] bg-white ring-2 ring-[#1d1d1b]/10'
-                    : 'border-[#dcdad3]'
-                }`}
-              >
-                <input
-                  type="radio"
-                  className="sr-only"
-                  checked={scope === 'department'}
-                  onChange={() => setScope('department')}
-                />
-                <span className="flex items-center gap-2 text-xs font-medium text-[#1d1d1b]">
-                  <Users className="size-3.5" /> Department only
-                </span>
-                <span className="mt-1 block text-[11px] leading-relaxed text-[#6b6862]">
-                  Scoped to one specific department.
-                </span>
-              </label>
-
-              <label
-                className={`cursor-pointer rounded-xl border p-3.5 ${
-                  scope === 'restricted'
-                    ? 'border-[#1d1d1b] bg-white ring-2 ring-[#1d1d1b]/10'
-                    : 'border-[#dcdad3]'
-                }`}
-              >
-                <input
-                  type="radio"
-                  className="sr-only"
-                  checked={scope === 'restricted'}
-                  onChange={() => setScope('restricted')}
-                />
-                <span className="flex items-center gap-2 text-xs font-medium text-[#1d1d1b]">
-                  <Lock className="size-3.5" /> Selected people
-                </span>
-                <span className="mt-1 block text-[11px] leading-relaxed text-[#6b6862]">
-                  Only you and named grantees can view it.
-                </span>
-              </label>
+          <fieldset className="rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-4">
+            <legend className="px-1 text-xs font-semibold text-[#1d1d1b]">Who can access this document?</legend>
+            <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
+              {[
+                {
+                  id: 'company' as const,
+                  title: 'Entire company',
+                  desc: 'All active members can open and ask AI about it.',
+                  icon: Building2,
+                },
+                {
+                  id: 'department' as const,
+                  title: 'Department only',
+                  desc: 'Visible only to members of one team.',
+                  icon: Users,
+                },
+                {
+                  id: 'restricted' as const,
+                  title: 'Selected people',
+                  desc: 'Private to you and people you share with.',
+                  icon: Lock,
+                },
+              ].map((item) => {
+                const Icon = item.icon
+                const active = scope === item.id
+                return (
+                  <label
+                    key={item.id}
+                    className={`relative cursor-pointer rounded-xl border p-3.5 transition-all duration-150 ${
+                      active
+                        ? 'border-[#1d1d1b] bg-white shadow-sm ring-2 ring-[#1d1d1b]/10'
+                        : 'border-[#dcdad3] bg-[#fffdfa]/60 hover:border-[#b9b5ab] hover:bg-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      className="sr-only"
+                      checked={active}
+                      onChange={() => setScope(item.id)}
+                    />
+                    <span className="flex items-center justify-between gap-2 text-xs font-semibold text-[#1d1d1b]">
+                      <span className="flex items-center gap-2">
+                        <Icon className="size-3.5" /> {item.title}
+                      </span>
+                      {active && (
+                        <span className="grid size-4 place-items-center rounded-full bg-[#1d1d1b] text-white">
+                          <Check className="size-2.5" />
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-1.5 block text-[11px] leading-relaxed text-[#6b6862]">
+                      {item.desc}
+                    </span>
+                  </label>
+                )
+              })}
             </div>
 
-            {scope === 'department' && (
+            <SmoothCollapse open={scope === 'department'}>
               <div className="mt-3">
-                <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Select Department</label>
-                <select
-                  value={deptId}
-                  onChange={(e) => setDeptId(e.target.value ? Number(e.target.value) : '')}
-                  className={inputClass}
-                  required
-                >
-                  <option value="">Choose department…</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} ({d.member_count} members)
-                    </option>
-                  ))}
-                </select>
+                <label className="mb-1.5 block text-xs font-medium text-[#1d1d1b]">Select Department</label>
+                <SmoothSelect
+                  value={deptId === '' ? '' : String(deptId)}
+                  onChange={(val) => setDeptId(val ? Number(val) : '')}
+                  options={departmentOptions}
+                  placeholder="Choose department…"
+                  ariaLabel="Select department"
+                />
               </div>
-            )}
+            </SmoothCollapse>
           </fieldset>
 
-          <label className="flex items-center gap-2 text-xs text-[#4f4d47]">
-            <input
-              type="checkbox"
-              checked={isOkf}
-              onChange={(e) => setIsOkf(e.target.checked)}
-            />
-            Include as a trusted AI reference note (OKF)
+          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-[#eae7df] bg-[#faf8f3]/70 px-3.5 py-2.5 text-xs text-[#3b3934] transition-colors hover:bg-[#faf8f3]">
+            <span className="flex items-center gap-2.5">
+              <Sparkles className="size-4 text-[#6b6862]" />
+              <span>
+                <span className="block font-medium text-[#1d1d1b]">Official reference document</span>
+                <span className="block text-[11px] text-[#6b6862]">
+                  Prioritize this file as a verified source when answering team questions
+                </span>
+              </span>
+            </span>
+            <span className="relative inline-flex shrink-0 items-center">
+              <input
+                type="checkbox"
+                checked={isOkf}
+                onChange={(e) => setIsOkf(e.target.checked)}
+                className="sr-only"
+              />
+              <span
+                className={`flex h-5 w-9 items-center rounded-full p-0.5 transition-colors duration-200 ${
+                  isOkf ? 'bg-[#1d1d1b]' : 'bg-[#d8d4ca]'
+                }`}
+              >
+                <span
+                  className={`size-4 rounded-full bg-white shadow-xs transition-transform duration-200 ${
+                    isOkf ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </span>
+            </span>
           </label>
 
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <button type="submit" disabled={busy || files.length === 0} className={primaryBtn}>
-              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-              {busy
-                ? uploadProgress || 'Uploading…'
-                : files.length > 1
-                ? `Upload ${files.length} documents`
-                : 'Upload document'}
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             <span className="text-xs text-[#6b6862]">
               {files.length === 0
-                ? 'No file selected'
+                ? 'Choose at least one file to continue'
                 : files.length === 1
-                ? files[0].name
-                : `${files.length} files queued`}
+                ? `Ready to upload: ${files[0].name}`
+                : `${files.length} files queued for background preparation`}
             </span>
+            <button type="submit" disabled={files.length === 0} className={primaryBtn}>
+              <Upload className="size-3.5" />
+              {files.length > 1 ? `Upload ${files.length} documents` : 'Upload document'}
+            </button>
           </div>
         </form>
-      )}
+      </SmoothCollapse>
     </div>
   )
 }
@@ -459,54 +611,54 @@ function PreviewModal({
   }, [doc.id])
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-[#eae7df] pb-3">
-          <div className="flex items-center gap-2">
-            <Eye className="size-4 text-[#1d1d1b]" />
-            <h2 className="text-sm font-semibold text-[#1d1d1b]">{doc.filename}</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1 text-[#6b6862] hover:bg-[#efece4]"
-          >
-            <X className="size-4" />
-          </button>
+    <SmoothDialogFrame
+      onClose={onClose}
+      maxWidthClass="max-w-2xl"
+      panelClassName="flex max-h-[85vh] flex-col p-6"
+      ariaLabel={`Preview ${doc.filename}`}
+    >
+      <div className="flex items-center justify-between border-b border-[#eae7df] pb-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Eye className="size-4 shrink-0 text-[#1d1d1b]" />
+          <h2 className="truncate text-sm font-semibold text-[#1d1d1b]">{doc.filename}</h2>
         </div>
-
-        <div className="flex-1 overflow-y-auto py-4">
-          {loading ? (
-            <div className="grid h-48 place-items-center text-xs text-[#6b6862]">
-              <span className="inline-flex items-center gap-2">
-                <Loader2 className="size-4 animate-spin" /> Loading extracted text…
-              </span>
-            </div>
-          ) : error ? (
-            <p className="rounded-xl bg-[#fbe4e0] p-4 text-xs text-[#9a3b2c]">{error}</p>
-          ) : (
-            <div>
-              <p className="mb-2 text-[11px] text-[#6b6862]">
-                Extracted text used for search and AI reasoning ({data?.num_chunks} chunks
-                {data?.truncated ? ' · truncated for preview' : ''}):
-              </p>
-              <div className="rounded-2xl border border-[#eae7df] bg-[#f9f8f5] p-4 font-mono text-xs leading-relaxed text-[#2c2b29] whitespace-pre-wrap">
-                {data?.text || '(No text content extracted)'}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end border-t border-[#eae7df] pt-3">
-          <button type="button" onClick={onClose} className={ghostBtn}>
-            Close
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full p-1.5 text-[#6b6862] transition-colors hover:bg-[#efece4] hover:text-[#1d1d1b]"
+        >
+          <X className="size-4" />
+        </button>
       </div>
-    </div>
+
+      <div className="flex-1 overflow-y-auto py-4">
+        {loading ? (
+          <div className="grid h-48 place-items-center text-xs text-[#6b6862]">
+            <span className="inline-flex items-center gap-2">
+              <Loader2 className="size-4 animate-spin" /> Loading document preview…
+            </span>
+          </div>
+        ) : error ? (
+          <p className="rounded-xl bg-[#fbe4e0] p-4 text-xs text-[#9a3b2c]">{error}</p>
+        ) : (
+          <div>
+            <p className="mb-2 text-[11px] text-[#6b6862]">
+              Readable content prepared for instant search and AI answers
+              {data?.truncated ? ' (showing excerpt)' : ''}
+            </p>
+            <div className="rounded-2xl border border-[#eae7df] bg-[#f9f8f5] p-4 font-mono text-xs leading-relaxed text-[#2c2b29] whitespace-pre-wrap">
+              {data?.text || '(No readable text extracted from this file)'}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end border-t border-[#eae7df] pt-3">
+        <button type="button" onClick={onClose} className={ghostBtn}>
+          Close
+        </button>
+      </div>
+    </SmoothDialogFrame>
   )
 }
 
@@ -561,83 +713,90 @@ function VersionsModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-[#eae7df] pb-3">
-          <div className="flex items-center gap-2">
-            <History className="size-4 text-[#1d1d1b]" />
-            <h2 className="text-sm font-semibold text-[#1d1d1b]">Version history: {doc.filename}</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1 text-[#6b6862] hover:bg-[#efece4]"
-          >
-            <X className="size-4" />
-          </button>
+    <SmoothDialogFrame
+      onClose={onClose}
+      maxWidthClass="max-w-lg"
+      panelClassName="flex max-h-[85vh] flex-col p-6"
+      ariaLabel={`Version history for ${doc.filename}`}
+    >
+      <div className="flex items-center justify-between border-b border-[#eae7df] pb-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <History className="size-4 shrink-0 text-[#1d1d1b]" />
+          <h2 className="truncate text-sm font-semibold text-[#1d1d1b]">
+            Version history: {displayTitle(doc.filename)}
+          </h2>
         </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full p-1.5 text-[#6b6862] transition-colors hover:bg-[#efece4] hover:text-[#1d1d1b]"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto py-4">
-          <form onSubmit={handleUpload} className="rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-3.5">
-            <p className="text-xs font-semibold text-[#1d1d1b]">Upload new version</p>
-            <p className="mt-0.5 text-[11px] text-[#6b6862]">
-              The current file will be archived in version history.
-            </p>
-            <div className="mt-3 flex gap-2">
+      <div className="flex-1 space-y-4 overflow-y-auto py-4">
+        <form onSubmit={handleUpload} className="rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-3.5">
+          <p className="text-xs font-semibold text-[#1d1d1b]">Upload new version</p>
+          <p className="mt-0.5 text-[11px] text-[#6b6862]">
+            The current file will be saved in version history.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-xl border border-dashed border-[#d8d5cc] bg-white px-3 py-2 text-xs text-[#6b6862] transition-colors hover:border-[#1d1d1b]">
               <input
                 type="file"
-                required
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="w-full text-xs file:mr-3 file:rounded-xl file:border-0 file:bg-[#f0ede6] file:px-3 file:py-1.5"
+                className="sr-only"
               />
-              <button
-                type="submit"
-                disabled={uploading || !file}
-                className={primaryBtn}
-              >
-                {uploading ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3" />}
-                Upload
-              </button>
-            </div>
-            {error && <p className="mt-2 text-xs text-[#9a3b2c]">{error}</p>}
-          </form>
-
-          <div>
-            <p className="mb-2 text-xs font-semibold text-[#6b6862]">Past versions</p>
-            {loading ? (
-              <p className="text-xs text-[#6b6862]">Loading versions…</p>
-            ) : versions.length === 0 ? (
-              <p className="text-xs text-[#6b6862]">No previous versions on file.</p>
-            ) : (
-              <ul className="space-y-2">
-                {versions.map((v) => (
-                  <li
-                    key={v.id}
-                    className="flex items-center justify-between rounded-xl border border-[#eae7df] bg-white p-3 text-xs"
-                  >
-                    <div>
-                      <span className="font-semibold text-[#1d1d1b]">Version {v.version_number}</span>
-                      <p className="text-[#6b6862]">
-                        {v.filename} · {formatBytes(v.size)} · {formatDate(v.created_at)}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+              <CloudUpload className="size-4 shrink-0 text-[#1d1d1b]" />
+              <span className="truncate font-medium text-[#1d1d1b]">
+                {file ? file.name : 'Choose replacement file…'}
+              </span>
+            </label>
+            <button
+              type="submit"
+              disabled={uploading || !file}
+              className={primaryBtn}
+            >
+              {uploading ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3" />}
+              Upload
+            </button>
           </div>
-        </div>
+          {error && <p className="mt-2 text-xs text-[#9a3b2c]">{error}</p>}
+        </form>
 
-        <div className="flex justify-end border-t border-[#eae7df] pt-3">
-          <button type="button" onClick={onClose} className={ghostBtn}>
-            Done
-          </button>
+        <div>
+          <p className="mb-2 text-xs font-semibold text-[#6b6862]">Past versions</p>
+          {loading ? (
+            <p className="text-xs text-[#6b6862]">Loading versions…</p>
+          ) : versions.length === 0 ? (
+            <p className="text-xs text-[#6b6862]">No previous versions on file.</p>
+          ) : (
+            <ul className="space-y-2">
+              {versions.map((v) => (
+                <li
+                  key={v.id}
+                  className="flex items-center justify-between rounded-xl border border-[#eae7df] bg-white p-3 text-xs"
+                >
+                  <div>
+                    <span className="font-semibold text-[#1d1d1b]">Version {v.version_number}</span>
+                    <p className="text-[#6b6862]">
+                      {v.filename} · {formatBytes(v.size)} · {formatDate(v.created_at)}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
-    </div>
+
+      <div className="flex justify-end border-t border-[#eae7df] pt-3">
+        <button type="button" onClick={onClose} className={ghostBtn}>
+          Done
+        </button>
+      </div>
+    </SmoothDialogFrame>
   )
 }
 
@@ -687,94 +846,93 @@ function EditMetadataModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-[#eae7df] pb-3">
-          <h2 className="text-sm font-semibold text-[#1d1d1b]">Edit document metadata</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1 text-[#6b6862] hover:bg-[#efece4]"
-          >
-            <X className="size-4" />
-          </button>
+    <SmoothDialogFrame
+      onClose={onClose}
+      maxWidthClass="max-w-md"
+      panelClassName="p-6"
+      ariaLabel="Edit document details"
+    >
+      <div className="flex items-center justify-between border-b border-[#eae7df] pb-3">
+        <h2 className="text-sm font-semibold text-[#1d1d1b]">Edit document details</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full p-1.5 text-[#6b6862] transition-colors hover:bg-[#efece4] hover:text-[#1d1d1b]"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSave} className="mt-4 space-y-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Description</label>
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className={inputClass}
+          />
         </div>
 
-        <form onSubmit={handleSave} className="mt-4 space-y-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Category</label>
+          <input
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Tags (comma separated)</label>
+          <input
+            value={tagsInput}
+            onChange={(e) => setTagsInput(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Who can view</label>
+          <SmoothSelect<EnterpriseDoc['access_scope']>
+            value={scope}
+            onChange={setScope}
+            ariaLabel="Access scope"
+            options={[
+              { value: 'company', label: 'Company-wide', description: 'All active team members' },
+              { value: 'department', label: 'Department only', description: 'Restricted to one department' },
+              { value: 'restricted', label: 'Restricted (selected people)', description: 'Only you and named recipients' },
+            ]}
+          />
+        </div>
+
+        <SmoothCollapse open={scope === 'department'}>
           <div>
-            <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Description</label>
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className={inputClass}
+            <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Department</label>
+            <SmoothSelect
+              value={deptId === '' ? '' : String(deptId)}
+              onChange={(val) => setDeptId(val ? Number(val) : '')}
+              ariaLabel="Department"
+              placeholder="Select department…"
+              options={[
+                { value: '', label: 'Select department…' },
+                ...departments.map((d) => ({ value: String(d.id), label: d.name })),
+              ]}
             />
           </div>
+        </SmoothCollapse>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Category</label>
-            <input
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className={inputClass}
-            />
-          </div>
+        {error && <p className="text-xs text-[#9a3b2c]">{error}</p>}
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Tags (comma separated)</label>
-            <input
-              value={tagsInput}
-              onChange={(e) => setTagsInput(e.target.value)}
-              className={inputClass}
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Access Scope</label>
-            <select
-              value={scope}
-              onChange={(e) => setScope(e.target.value as EnterpriseDoc['access_scope'])}
-              className={inputClass}
-            >
-              <option value="company">Company-wide</option>
-              <option value="department">Department</option>
-              <option value="restricted">Restricted (selected people)</option>
-            </select>
-          </div>
-
-          {scope === 'department' && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Department</label>
-              <select
-                value={deptId}
-                onChange={(e) => setDeptId(e.target.value ? Number(e.target.value) : '')}
-                className={inputClass}
-              >
-                <option value="">Select department…</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {error && <p className="text-xs text-[#9a3b2c]">{error}</p>}
-
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className={ghostBtn}>
-              Cancel
-            </button>
-            <button type="submit" disabled={saving} className={primaryBtn}>
-              {saving ? <Loader2 className="size-3.5 animate-spin" /> : 'Save changes'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className={ghostBtn}>
+            Cancel
+          </button>
+          <button type="submit" disabled={saving} className={primaryBtn}>
+            {saving ? <Loader2 className="size-3.5 animate-spin" /> : 'Save changes'}
+          </button>
+        </div>
+      </form>
+    </SmoothDialogFrame>
   )
 }
 
@@ -854,78 +1012,89 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-2xl rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3 border-b border-[#eae7df] p-5">
-          <div>
-            <p className="flex items-center gap-2 text-sm font-semibold">
-              <Share2 className="size-4" /> Control document access
-            </p>
-            <p className="mt-1 truncate text-xs text-[#6b6862]">{displayTitle(doc.filename)}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="grid size-8 place-items-center rounded-full text-[#6b6862] hover:bg-[#efece4]"
-          >
-            <X className="size-4" />
-          </button>
+    <SmoothDialogFrame
+      onClose={onClose}
+      maxWidthClass="max-w-2xl"
+      ariaLabel="Control document access"
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-[#eae7df] p-5">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-sm font-semibold text-[#1d1d1b]">
+            <Share2 className="size-4 shrink-0" /> Control document access
+          </p>
+          <p className="mt-1 truncate text-xs text-[#6b6862]">{displayTitle(doc.filename)}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="grid size-8 shrink-0 place-items-center rounded-full text-[#6b6862] transition-colors hover:bg-[#efece4] hover:text-[#1d1d1b]"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      <div className="space-y-4 p-5">
+        <div className="rounded-2xl bg-[#f5f2ea] p-4">
+          <p className="text-xs font-semibold text-[#1d1d1b]">Find a registered company</p>
+          <p className="mt-0.5 text-xs text-[#6b6862]">
+            Enter a partner company code to grant specific people access to this document.
+          </p>
+          <form onSubmit={findCompany} className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              maxLength={8}
+              placeholder="Company code, e.g. A7K2Q9XB"
+              className={`${inputClass} uppercase`}
+            />
+            <button
+              type="submit"
+              disabled={searching || code.trim().length < 3}
+              className={primaryBtn}
+            >
+              {searching ? <Loader2 className="size-3.5 animate-spin" /> : <Search className="size-3.5" />}
+              Find
+            </button>
+          </form>
         </div>
 
-        <div className="space-y-4 p-5">
-          <div className="rounded-xl bg-[#f5f2ea] p-4">
-            <p className="text-xs font-semibold">Find a registered company</p>
-            <p className="mt-0.5 text-xs text-[#6b6862]">
-              Enter company code to grant specific employees cross-tenant access.
-            </p>
-            <form onSubmit={findCompany} className="mt-3 flex gap-2">
-              <input
-                value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                maxLength={5}
-                placeholder="Company code, e.g. A7K2Q"
-                className={`${inputClass} uppercase`}
-              />
-              <button
-                type="submit"
-                disabled={searching || code.trim().length < 3}
-                className={primaryBtn}
-              >
-                {searching ? <Loader2 className="size-3.5 animate-spin" /> : <Search className="size-3.5" />}
-                Find
-              </button>
-            </form>
-          </div>
-
+        <AnimatePresence>
           {company && (
-            <form onSubmit={addShare} className="rounded-xl border border-[#dcdad3] p-4">
+            <motion.form
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: EASE }}
+              onSubmit={addShare}
+              className="rounded-2xl border border-[#dcdad3] bg-white p-4"
+            >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold">{company.name}</p>
+                  <p className="text-xs font-semibold text-[#1d1d1b]">{company.name}</p>
                   <p className="text-[11px] text-[#6b6862]">
                     Code {company.access_code} · {company.member_count} members
                   </p>
                 </div>
                 <Building2 className="size-4 text-[#6b6862]" />
               </div>
-              <div className="mt-3 flex gap-2">
-                <select
-                  value={selectedId}
-                  onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : '')}
-                  className={`${inputClass} flex-1`}
-                >
-                  <option value="">Choose employee…</option>
-                  {members.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.full_name || `Member #${m.id}`}
-                      {m.title ? ` · ${m.title}` : ''} ({m.role})
-                    </option>
-                  ))}
-                </select>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <div className="flex-1">
+                  <SmoothSelect
+                    value={selectedId === '' ? '' : String(selectedId)}
+                    onChange={(val) => setSelectedId(val ? Number(val) : '')}
+                    placeholder="Choose employee…"
+                    ariaLabel="Choose employee"
+                    options={[
+                      { value: '', label: 'Choose employee…' },
+                      ...members.map((m) => ({
+                        value: String(m.id),
+                        label: `${m.full_name || `Member #${m.id}`}${m.title ? ` · ${m.title}` : ''}`,
+                        badge: m.role,
+                      })),
+                    ]}
+                  />
+                </div>
                 <button
                   type="submit"
                   disabled={adding || selectedId === ''}
@@ -935,79 +1104,109 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
                   Share
                 </button>
               </div>
-            </form>
+            </motion.form>
           )}
+        </AnimatePresence>
 
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6862]">
-              Named people with access
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6862]">
+            Named people with access
+          </p>
+          {loading ? (
+            <p className="flex items-center gap-2 text-xs text-[#6b6862]">
+              <Loader2 className="size-3.5 animate-spin" /> Loading…
             </p>
-            {loading ? (
-              <p className="flex items-center gap-2 text-xs text-[#6b6862]">
-                <Loader2 className="size-3.5 animate-spin" /> Loading…
-              </p>
-            ) : shares.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-[#dcdad3] px-4 py-4 text-center text-xs text-[#6b6862]">
-                No named recipients yet.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {shares.map((s) => (
-                  <li
-                    key={s.user_id}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-[#eae7df] bg-[#faf8f3] px-3.5 py-2.5"
+          ) : shares.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-[#dcdad3] px-4 py-4 text-center text-xs text-[#6b6862]">
+              No named recipients yet.
+            </p>
+          ) : (
+            <ul className="max-h-52 space-y-2 overflow-y-auto pr-1">
+              {shares.map((s) => (
+                <li
+                  key={s.user_id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-[#eae7df] bg-[#faf8f3] px-3.5 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-[#1d1d1b]">
+                      {s.full_name || s.email}
+                      {s.title ? ` · ${s.title}` : ''}
+                    </p>
+                    <p className="truncate text-[11px] text-[#6b6862]">
+                      {s.email} · {s.company_name || 'Company'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => revoke(s.user_id)}
+                    disabled={removing === s.user_id}
+                    className={dangerBtn}
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium">
-                        {s.full_name || s.email}
-                        {s.title ? ` · ${s.title}` : ''}
-                      </p>
-                      <p className="truncate text-[11px] text-[#6b6862]">
-                        {s.email} · {s.company_name || 'Company'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => revoke(s.user_id)}
-                      disabled={removing === s.user_id}
-                      className={dangerBtn}
-                    >
-                      {removing === s.user_id ? (
-                        <Loader2 className="size-3 animate-spin" />
-                      ) : (
-                        <Trash2 className="size-3" />
-                      )}
-                      Revoke
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                    {removing === s.user_id ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <Trash2 className="size-3" />
+                    )}
+                    Revoke
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
-    </div>
+    </SmoothDialogFrame>
   )
 }
 
 export default function DocumentsPage() {
   const { user } = useAuth()
+  const {
+    docsState,
+    setDocsState,
+    docsRevision,
+    bumpDocsRevision,
+    uploadJobs,
+    dismissUploadJobs,
+  } = useWorkspaceStore()
   const [docs, setDocs] = useState<EnterpriseDoc[]>([])
   const [totalCount, setTotalCount] = useState(0)
-  const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
-  const [query, setQuery] = useState('')
-  const [category, setCategory] = useState('')
-  const [selectedTag, setSelectedTag] = useState('')
-  const [sort, setSort] = useState<Sort>('recent')
+  const { query, category, selectedTag, sort, uploadOpen, page } = docsState
+  const setPage = useCallback(
+    (v: number | ((cur: number) => number)) =>
+      setDocsState((s) => ({ ...s, page: typeof v === 'function' ? v(s.page) : v })),
+    [setDocsState],
+  )
+  const setQuery = useCallback(
+    (v: string) => setDocsState((s) => ({ ...s, query: v, page: 1 })),
+    [setDocsState],
+  )
+  const setCategory = useCallback(
+    (v: string) => setDocsState((s) => ({ ...s, category: v, page: 1 })),
+    [setDocsState],
+  )
+  const setSelectedTag = useCallback(
+    (v: string) => setDocsState((s) => ({ ...s, selectedTag: v, page: 1 })),
+    [setDocsState],
+  )
+  const setSort = useCallback(
+    (v: Sort) => setDocsState((s) => ({ ...s, sort: v })),
+    [setDocsState],
+  )
+  const setUploadOpen = useCallback(
+    (v: boolean | ((cur: boolean) => boolean)) =>
+      setDocsState((s) => ({ ...s, uploadOpen: typeof v === 'function' ? v(s.uploadOpen) : v })),
+    [setDocsState],
+  )
+
   const [departments, setDepartments] = useState<Department[]>([])
 
   // Selection & Actions state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [uploadOpen, setUploadOpen] = useState(false)
   const [shareDoc, setShareDoc] = useState<EnterpriseDoc | null>(null)
   const [confirmDoc, setConfirmDoc] = useState<EnterpriseDoc | null>(null)
   const [confirmBatch, setConfirmBatch] = useState(false)
@@ -1016,6 +1215,7 @@ export default function DocumentsPage() {
   const [editDoc, setEditDoc] = useState<EnterpriseDoc | null>(null)
 
   const [busy, setBusy] = useState<Set<number>>(new Set())
+  const [downloadedIds, setDownloadedIds] = useState<Set<number>>(new Set())
   const [actionError, setActionError] = useState('')
 
   const load = useCallback((targetPage = 1) => {
@@ -1055,6 +1255,13 @@ export default function DocumentsPage() {
     return () => clearInterval(interval)
   }, [hasPending, page, refreshSilent])
 
+  // Refresh immediately when background uploads finish or change indexing state.
+  useEffect(() => {
+    if (docsRevision > 0) {
+      refreshSilent(page)
+    }
+  }, [docsRevision, page, refreshSilent])
+
   useEffect(() => {
     load(1)
     companyApi2.departments().then(setDepartments).catch(() => setDepartments([]))
@@ -1091,6 +1298,7 @@ export default function DocumentsPage() {
       .sort((a, b) => {
         if (sort === 'name') return displayTitle(a.filename).localeCompare(displayTitle(b.filename))
         if (sort === 'downloads') return b.downloads - a.downloads
+        if (sort === 'size') return b.size - a.size
         return +new Date(b.created_at) - +new Date(a.created_at)
       })
   }, [docs, query, category, selectedTag, sort])
@@ -1110,6 +1318,14 @@ export default function DocumentsPage() {
       setDocs((prev) =>
         prev.map((d) => (d.id === doc.id ? { ...d, downloads: d.downloads + 1 } : d)),
       )
+      setDownloadedIds((prev) => new Set(prev).add(doc.id))
+      window.setTimeout(() => {
+        setDownloadedIds((prev) => {
+          const next = new Set(prev)
+          next.delete(doc.id)
+          return next
+        })
+      }, 2200)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Download failed.')
     } finally {
@@ -1208,25 +1424,25 @@ export default function DocumentsPage() {
 
       {/* Stats Cards */}
       <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4">
+        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-2xs transition-shadow hover:shadow-sm">
           <p className="text-[11px] uppercase tracking-[0.1em] text-[#6b6862]">Documents</p>
-          <p className="mt-1 text-2xl font-semibold">{totalCount || docs.length}</p>
+          <p className="mt-1 text-2xl font-semibold text-[#1d1d1b]">{totalCount || docs.length}</p>
         </div>
-        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4">
-          <p className="text-[11px] uppercase tracking-[0.1em] text-[#6b6862]">Restricted</p>
-          <p className="mt-1 text-2xl font-semibold">
+        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-2xs transition-shadow hover:shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.1em] text-[#6b6862]">Private</p>
+          <p className="mt-1 text-2xl font-semibold text-[#1d1d1b]">
             {docs.filter((d) => d.access_scope === 'restricted').length}
           </p>
         </div>
-        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4">
-          <p className="text-[11px] uppercase tracking-[0.1em] text-[#6b6862]">Indexed chunks</p>
-          <p className="mt-1 text-2xl font-semibold">
-            {docs.reduce((n, d) => n + (d.num_chunks || 0), 0)}
+        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-2xs transition-shadow hover:shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.1em] text-[#6b6862]">Search-ready</p>
+          <p className="mt-1 text-2xl font-semibold text-[#1d1d1b]">
+            {docs.filter((d) => d.indexing_status !== 'pending' && d.indexing_status !== 'failed').length}
           </p>
         </div>
-        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4">
+        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-2xs transition-shadow hover:shadow-sm">
           <p className="text-[11px] uppercase tracking-[0.1em] text-[#6b6862]">Downloads</p>
-          <p className="mt-1 text-2xl font-semibold">
+          <p className="mt-1 text-2xl font-semibold text-[#1d1d1b]">
             {docs.reduce((n, d) => n + (d.downloads || 0), 0)}
           </p>
         </div>
@@ -1242,43 +1458,148 @@ export default function DocumentsPage() {
             onUploaded={(d) => {
               setDocs((prev) => [d, ...prev])
               setTotalCount((c) => c + 1)
+              bumpDocsRevision()
             }}
           />
         </section>
       )}
 
+      <AnimatePresence>
+        {uploadJobs.length > 0 && (
+          <motion.section
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: EASE }}
+            className="mt-4 rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-xs"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs font-medium text-[#1d1d1b]">
+                {uploadJobs.some((j) => j.status === 'queued' || j.status === 'uploading' || j.status === 'indexing') ? (
+                  <Loader2 className="size-3.5 animate-spin text-sky-600" />
+                ) : (
+                  <CheckCircle2 className="size-3.5 text-emerald-600" />
+                )}
+                <span>
+                  Document progress ({uploadJobs.filter((j) => j.status === 'ready').length}/{uploadJobs.length} ready)
+                </span>
+              </div>
+              {!uploadJobs.some((j) => j.status === 'queued' || j.status === 'uploading') && (
+                <button
+                  type="button"
+                  onClick={dismissUploadJobs}
+                  className="text-[11px] font-medium text-[#6b6862] transition-colors hover:text-[#1d1d1b]"
+                >
+                  Clear list
+                </button>
+              )}
+            </div>
+            <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+              {uploadJobs.map((job) => {
+                const pct =
+                  job.status === 'ready'
+                    ? 100
+                    : job.status === 'indexing'
+                    ? 75
+                    : job.status === 'uploading'
+                    ? 40
+                    : job.status === 'failed'
+                    ? 100
+                    : 15
+                const stageLabel =
+                  job.status === 'queued'
+                    ? 'Queued'
+                    : job.status === 'uploading'
+                    ? 'Step 1/3 · Uploading'
+                    : job.status === 'indexing'
+                    ? 'Step 2/3 · Reading & preparing'
+                    : job.status === 'ready'
+                    ? 'Step 3/3 · Ready to search'
+                    : job.error || 'Failed'
+                const barColor =
+                  job.status === 'ready'
+                    ? 'bg-emerald-500'
+                    : job.status === 'failed'
+                    ? 'bg-rose-500'
+                    : job.status === 'indexing'
+                    ? 'bg-amber-500'
+                    : 'bg-sky-500'
+                return (
+                  <div
+                    key={job.id}
+                    className="rounded-xl border border-[#ece9e2] bg-[#faf8f3] p-3 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 flex-1 truncate font-medium text-[#1d1d1b]">
+                        {job.filename}
+                      </span>
+                      <span
+                        className={`shrink-0 text-[11px] font-medium ${
+                          job.status === 'ready'
+                            ? 'text-emerald-700'
+                            : job.status === 'failed'
+                            ? 'text-rose-700'
+                            : job.status === 'indexing'
+                            ? 'text-amber-700'
+                            : 'text-sky-700'
+                        }`}
+                      >
+                        {stageLabel}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#e6e2d8]">
+                      <motion.div
+                        initial={{ width: '8%' }}
+                        animate={{ width: `${pct}%` }}
+                        transition={{ duration: 0.35, ease: EASE }}
+                        className={`h-full rounded-full ${barColor}`}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
+
       {/* Filter and search bar */}
       <section className="mt-6 space-y-3">
         <div className="flex flex-col gap-3 sm:flex-row">
-          <div className="relative flex h-11 flex-1 items-center rounded-xl border border-[#d8d5cc] bg-[#fffdfa]">
+          <div className="relative flex h-11 flex-1 items-center rounded-xl border border-[#d8d5cc] bg-[#fffdfa] transition-colors focus-within:border-[#1d1d1b]">
             <Search className="absolute left-3.5 size-4 text-[#6b6862]" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               aria-label="Search documents"
               placeholder="Search by title, description, category, tags…"
-              className="h-full w-full bg-transparent pl-10 pr-4 text-xs outline-none"
+              className="h-full w-full bg-transparent pl-10 pr-4 text-xs text-[#1d1d1b] outline-none placeholder:text-[#6b6862]"
             />
           </div>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className={`${inputClass} sm:w-44`}
-          >
-            <option value="">All categories</option>
-            {categories.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as Sort)}
-            className={`${inputClass} sm:w-40`}
-          >
-            <option value="recent">Most recent</option>
-            <option value="downloads">Most downloaded</option>
-            <option value="name">Name A–Z</option>
-          </select>
+          <div className="sm:w-48">
+            <SmoothSelect
+              value={category}
+              onChange={setCategory}
+              ariaLabel="Filter by category"
+              options={[
+                { value: '', label: 'All categories' },
+                ...categories.map((c) => ({ value: c, label: c })),
+              ]}
+            />
+          </div>
+          <div className="sm:w-44">
+            <SmoothSelect<Sort>
+              value={sort}
+              onChange={setSort}
+              ariaLabel="Sort documents"
+              options={[
+                { value: 'recent', label: 'Most recent' },
+                { value: 'downloads', label: 'Most downloaded' },
+                { value: 'size', label: 'Largest size' },
+                { value: 'name', label: 'Name A–Z' },
+              ]}
+            />
+          </div>
         </div>
 
         {/* Tag Filter Chips */}
@@ -1288,7 +1609,7 @@ export default function DocumentsPage() {
             <button
               type="button"
               onClick={() => setSelectedTag('')}
-              className={`rounded-full px-2.5 py-0.5 text-[11px] transition ${
+              className={`rounded-full px-2.5 py-0.5 text-[11px] transition-colors ${
                 !selectedTag ? 'bg-[#1d1d1b] text-white' : 'bg-[#f0ede6] text-[#6b6862] hover:bg-[#e6e3dc]'
               }`}
             >
@@ -1299,7 +1620,7 @@ export default function DocumentsPage() {
                 key={tg}
                 type="button"
                 onClick={() => setSelectedTag(selectedTag === tg ? '' : tg)}
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] transition ${
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] transition-colors ${
                   selectedTag === tg
                     ? 'bg-[#1d1d1b] text-white'
                     : 'bg-[#f0ede6] text-[#4f4d47] hover:bg-[#e6e3dc]'
@@ -1321,7 +1642,7 @@ export default function DocumentsPage() {
               type="checkbox"
               checked={selectedIds.size > 0 && selectedIds.size === visible.length}
               onChange={toggleSelectAll}
-              className="size-4 rounded"
+              className="size-4 rounded accent-[#1d1d1b]"
             />
             <span className="text-[#6b6862]">
               {selectedIds.size > 0
@@ -1354,9 +1675,14 @@ export default function DocumentsPage() {
       {/* Document List */}
       <section className="mt-4">
         {loading ? (
-          <p className="flex items-center gap-2 text-xs text-[#6b6862]">
-            <Loader2 className="size-4 animate-spin" /> Loading documents…
-          </p>
+          <div className="space-y-3">
+            {[0, 1, 2].map((skeleton) => (
+              <div
+                key={skeleton}
+                className="h-24 animate-pulse rounded-2xl border border-[#eae7df] bg-[#fffdfa]/80"
+              />
+            ))}
+          </div>
         ) : loadError ? (
           <div className="rounded-3xl border border-[#e6c9c1] bg-[#fbe4e0] p-10 text-center">
             <p className="text-xs text-[#9a3b2c]">{loadError}</p>
@@ -1367,151 +1693,181 @@ export default function DocumentsPage() {
         ) : visible.length === 0 ? (
           <div className="rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-12 text-center">
             <p className="font-serif text-xl italic">No documents found.</p>
-            <p className="mt-1 text-xs text-[#6b6862]">Upload a document or change filters.</p>
+            <p className="mt-1 text-xs text-[#6b6862]">Upload a document or adjust your filters.</p>
           </div>
         ) : (
           <ul className="space-y-3">
-            {visible.map((doc) => (
-              <li
-                key={doc.id}
-                className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 transition hover:border-[#dcdad3]"
-              >
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="flex min-w-0 items-start gap-3">
-                    {editor && (
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(doc.id)}
-                        onChange={() => toggleSelect(doc.id)}
-                        className="mt-1 size-4 rounded"
-                      />
-                    )}
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#f2efe8]">
-                      <FileText className="size-4 text-[#5d5b55]" />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2
-                          className="truncate text-xs font-semibold text-[#1d1d1b]"
-                          title={doc.filename}
-                        >
-                          {displayTitle(doc.filename)}
-                        </h2>
-                        <AccessBadge
-                          scope={doc.access_scope}
-                          deptName={doc.department_name}
+            {visible.map((doc) => {
+              const isBusy = busy.has(doc.id)
+              const justDownloaded = downloadedIds.has(doc.id)
+              const statusText =
+                doc.indexing_status === 'pending'
+                  ? 'Preparing for search…'
+                  : doc.indexing_status === 'failed'
+                  ? 'Needs retry'
+                  : 'Search-ready'
+              return (
+                <li
+                  key={doc.id}
+                  className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-2xs transition-all duration-150 hover:border-[#d5d1c6] hover:shadow-md hover:shadow-[#1d1d1b]/[0.04]"
+                >
+                  <div className="flex flex-col gap-3.5 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      {editor && (
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(doc.id)}
+                          onChange={() => toggleSelect(doc.id)}
+                          className="mt-1 size-4 rounded accent-[#1d1d1b]"
                         />
-                        <IndexingBadge
-                          status={doc.indexing_status}
-                          onRetry={() => retryIndex(doc)}
-                        />
-                        {doc.version > 1 && (
-                          <span className="rounded bg-[#f0ede6] px-1.5 py-0.5 text-[10px] text-[#6b6862]">
-                            v{doc.version}
-                          </span>
-                        )}
-                      </div>
-
-                      {doc.description && (
-                        <p className="mt-1 line-clamp-2 text-xs text-[#6b6862]">
-                          {doc.description}
-                        </p>
                       )}
+                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#f2efe8]">
+                        <FileText className="size-4 text-[#5d5b55]" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2
+                            className="truncate text-sm font-semibold text-[#1d1d1b]"
+                            title={doc.filename}
+                          >
+                            {displayTitle(doc.filename)}
+                          </h2>
+                          <AccessBadge
+                            scope={doc.access_scope}
+                            deptName={doc.department_name}
+                          />
+                          <IndexingBadge
+                            status={doc.indexing_status}
+                            onRetry={() => retryIndex(doc)}
+                          />
+                          {doc.version > 1 && (
+                            <span className="rounded-full bg-[#f0ede6] px-2 py-0.5 text-[10px] font-medium text-[#6b6862]">
+                              v{doc.version}
+                            </span>
+                          )}
+                        </div>
 
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[#6b6862]">
-                        <span>{doc.category || 'Uncategorized'}</span>
-                        <span>·</span>
-                        <span>{formatBytes(doc.size)}</span>
-                        <span>·</span>
-                        <span className="inline-flex items-center gap-1">
-                          <Layers className="size-3" />
-                          {doc.num_chunks} chunks
-                        </span>
-                        <span>·</span>
-                        <span>{formatDate(doc.created_at)}</span>
-
-                        {doc.tags && doc.tags.length > 0 && (
-                          <>
-                            <span>·</span>
-                            <div className="flex flex-wrap gap-1">
-                              {doc.tags.map((tg) => (
-                                <span
-                                  key={tg}
-                                  className="rounded bg-[#f4f2ec] px-1.5 py-0.2 text-[10px] text-[#555]"
-                                >
-                                  #{tg}
-                                </span>
-                              ))}
-                            </div>
-                          </>
+                        {doc.description && (
+                          <p className="mt-1 line-clamp-2 text-xs text-[#6b6862]">
+                            {doc.description}
+                          </p>
                         )}
+
+                        <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#6b6862]">
+                          <span className="rounded-full bg-[#f4f2ec] px-2 py-0.5 font-medium text-[#4f4d47]">
+                            {doc.category || 'General'}
+                          </span>
+                          <span>{formatBytes(doc.size)}</span>
+                          <span>·</span>
+                          <span
+                            className={
+                              doc.indexing_status === 'failed'
+                                ? 'font-medium text-[#9a3b2c]'
+                                : doc.indexing_status === 'pending'
+                                ? 'font-medium text-amber-700'
+                                : 'text-[#4a7a5a]'
+                            }
+                          >
+                            {statusText}
+                          </span>
+                          <span>·</span>
+                          <span>{formatDate(doc.created_at)}</span>
+                          {doc.downloads > 0 && (
+                            <>
+                              <span>·</span>
+                              <span>{doc.downloads} downloads</span>
+                            </>
+                          )}
+
+                          {doc.tags && doc.tags.length > 0 && (
+                            <>
+                              <span>·</span>
+                              <div className="flex flex-wrap gap-1">
+                                {doc.tags.map((tg) => (
+                                  <span
+                                    key={tg}
+                                    className="rounded-full bg-[#f4f2ec] px-2 py-0.5 text-[10px] text-[#555]"
+                                  >
+                                    #{tg}
+                                  </span>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Actions */}
-                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDoc(doc)}
-                      className={ghostBtn}
-                      title="Preview extracted text"
-                    >
-                      <Eye className="size-3.5" /> Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => download(doc)}
-                      disabled={busy.has(doc.id)}
-                      className={ghostBtn}
-                    >
-                      {busy.has(doc.id) ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Download className="size-3.5" />
+                    {/* Actions */}
+                    <div className="flex shrink-0 flex-wrap items-center gap-1.5 pt-1 lg:pt-0">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc(doc)}
+                        className={ghostBtn}
+                        title="Preview document content"
+                      >
+                        <Eye className="size-3.5" /> Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => download(doc)}
+                        disabled={isBusy}
+                        className={
+                          justDownloaded
+                            ? `inline-flex items-center justify-center gap-1.5 rounded-full border border-[#b7dcc0] bg-[#e6f1e4] px-3 py-1.5 text-xs font-medium text-[#2f5b36] transition-all duration-150 ${focusRing}`
+                            : ghostBtn
+                        }
+                      >
+                        {isBusy ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : justDownloaded ? (
+                          <Check className="size-3.5" />
+                        ) : (
+                          <Download className="size-3.5" />
+                        )}
+                        {isBusy ? 'Preparing…' : justDownloaded ? 'Downloaded ✓' : 'Download'}
+                      </button>
+                      {editor && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setVersionsDoc(doc)}
+                            className={ghostBtn}
+                            title="Version history"
+                          >
+                            <History className="size-3.5" /> Versions
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditDoc(doc)}
+                            className={ghostBtn}
+                            title="Edit details"
+                          >
+                            <Pencil className="size-3.5" /> Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShareDoc(doc)}
+                            disabled={isBusy}
+                            className={ghostBtn}
+                          >
+                            <Share2 className="size-3.5" /> Share
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDoc(doc)}
+                            disabled={isBusy}
+                            className={dangerBtn}
+                          >
+                            <Trash2 className="size-3.5" /> Delete
+                          </button>
+                        </>
                       )}
-                      Download
-                    </button>
-                    {editor && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setVersionsDoc(doc)}
-                          className={ghostBtn}
-                          title="Version history"
-                        >
-                          <History className="size-3.5" /> Versions
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditDoc(doc)}
-                          className={ghostBtn}
-                          title="Edit metadata"
-                        >
-                          <Pencil className="size-3.5" /> Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShareDoc(doc)}
-                          disabled={busy.has(doc.id)}
-                          className={ghostBtn}
-                        >
-                          <Share2 className="size-3.5" /> Share
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDoc(doc)}
-                          disabled={busy.has(doc.id)}
-                          className={dangerBtn}
-                        >
-                          <Trash2 className="size-3.5" /> Delete
-                        </button>
-                      </>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </li>
-            ))}
+                </li>
+              )
+            })}
           </ul>
         )}
 
@@ -1542,27 +1898,31 @@ export default function DocumentsPage() {
       </section>
 
       {/* Modals */}
-      {shareDoc && <ShareDialog doc={shareDoc} onClose={() => setShareDoc(null)} />}
-      {previewDoc && <PreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
-      {versionsDoc && (
-        <VersionsModal
-          doc={versionsDoc}
-          onClose={() => setVersionsDoc(null)}
-          onUpdated={(updated) => {
-            setDocs((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
-          }}
-        />
-      )}
-      {editDoc && (
-        <EditMetadataModal
-          doc={editDoc}
-          departments={departments}
-          onClose={() => setEditDoc(null)}
-          onSaved={(updated) => {
-            setDocs((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {shareDoc && <ShareDialog key={`share-${shareDoc.id}`} doc={shareDoc} onClose={() => setShareDoc(null)} />}
+        {previewDoc && <PreviewModal key={`preview-${previewDoc.id}`} doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
+        {versionsDoc && (
+          <VersionsModal
+            key={`versions-${versionsDoc.id}`}
+            doc={versionsDoc}
+            onClose={() => setVersionsDoc(null)}
+            onUpdated={(updated) => {
+              setDocs((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+            }}
+          />
+        )}
+        {editDoc && (
+          <EditMetadataModal
+            key={`edit-${editDoc.id}`}
+            doc={editDoc}
+            departments={departments}
+            onClose={() => setEditDoc(null)}
+            onSaved={(updated) => {
+              setDocs((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Confirm Single Delete */}
       <ConfirmDialog

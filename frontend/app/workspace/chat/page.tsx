@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize from 'rehype-sanitize'
@@ -9,7 +10,6 @@ import {
   CalendarCheck,
   Check,
   CheckCircle2,
-  ChevronDown,
   ClipboardCopy,
   Copy,
   ExternalLink,
@@ -37,12 +37,11 @@ import {
   Wand2,
   X,
 } from 'lucide-react'
+import { SmoothSelect } from '@/components/ui/smooth-select'
 import { useAuth } from '@/lib/auth'
 import {
-  askStream,
   artifactDownloadUrl,
   artifactsApi,
-  chatApi,
   docgenApi,
   downloadGeneratedForm,
   workApi,
@@ -52,23 +51,12 @@ import {
   type LlmStatus,
   type WorkflowResult,
 } from '@/lib/api'
+import type { UiLanguage } from '@/lib/api'
 import { t } from '@/lib/i18n'
 import { toast } from '@/components/toaster'
+import { useWorkspaceStore, type WorkspaceChatMessage } from '@/lib/workspace-store'
 
-type Message = {
-  id?: number
-  role: 'user' | 'assistant'
-  content: string
-  sources?: string[]
-  rating?: number | null
-  error?: boolean
-  mode?: ChatMode
-  flag?: { message: string; categories: string[] }
-  workflow?: WorkflowResult
-  artifacts?: Artifact[]
-  missingFields?: string[]
-  question?: string
-}
+type Message = WorkspaceChatMessage
 
 function modeLabel(mode?: ChatMode): string {
   if (mode === 'online') return 'AWS Bedrock'
@@ -91,20 +79,31 @@ const DOCUMENT_EXAMPLES = [
 
 export default function WorkspaceChatPage() {
   const { user, language } = useAuth()
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [streaming, setStreaming] = useState(false)
-  const [llm, setLlm] = useState<LlmStatus | null>(null)
-  const [mode, setMode] = useState<ChatMode>('local')
-  const [modeInit, setModeInit] = useState(false)
+  const { chat } = useWorkspaceStore()
+  const {
+    messages,
+    setMessages,
+    input,
+    setInput,
+    streaming,
+    llm,
+    mode,
+    setMode,
+    conversations,
+    currentConversationId,
+    sidebarOpen,
+    setSidebarOpen,
+    loadingConv,
+    refreshLlmStatus: refreshLlm,
+    refreshConversations: loadConversations,
+    selectConversation: storeSelectConversation,
+    newChat: storeNewChat,
+    deleteConversation: storeDeleteConversation,
+    rateMessage: handleRate,
+    send: storeSend,
+    stop,
+  } = chat
 
-  // Chat conversation history state
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [currentConversationId, setCurrentConversationId] = useState<number | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [loadingConv, setLoadingConv] = useState(false)
-
-  const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -114,34 +113,9 @@ export default function WorkspaceChatPage() {
     }
   }, [])
 
-  const refreshLlm = useCallback(() => {
-    workApi.llmStatus().then((status) => {
-      setLlm(status)
-      if (!modeInit && status) {
-        setModeInit(true)
-        if (status.provider === 'bedrock' && status.online_api?.online) setMode('online')
-        else if (status.provider === 'gemini' && status.gemini?.online) setMode('gemini')
-        else if (status.provider === 'selfhosted' && status.selfhosted?.online) setMode('selfhosted')
-        else if (status.local?.online) setMode('local')
-        else if (status.online_api?.online) setMode('online')
-        else if (status.gemini?.online) setMode('gemini')
-        else if (status.selfhosted?.online) setMode('selfhosted')
-      }
-    }).catch(() => setLlm(null))
-  }, [modeInit])
-
-  const loadConversations = useCallback(async () => {
-    try {
-      const res = await chatApi.conversations()
-      setConversations(res.results || [])
-    } catch {
-      /* non-blocking */
-    }
-  }, [])
-
   useEffect(() => {
-    refreshLlm()
-    loadConversations()
+    void refreshLlm()
+    void loadConversations()
   }, [refreshLlm, loadConversations])
 
   useEffect(() => {
@@ -167,64 +141,24 @@ export default function WorkspaceChatPage() {
   const selectConversation = useCallback(
     async (id: number) => {
       if (streaming) return
-      setCurrentConversationId(id)
       if (typeof window !== 'undefined' && window.innerWidth < 1024) setSidebarOpen(false)
-      setLoadingConv(true)
-      try {
-        const res = await chatApi.messages(id)
-        setMessages(
-          res.messages.map((m) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            sources: m.sources || [],
-            rating: m.rating,
-          })),
-        )
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Could not load conversation.')
-      } finally {
-        setLoadingConv(false)
-      }
+      await storeSelectConversation(id)
     },
-    [streaming],
+    [streaming, setSidebarOpen, storeSelectConversation],
   )
 
   const handleNewChat = useCallback(() => {
     if (streaming) return
-    setCurrentConversationId(null)
-    setMessages([])
-  }, [streaming])
+    storeNewChat()
+  }, [streaming, storeNewChat])
 
   const handleDeleteConversation = useCallback(
     async (id: number, e: React.MouseEvent) => {
       e.stopPropagation()
-      try {
-        await chatApi.remove(id)
-        setConversations((prev) => prev.filter((c) => c.id !== id))
-        if (currentConversationId === id) {
-          setCurrentConversationId(null)
-          setMessages([])
-        }
-        toast.success('Conversation removed.')
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Could not delete conversation.')
-      }
+      await storeDeleteConversation(id)
     },
-    [currentConversationId],
+    [storeDeleteConversation],
   )
-
-  const handleRate = useCallback(async (msgIndex: number, messageId: number, rating: 1 | -1) => {
-    setMessages((prev) =>
-      prev.map((m, idx) => (idx === msgIndex ? { ...m, rating } : m)),
-    )
-    try {
-      await chatApi.rate(messageId, rating)
-      toast.success(rating === 1 ? 'Marked helpful.' : 'Feedback recorded.')
-    } catch {
-      toast.error('Could not save rating.')
-    }
-  }, [])
 
   const send = useCallback(
     async (question: string) => {
@@ -234,83 +168,10 @@ export default function WorkspaceChatPage() {
         toast.error(`${modeLabel(mode)} is not connected or reachable. Check AI settings or switch models.`)
         return
       }
-      setInput('')
-      setStreaming(true)
-
-      setMessages((m) => [
-        ...m,
-        { role: 'user', content: q, mode },
-        { role: 'assistant', content: '', mode, question: q },
-      ])
-
-      const controller = new AbortController()
-      abortRef.current = controller
-      try {
-        await askStream(
-          q,
-          (e) => {
-            if (e.type === 'conversation') {
-              setCurrentConversationId(e.conversation_id)
-              loadConversations()
-              return
-            }
-            setMessages((m) => {
-              const last = m[m.length - 1]
-              if (last?.role !== 'assistant') return m
-              const updated: Message = { ...last }
-              if (e.type === 'sources') updated.sources = e.sources
-              else if (e.type === 'saved') updated.id = e.message_id
-              else if (e.type === 'flag')
-                updated.flag = { message: e.message, categories: e.categories }
-              else if (e.type === 'token') updated.content += e.token
-              else if (e.type === 'workflow') updated.workflow = e
-              else if (e.type === 'artifact') {
-                updated.artifacts = [...(updated.artifacts || []), e.artifact]
-                // Artifact-only answers have no token stream: show the finished
-                // document as the message so copy/download works immediately.
-                if (!updated.content) updated.content = e.artifact.content_md
-                else if (updated.artifacts.length > 1)
-                  updated.content += '\n\n---\n\n' + e.artifact.content_md
-              } else if (e.type === 'missing_fields')
-                updated.missingFields = e.fields
-              else if (e.type === 'error') {
-                updated.content = e.message
-                updated.error = true
-              }
-              return [...m.slice(0, -1), updated]
-            })
-          },
-          controller.signal,
-          { mode, conversationId: currentConversationId },
-        )
-      } catch (err) {
-        if (!controller.signal.aborted) {
-          setMessages((m) => {
-            const last = m[m.length - 1]
-            if (last?.role !== 'assistant' || last.content) return m
-            return [
-              ...m.slice(0, -1),
-              {
-                ...last,
-                content: err instanceof Error ? err.message : 'Something went wrong.',
-                error: true,
-              },
-            ]
-          })
-        }
-      } finally {
-        setStreaming(false)
-        abortRef.current = null
-        loadConversations()
-      }
+      await storeSend(question)
     },
-    [streaming, mode, currentConversationId, loadConversations, isModeAvailable],
+    [streaming, mode, isModeAvailable, storeSend],
   )
-
-  const stop = useCallback(() => {
-    abortRef.current?.abort()
-    setStreaming(false)
-  }, [])
 
   return (
     <div className="relative flex h-[calc(100dvh-13rem)] min-h-0 overflow-hidden rounded-[28px] border border-[#e6e3dc] bg-[#fffdfa] shadow-sm lg:h-[calc(100dvh-5rem)] lg:min-h-[34rem]">
@@ -404,7 +265,7 @@ function HistorySidebar({
   onNewChat: () => void
   onSelect: (id: number) => void
   onDelete: (id: number, e: React.MouseEvent) => void
-  lang: 'en' | 'ur'
+  lang: UiLanguage
 }) {
   return (
     <>
@@ -599,28 +460,24 @@ function ChatHeader({
       </div>
 
       <div className="flex min-w-0 items-center gap-2">
-        <span
-          className={`size-2 shrink-0 rounded-full ${currentOpt.ready ? 'bg-[#4a8a5c]' : 'bg-[#b9b6ae]'}`}
-          title={currentOpt.ready ? `${currentOpt.label} ready` : `${currentOpt.label} offline`}
-        />
-        <label className="relative min-w-0">
-          <span className="sr-only">AI model</span>
-          <CurrentIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#6b6862]" />
-          <select
+        <div className="w-[12.5rem] sm:w-[15.5rem]">
+          <SmoothSelect<ChatMode>
+            size="pill"
+            align="right"
             value={mode}
-            onChange={(e) => onModeChange(e.target.value as ChatMode)}
-            title={currentOpt.model ? `${currentOpt.label} · ${currentOpt.model}` : currentOpt.label}
-            className="max-w-[11.5rem] appearance-none truncate rounded-full border border-[#d8d5cc] bg-[#f4f2ec] py-1.5 pl-8 pr-8 text-[11px] font-medium text-[#1d1d1b] outline-none transition hover:border-[#c9c6bd] focus:border-[#1d1d1b] sm:max-w-[15rem]"
-          >
-            {options.map((opt) => (
-              <option key={opt.id} value={opt.id} disabled={!opt.ready && opt.id !== mode}>
-                {opt.label}
-                {opt.ready ? '' : ' · offline'}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#6b6862]" />
-        </label>
+            onChange={onModeChange}
+            ariaLabel="AI model"
+            leadingIcon={<CurrentIcon className="size-3.5" />}
+            options={options.map((opt) => ({
+              value: opt.id,
+              label: opt.label,
+              description: opt.model || undefined,
+              badge: opt.ready ? 'Ready' : 'Offline',
+              dot: opt.ready ? 'online' : 'offline',
+              disabled: !opt.ready && opt.id !== mode,
+            }))}
+          />
+        </div>
       </div>
     </header>
   )
@@ -724,7 +581,7 @@ function FormattedMessage({
   // HTML that a template or an LLM answer might contain before it reaches the
   // DOM. No Markdown symbols are ever shown to the user.
   return (
-    <div ref={onNode} className="ov-md text-sm text-[#20211f]">
+    <div ref={onNode} dir="auto" className="ov-md text-sm text-[#20211f]">
       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
         {content}
       </ReactMarkdown>
@@ -754,7 +611,7 @@ function fieldInput(raw: string): FieldInput {
   if (/currency/.test(key)) {
     return {
       raw, label: 'Currency', type: 'select',
-      options: ['PKR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'Other'],
+      options: ['USD', 'EUR', 'GBP', 'AED', 'SGD', 'PKR', 'Other'],
     }
   }
   if (/receipt/.test(key)) {
@@ -805,6 +662,7 @@ function ArtifactCard({ a }: { a: Artifact }) {
   const hasStructured = !!s.sections?.length || !!s.table?.length
   const [view, setView] = useState<'form' | 'text'>(hasStructured ? 'form' : 'text')
   const [busy, setBusy] = useState<'docx' | 'pdf' | null>(null)
+  const [savedFmt, setSavedFmt] = useState<'docx' | 'pdf' | null>(null)
   const missing = a.missing_fields?.length || 0
   const filled = (a.filled_fields || []).map(prettyFieldName)
 
@@ -813,6 +671,8 @@ function ArtifactCard({ a }: { a: Artifact }) {
     try {
       setBusy(fmt)
       await downloadGeneratedForm(url, `${a.title || 'document'}.${fmt}`)
+      setSavedFmt(fmt)
+      window.setTimeout(() => setSavedFmt((cur) => (cur === fmt ? null : cur)), 2000)
     } catch {
       toast.error('Could not prepare the download.')
     } finally {
@@ -850,19 +710,31 @@ function ArtifactCard({ a }: { a: Artifact }) {
             type="button"
             disabled={busy !== null}
             onClick={() => download('docx')}
-            className="inline-flex items-center gap-1 rounded-lg border border-[#cfe0d0] bg-white px-2.5 py-1.5 text-[10px] font-medium text-[#2f5b36] transition hover:bg-[#f1f7f0] disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-full border border-[#cfe0d0] bg-white px-3 py-1.5 text-[10px] font-medium text-[#2f5b36] transition-all duration-150 hover:bg-[#f1f7f0] active:scale-[0.97] disabled:opacity-50"
           >
-            {busy === 'docx' ? <Loader2 className="size-3 animate-spin" /> : <FileDown className="size-3" />}
-            DOCX
+            {busy === 'docx' ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : savedFmt === 'docx' ? (
+              <Check className="size-3" />
+            ) : (
+              <FileDown className="size-3" />
+            )}
+            {savedFmt === 'docx' ? 'Saved' : 'DOCX'}
           </button>
           <button
             type="button"
             disabled={busy !== null}
             onClick={() => download('pdf')}
-            className="inline-flex items-center gap-1 rounded-lg border border-[#cfe0d0] bg-white px-2.5 py-1.5 text-[10px] font-medium text-[#2f5b36] transition hover:bg-[#f1f7f0] disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-full border border-[#cfe0d0] bg-white px-3 py-1.5 text-[10px] font-medium text-[#2f5b36] transition-all duration-150 hover:bg-[#f1f7f0] active:scale-[0.97] disabled:opacity-50"
           >
-            {busy === 'pdf' ? <Loader2 className="size-3 animate-spin" /> : <FileSpreadsheet className="size-3" />}
-            PDF
+            {busy === 'pdf' ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : savedFmt === 'pdf' ? (
+              <Check className="size-3" />
+            ) : (
+              <FileSpreadsheet className="size-3" />
+            )}
+            {savedFmt === 'pdf' ? 'Saved' : 'PDF'}
           </button>
         </div>
       </div>
@@ -896,8 +768,16 @@ function ArtifactCard({ a }: { a: Artifact }) {
           </span>
         </div>
 
-        {view === 'form' && hasStructured ? (
-          <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+        <AnimatePresence mode="wait">
+          {view === 'form' && hasStructured ? (
+            <motion.div
+              key="form"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="max-h-72 space-y-3 overflow-y-auto pr-1"
+            >
             {s.table?.length ? (
               <table className="w-full text-left text-xs">
                 <tbody>
@@ -940,12 +820,20 @@ function ArtifactCard({ a }: { a: Artifact }) {
                 </dl>
               </div>
             ))}
-          </div>
-        ) : (
-          <div className="max-h-72 overflow-y-auto rounded-xl border border-[#f0ede6] bg-[#fffdfa] px-3 py-2.5 pr-2">
-            <FormattedMessage content={a.content_md} />
-          </div>
-        )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="text"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="max-h-72 overflow-y-auto rounded-xl border border-[#f0ede6] bg-[#fffdfa] px-3 py-2.5 pr-2"
+            >
+              <FormattedMessage content={a.content_md} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )
@@ -1001,16 +889,18 @@ function MissingFieldsCard({
             >
               <span className="mb-1 block text-[11px] font-medium text-[#8a6516]">{f.label}</span>
               {f.type === 'select' ? (
-                <select
+                <SmoothSelect
                   value={values[f.raw] || ''}
-                  onChange={(e) => setValues((v) => ({ ...v, [f.raw]: e.target.value }))}
-                  className={common}
-                >
-                  <option value="">Select {f.label.toLowerCase()}…</option>
-                  {f.options?.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setValues((v) => ({ ...v, [f.raw]: val }))}
+                  placeholder={`Select ${f.label.toLowerCase()}…`}
+                  ariaLabel={f.label}
+                  size="sm"
+                  className="border-[#e6dcc0] bg-white"
+                  options={[
+                    { value: '', label: `Select ${f.label.toLowerCase()}…` },
+                    ...(f.options || []).map((opt) => ({ value: opt, label: opt })),
+                  ]}
+                />
               ) : f.type === 'textarea' ? (
                 <textarea
                   value={values[f.raw] || ''}
@@ -1068,7 +958,7 @@ function Bubble({
   streaming: boolean
   documentRequest?: boolean
   onRate?: (rating: 1 | -1) => void
-  lang?: 'en' | 'ur'
+  lang?: UiLanguage
 }) {
   const [copied, setCopied] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)

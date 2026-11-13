@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   Activity,
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { adminApi, type AuditRow } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { useWorkspaceStore } from '@/lib/workspace-store'
 
 // Shared keyboard focus treatment, matching the rest of Deskwise.
 const focusRing =
@@ -70,19 +71,36 @@ const actorLabel = (id: number | null): string => (id === null ? 'system' : `#${
 
 export default function AuditLogPage() {
   const { user } = useAuth()
+  const { auditState, setAuditState } = useWorkspaceStore()
   const isAdmin = user?.role === 'admin'
 
   const [rows, setRows] = useState<AuditRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
-  const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
 
-  const [search, setSearch] = useState('')
-  const [actionFilter, setActionFilter] = useState('all')
-  const [actorFilter, setActorFilter] = useState('all')
+  const { search, actionFilter, actorFilter, page } = auditState
+  const pageRef = useRef(page)
+  pageRef.current = page
+
+  const setPage = useCallback(
+    (p: number) => setAuditState((s) => ({ ...s, page: p })),
+    [setAuditState],
+  )
+  const setSearch = useCallback(
+    (v: string) => setAuditState((s) => ({ ...s, search: v })),
+    [setAuditState],
+  )
+  const setActionFilter = useCallback(
+    (v: string) => setAuditState((s) => ({ ...s, actionFilter: v })),
+    [setAuditState],
+  )
+  const setActorFilter = useCallback(
+    (v: string) => setAuditState((s) => ({ ...s, actorFilter: v })),
+    [setAuditState],
+  )
 
   const load = useCallback(async (mode: 'initial' | 'refresh', targetPage = 1) => {
     if (mode === 'refresh') setRefreshing(true)
@@ -104,10 +122,10 @@ export default function AuditLogPage() {
       if (mode === 'refresh') setRefreshing(false)
       else setLoading(false)
     }
-  }, [])
+  }, [setPage])
 
   useEffect(() => {
-    if (isAdmin) load('initial', 1)
+    if (isAdmin) load('initial', pageRef.current)
   }, [isAdmin, load])
 
   // Overview metrics describe the full loaded record (up to 200 rows).

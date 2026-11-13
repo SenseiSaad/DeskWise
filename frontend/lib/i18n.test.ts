@@ -8,7 +8,9 @@ describe('i18n', () => {
     expect(t('loading')).toBe('Loading…')
   })
 
-  it('returns Roman Urdu when requested', () => {
+  it('returns localized strings for supported global languages', () => {
+    expect(t('documents', 'es')).toBe('Documentos')
+    expect(t('language', 'fr')).toBe('Langue')
     expect(t('documents', 'ur')).toBe('Documents')
     expect(t('welcomeBack', 'ur')).toBe('Khush amdeed,')
     expect(t('markPresent', 'ur')).toContain('haziri')
@@ -20,11 +22,13 @@ describe('i18n', () => {
     expect(ur('cancel')).toBe(' Mansookh')
   })
 
-  it('never returns an empty string for a known key', () => {
+  it('never returns an empty string for a known key across all supported languages', () => {
     const keys = ['askAi', 'shared', 'attendance', 'audit', 'usagePlan', 'sources'] as const
+    const langs = ['en', 'es', 'fr', 'de', 'ar', 'pt', 'ur'] as const
     for (const key of keys) {
-      expect(t(key, 'en').length).toBeGreaterThan(0)
-      expect(t(key, 'ur').length).toBeGreaterThan(0)
+      for (const lang of langs) {
+        expect(t(key, lang).length).toBeGreaterThan(0)
+      }
     }
   })
 })

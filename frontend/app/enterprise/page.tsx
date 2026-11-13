@@ -31,6 +31,7 @@ function EnterpriseInner() {
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [expiredNotice, setExpiredNotice] = useState(params.get('expired') === '1')
   const [showSignInPassword, setShowSignInPassword] = useState(false)
   const [showCreatePassword, setShowCreatePassword] = useState(false)
   // Platform-admin two-factor step: set after the password check succeeded.
@@ -42,6 +43,7 @@ function EnterpriseInner() {
   async function onSignIn(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError('')
+    setExpiredNotice(false)
     setBusy(true)
     const f = new FormData(e.currentTarget)
     try {
@@ -83,6 +85,7 @@ function EnterpriseInner() {
   async function onCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError('')
+    setExpiredNotice(false)
     setBusy(true)
     const f = new FormData(e.currentTarget)
     try {
@@ -236,6 +239,15 @@ function EnterpriseInner() {
                 Create an organization
               </button>
             </div>
+
+            {!error && !mfa && expiredNotice && (
+              <p
+                role="status"
+                className="mt-5 rounded-lg border border-warn/30 bg-warn-soft px-3.5 py-2.5 text-[12px] text-warn"
+              >
+                Session expired. Please sign in again.
+              </p>
+            )}
 
             {error && (
               <p

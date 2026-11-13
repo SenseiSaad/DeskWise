@@ -24,7 +24,7 @@ BASE_PROFILES = {
         "full_name": "Saad Waseem", "email": "saad@acme.test",
         "title": "Backend Engineer", "role": "employee", "department": "Engineering",
         "manager": "Ali Raza", "employee_id": "EMP-1045", "join_date": "2024-02-01",
-        "company_name": "OpenVault", "hr_email": "hr@openvault.test",
+        "company_name": "OpenVault", "hr_email": "hr@deskwise.test",
         "signature": "Regards, HR", "tone": "formal", "phone": "+92-300-0000000",
     },
     "fatima": {
@@ -67,7 +67,7 @@ IDENTIFIERS = {
     "Saad Waseem", "Fatima Khan", "Zoya Khan",
     "saad@acme.test", "fatima@acme.test", "zoya@acme.test",
     "EMP-1045", "EMP-77", "EMP-88", "OpenVault", "Acme Corp",
-    "Ali Raza", "Bilal Ahmed", "hr@openvault.test", "hr@acme.test",
+    "Ali Raza", "Bilal Ahmed", "hr@deskwise.test", "hr@acme.test",
 }
 
 

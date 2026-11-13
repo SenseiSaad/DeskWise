@@ -85,7 +85,7 @@ Unlike public chatbots that mix organizational data or stream internal files to 
 * **Git Commit Authorship:** 100% of all 89 Git commits are authored solely by Saad Waseem (`obsks23@gmail.com`). Zero third-party committers and zero co-author trailers.
 * **Repository License:** Proprietary and Confidential (All Rights Reserved). Never released under open-source licenses (GPL, MIT, or Apache).
 * **Third-Party Dependency Licenses:** 100% compliant. Zero GPL, zero AGPL, zero SSPL in production dependencies.
-* **Capstone Status:** Early academic capstone proposal originated at university; formal Co-Author IP Assignment Agreements and University Clearance templates are prepared for closing.
+* **Ownership Status:** Solely owned and developed by Saad Waseem. Zero third-party, institutional, or co-author claims.
 
 ---
 

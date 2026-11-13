@@ -1,5 +1,5 @@
-# OpenVault API — Django + gunicorn. Build from the repo ROOT:
-#   docker build -f backend/Dockerfile -t openvault-api .
+# Deskwise API — Django + gunicorn. Build from the repo ROOT:
+#   docker build -f backend/Dockerfile -t deskwise-api .
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \

@@ -120,9 +120,16 @@ class User(AbstractBaseUser, PermissionsMixin):
         ("viewer", "viewer"),
     ]
 
-    # Reply-language preference for the AI assistant. English is the default;
-    # Roman Urdu (Urdu written in Latin script) is the opt-in for daily use.
-    LANGUAGES = [("en", "English"), ("ur", "Roman Urdu")]
+    # Reply-language preference for the AI assistant (global defaults + opt-in languages).
+    LANGUAGES = [
+        ("en", "English"),
+        ("es", "Spanish"),
+        ("fr", "French"),
+        ("de", "German"),
+        ("ar", "Arabic"),
+        ("pt", "Portuguese"),
+        ("ur", "Roman Urdu"),
+    ]
 
     email = models.EmailField(unique=True)
     # Retained nullable for compatibility with pre-existing database rows; all

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2, Sparkles, AlertTriangle, Check, HardDrive, Users, Building2, ArrowUpRight, CreditCard, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
+import { ArrowLeft, Lock } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { usageApi, billingApi, type UsageReport, type BillingStatus } from '@/lib/api'
 import { formatUSD, storageLabel, PLAN_COPY } from '@/lib/pricing'
@@ -19,7 +20,8 @@ function pct(used: number, limit: number | null) {
 }
 
 export default function WorkspaceUsagePage() {
-  const { user } = useAuth()
+  const { user, isPlatformAdmin } = useAuth()
+  const isAdmin = user?.role === 'admin' || isPlatformAdmin
   const [data, setData] = useState<UsageReport | null>(null)
   const [billing, setBilling] = useState<BillingStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -28,7 +30,7 @@ export default function WorkspaceUsagePage() {
   const [portalLoading, setPortalLoading] = useState(false)
 
   useEffect(() => {
-    if (!user) return
+    if (!user || !isAdmin) return
     Promise.all([
       usageApi.get(),
       billingApi.status().catch(() => null),
@@ -39,11 +41,11 @@ export default function WorkspaceUsagePage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not load usage data.'))
       .finally(() => setLoading(false))
-  }, [user])
+  }, [user, isAdmin])
 
   async function handleUpgrade(planId: number, planName: string) {
     if (!billing?.has_stripe) {
-      window.location.href = `mailto:hello@openvault.site?subject=${encodeURIComponent(`Upgrade to ${planName}`)}`
+      window.location.href = `mailto:hello@deskwise.site?subject=${encodeURIComponent(`Upgrade to ${planName}`)}`
       return
     }
     try {
@@ -71,6 +73,26 @@ export default function WorkspaceUsagePage() {
     }
   }
 
+  if (user && !isAdmin)
+    return (
+      <div className="mx-auto max-w-lg py-10">
+        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-8 text-center sm:p-10">
+          <span className="mx-auto grid size-12 place-items-center rounded-full bg-[#f1eee7] text-[#6b6862]">
+            <Lock className="size-5" aria-hidden />
+          </span>
+          <h1 className="mt-5 text-2xl font-semibold tracking-[-0.03em]">Admins only</h1>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#6b6862]">
+            Plan and usage details are limited to organization administrators.
+          </p>
+          <Link
+            href="/workspace"
+            className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#1d1d1b] px-5 py-2.5 text-xs font-medium text-white transition-colors hover:bg-[#3c3b37]"
+          >
+            <ArrowLeft className="size-4" aria-hidden /> Back to workspace
+          </Link>
+        </div>
+      </div>
+    )
   if (loading) return <main className="text-[#6b6862]"><Loader2 className="size-4 animate-spin" /></main>
   if (error)
     return (
@@ -194,7 +216,7 @@ export default function WorkspaceUsagePage() {
           ) : (
             <p className="mt-4 text-sm leading-relaxed text-[#6b6862]">
               You&apos;re on our top tier. For custom capacity, write to{' '}
-              <a className="text-[#37589c] underline" href="mailto:hello@openvault.site">hello@openvault.site</a>.
+              <a className="text-[#37589c] underline" href="mailto:hello@deskwise.site">hello@deskwise.site</a>.
             </p>
           )}
           <p className="mt-4 border-t border-[#f0ede6] pt-3 text-xs leading-relaxed text-[#8c8a83]">

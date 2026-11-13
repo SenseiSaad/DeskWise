@@ -2,7 +2,7 @@
 
 **Document code:** SEC-001  
 **Owner:** Group Information Security  
-**Applies to:** OpenVault Global and all wholly owned subsidiaries  
+**Applies to:** Deskwise Global and all wholly owned subsidiaries  
 **Version:** 3.2  
 **Classification:** Internal - staff and authorised contractors  
 **Effective date:** 2026-01-01  
@@ -15,11 +15,11 @@
 
 | Field | Value |
 | --- | --- |
-| Publisher | OpenVault Global Group Secretariat |
+| Publisher | Deskwise Global Group Secretariat |
 | Policy owner | Group Information Security |
 | Review cycle | Annual, or on material regulatory change |
 | Supersedes | All prior versions of this document |
-| Contact | policy@openvault.example |
+| Contact | policy@deskwise.example |
 
 This document is maintained under the Group Document Control Standard. Changes require an approved change request, a documented impact assessment, and a communication note to all affected teams.
 
@@ -389,13 +389,13 @@ Quarterly sampling by Internal Audit.
 
 | Office | Applies | Local contact |
 | --- | --- | --- |
-| Karachi | Yes | karachi@openvault.example |
-| Lahore | Yes | lahore@openvault.example |
-| Islamabad | Yes | islamabad@openvault.example |
-| Dubai | Yes | dubai@openvault.example |
-| London | Yes | london@openvault.example |
-| Singapore | Yes | singapore@openvault.example |
-| Austin | Yes | austin@openvault.example |
+| Karachi | Yes | karachi@deskwise.example |
+| Lahore | Yes | lahore@deskwise.example |
+| Islamabad | Yes | islamabad@deskwise.example |
+| Dubai | Yes | dubai@deskwise.example |
+| London | Yes | london@deskwise.example |
+| Singapore | Yes | singapore@deskwise.example |
+| Austin | Yes | austin@deskwise.example |
 
 ## 22. Appendix B - Definitions
 

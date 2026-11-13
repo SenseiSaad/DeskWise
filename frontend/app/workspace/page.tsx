@@ -43,6 +43,8 @@ import {
 import { formatDate, titleFromName } from '@/lib/utils'
 import { toast } from '@/components/toaster'
 import { t } from '@/lib/i18n'
+import { useEscapeKey } from '@/lib/use-escape'
+import { useWorkspaceStore } from '@/lib/workspace-store'
 
 export default function WorkspaceOverviewPage() {
   const { user, language } = useAuth()
@@ -57,10 +59,16 @@ export default function WorkspaceOverviewPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // New announcement modal
-  const [showAnnounceModal, setShowAnnounceModal] = useState(false)
-  const [announceTitle, setAnnounceTitle] = useState('')
-  const [announceBody, setAnnounceBody] = useState('')
+  // New announcement modal (persisted across tab switches)
+  const { overviewDraft, setOverviewDraft } = useWorkspaceStore()
+  const { showAnnounceModal, announceTitle, announceBody } = overviewDraft
+  const setShowAnnounceModal = (v: boolean) =>
+    setOverviewDraft((s) => ({ ...s, showAnnounceModal: v }))
+  const setAnnounceTitle = (v: string) =>
+    setOverviewDraft((s) => ({ ...s, announceTitle: v }))
+  const setAnnounceBody = (v: string) =>
+    setOverviewDraft((s) => ({ ...s, announceBody: v }))
+  useEscapeKey(() => setShowAnnounceModal(false), showAnnounceModal)
   const [postingAnnounce, setPostingAnnounce] = useState(false)
 
   const load = useCallback(async () => {

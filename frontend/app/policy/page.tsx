@@ -247,7 +247,7 @@ export default function PolicyPage() {
               <Link href="/help" className="btn btn-primary">
                 Read the field guide <ArrowRight className="size-4" aria-hidden />
               </Link>
-              <a href="mailto:hello@openvault.site" className="btn btn-secondary">
+              <a href="mailto:hello@deskwise.site" className="btn btn-secondary">
                 Contact us
               </a>
             </div>

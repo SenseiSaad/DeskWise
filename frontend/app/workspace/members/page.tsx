@@ -31,6 +31,8 @@ import {
 import { useAuth } from '@/lib/auth'
 import { toast } from '@/components/toaster'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { useEscapeKey } from '@/lib/use-escape'
+import { useWorkspaceStore } from '@/lib/workspace-store'
 
 type CreatableRole = Exclude<Role, 'public'>
 
@@ -103,12 +105,14 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
   const [loadError, setLoadError] = useState('')
 
   // New member form
-  const [fullName, setFullName] = useState('')
-  const [title, setTitle] = useState('')
-  const [departmentId, setDepartmentId] = useState<number | ''>('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [role, setRole] = useState<CreatableRole>('viewer')
+  const { membersDraft, setMembersDraft } = useWorkspaceStore()
+  const { fullName, title, departmentId, email, password, role } = membersDraft
+  const setFullName = (v: string) => setMembersDraft((s) => ({ ...s, fullName: v }))
+  const setTitle = (v: string) => setMembersDraft((s) => ({ ...s, title: v }))
+  const setDepartmentId = (v: number | '') => setMembersDraft((s) => ({ ...s, departmentId: v }))
+  const setEmail = (v: string) => setMembersDraft((s) => ({ ...s, email: v }))
+  const setPassword = (v: string) => setMembersDraft((s) => ({ ...s, password: v }))
+  const setRole = (v: CreatableRole) => setMembersDraft((s) => ({ ...s, role: v }))
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [formSuccess, setFormSuccess] = useState('')
@@ -620,6 +624,7 @@ function EditMemberModal({
   onClose: () => void
   onSaved: (updated: User) => void
 }) {
+  useEscapeKey(onClose)
   const [fullName, setFullName] = useState(user.full_name || '')
   const [title, setTitle] = useState(user.title || '')
   const [departmentId, setDepartmentId] = useState<number | ''>(user.department_id ?? '')

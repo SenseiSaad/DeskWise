@@ -126,7 +126,7 @@ class Command(BaseCommand):
             users = {}
             for key, company in companies.items():
                 user, _ = User.objects.get_or_create(
-                    email=f"eval-admin-{key}@openvault.test",
+                    email=f"eval-admin-{key}@deskwise.test",
                     defaults={"role": "admin", "company": company, "email_verified": True},
                 )
                 user.company = company

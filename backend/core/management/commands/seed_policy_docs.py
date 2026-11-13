@@ -34,10 +34,10 @@ class Command(BaseCommand):
     help = "Seed demo_docs/ into a demo company (searchable policies + templates)."
 
     def add_arguments(self, parser):
-        parser.add_argument("--company-slug", default="openvault-global")
+        parser.add_argument("--company-slug", default="deskwise-global")
         parser.add_argument("--company-name", default="OpenVault Global")
         parser.add_argument("--industry", default="Enterprise SaaS / Technology")
-        parser.add_argument("--email", default="demo@openvault.test")
+        parser.add_argument("--email", default="demo@deskwise.test")
         parser.add_argument("--password", default="",
                             help="Password for the demo admin (required only when creating it).")
         parser.add_argument("--skip-embeddings", action="store_true",

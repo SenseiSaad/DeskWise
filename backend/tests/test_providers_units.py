@@ -68,8 +68,8 @@ def test_get_chat_provider_mode_online_maps_unknown_to_bedrock(monkeypatch):
 
 # ------------------------------------------------- bedrock key pair parsing
 def test_bedrock_key_pair_detection():
-    prov = providers.BedrockProvider("AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMI", "ap-south-1", "")
-    assert prov._aws_access_key_pair() == ("AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI")
+    prov = providers.BedrockProvider("FAKEACCESSKEY0000000:fake-secret-value", "ap-south-1", "")
+    assert prov._aws_access_key_pair() == ("FAKEACCESSKEY0000000", "fake-secret-value")
     prov2 = providers.BedrockProvider("not-a-key-pair", "ap-south-1", "")
     assert prov2._aws_access_key_pair() is None
     prov3 = providers.BedrockProvider("", "ap-south-1", "")

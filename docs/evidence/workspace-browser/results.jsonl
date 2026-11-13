@@ -1,0 +1,70 @@
+{"who": "admin", "page": "overview", "action": "stat cards + company code render", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "overview", "action": "post announcement", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "overview", "action": "quick action 'Manage team' navigates", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "members", "action": "add employee Eve", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "members", "action": "add throwaway member", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "members", "action": "member count updates to 3", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "members", "action": "Eve listed with role Employee", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "members", "action": "edit member (job title)", "status": "PASS", "detail": "title set to CTO; persisted after reload (API 200)", "events": [], "shot": ""}
+{"who": "admin", "page": "members", "action": "remove throwaway member (confirm dialog)", "status": "PASS", "detail": "DELETE 204", "events": [], "shot": ""}
+{"who": "admin", "page": "documents", "action": "upload zephyr-policy.txt", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "documents", "action": "indexing finishes (no pending/failed badge)", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "documents", "action": "stats show 1 document", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "documents", "action": "search filters list", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "documents", "action": "preview shows extracted text", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "documents", "action": "download file", "status": "PASS", "detail": "zephyr-policy.txt", "events": [], "shot": ""}
+{"who": "admin", "page": "documents", "action": "share dialog opens", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "documents", "action": "upload throwaway note", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "documents", "action": "'Most recent' sort puts newest upload first", "status": "PASS", "detail": "order: ['Throwaway', 'Zephyr Policy']", "events": [], "shot": ""}
+{"who": "admin", "page": "documents", "action": "delete document (confirm dialog)", "status": "PASS", "detail": "DELETE 204; the other document is untouched", "events": [], "shot": ""}
+{"who": "partner", "page": "overview", "action": "second tenant signs up (Partner Co)", "status": "PASS", "detail": "", "events": [["http401", "GET http://localhost:8000/api/auth/me"], ["http401", "POST http://localhost:8000/api/auth/refresh"]], "shot": ""}
+{"who": "partner", "page": "documents", "action": "partner uploads partner-handbook.txt", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "partner", "page": "documents", "action": "share one file with Eve of another company (by access code)", "status": "PASS", "detail": "employees listed from other tenant: ['Alice Admin (admin)', 'Eve Employee · CTO (employee)']; POST 201", "events": [], "shot": ""}
+{"who": "admin", "page": "chat", "action": "ask question -> streamed answer ($640 / 45 days)", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "chat", "action": "answer cites source document", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "chat", "action": "thumbs feedback saved via API", "status": "PASS", "detail": "feedback API 200", "events": [], "shot": ""}
+{"who": "admin", "page": "chat", "action": "conversation saved to history sidebar", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "chat", "action": "New chat resets the thread", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "chat", "action": "reopen past conversation", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "chat", "action": "docgen starter 'Leave request'", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "chat", "action": "doc shared to someone else is NOT visible to admin (no cite/leak)", "status": "PASS", "detail": "no Partner Co source or figure shown", "events": [], "shot": ""}
+{"who": "admin", "page": "chat", "action": "delete conversation", "status": "PASS", "detail": "3 -> 2, persists after reload, DELETE 204", "events": [], "shot": ""}
+{"who": "admin", "page": "attendance", "action": "Mark me present -> Already marked", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "attendance", "action": "recent attendance lists today's entry", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "attendance", "action": "workplace QR code shown", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "audit", "action": "log rows present (register/upload/etc.)", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "audit", "action": "search box filters", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "audit", "action": "action filter dropdown", "status": "PASS", "detail": "14 action options", "events": [], "shot": ""}
+{"who": "admin", "page": "audit", "action": "Refresh button", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "audit", "action": "Export CSV downloads", "status": "PASS", "detail": "openvault-audit-2026-11-12.csv", "events": [], "shot": ""}
+{"who": "admin", "page": "usage", "action": "shows Free plan and ask quota", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "usage", "action": "Upgrade ($19/mo) responds (no Stripe configured)", "status": "PASS", "detail": "url=/workspace/usage msg=Upgrades are activated manually after payment via bank transfer, JazzCash, or Easypaisa — your limits go up the same bus", "events": [], "shot": ""}
+{"who": "admin", "page": "settings", "action": "Save My Profile", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "settings", "action": "Company Profile tab: save", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "settings", "action": "Plan & Quotas tab renders", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "admin", "page": "settings", "action": "AI Engine tab renders", "status": "PASS", "detail": "rendered", "events": [], "shot": ""}
+{"who": "admin", "page": "shared", "action": "empty state when nothing shared", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "overview", "action": "sidebar shows only the 5 employee pages", "status": "PASS", "detail": "['Overview', 'Ask AI', 'Documents', 'Shared with me', 'Attendance']", "events": [], "shot": ""}
+{"who": "employee", "page": "overview", "action": "page renders for employee", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "overview", "action": "admin 'Post Announcement' hidden", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "overview", "action": "sees admin's announcement", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "documents", "action": "sees company-wide Zephyr Policy", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "documents", "action": "preview a document", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "documents", "action": "download a document", "status": "PASS", "detail": "zephyr-policy.txt", "events": [], "shot": ""}
+{"who": "employee", "page": "documents", "action": "employee uploads own document", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "documents", "action": "employee deletes own document", "status": "PASS", "detail": "DELETE 204", "events": [], "shot": ""}
+{"who": "employee", "page": "chat", "action": "ask about company doc -> cited answer ($640)", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "chat", "action": "ask about doc shared from another tenant -> cited answer ($2250)", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "shared", "action": "lists the document Partner Co shared with Eve", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "shared", "action": "preview the shared document", "status": "FAIL", "detail": "Locator.click: Timeout 30000ms exceeded.", "events": [], "shot": "docs/evidence/workspace-browser/employee-step-shared-preview-the-shared-document.png"}
+{"who": "employee", "page": "attendance", "action": "Mark me present -> Already marked", "status": "PASS", "detail": "", "events": [], "shot": ""}
+{"who": "employee", "page": "members", "action": "employee opens admin page by URL", "status": "PASS", "detail": "url=/workspace/members admin_ui_rendered=False redirected=False", "events": [], "shot": ""}
+{"who": "employee", "page": "audit", "action": "employee opens admin page by URL", "status": "PASS", "detail": "url=/workspace/audit admin_ui_rendered=False redirected=False", "events": [], "shot": ""}
+{"who": "employee", "page": "usage", "action": "employee opens admin page by URL", "status": "PASS", "detail": "url=/workspace/usage admin_ui_rendered=False redirected=False", "events": [], "shot": ""}
+{"who": "employee", "page": "settings", "action": "employee opens admin page by URL", "status": "PASS", "detail": "url=/workspace/settings admin_ui_rendered=True redirected=False", "events": [], "shot": ""}
+{"who": "employee", "page": "api-guard", "action": "GET /api/admin/users refused for employee", "status": "PASS", "detail": "HTTP 403", "events": [], "shot": ""}
+{"who": "employee", "page": "api-guard", "action": "GET /api/admin/audit refused for employee", "status": "PASS", "detail": "HTTP 403", "events": [], "shot": ""}
+{"who": "employee", "page": "api-guard", "action": "GET /api/admin/usage refused for employee", "status": "PASS", "detail": "HTTP 403", "events": [], "shot": ""}
+{"who": "employee", "page": "api-guard", "action": "GET /api/admin/company refused for employee", "status": "PASS", "detail": "HTTP 403", "events": [], "shot": ""}
+{"who": "employee", "page": "api-guard", "action": "GET /api/admin/llm-config refused for employee", "status": "PASS", "detail": "HTTP 403", "events": [], "shot": ""}
+{"who": "employee", "page": "api-guard", "action": "GET /api/admin/analytics refused for employee", "status": "PASS", "detail": "HTTP 403", "events": [], "shot": ""}

@@ -53,6 +53,12 @@ _RAW_PATTERNS: dict[str, list[str]] = {
         r"\bb[\*i]tch\b",
         r"\basshole\b",
     ],
+    "prompt_injection": [
+        r"\b(ignore|disregard|forget)\b.{0,30}\b(previous|prior|above|all)\b.{0,25}\b(instructions?|prompts?|rules?|directives?)\b",
+        r"\b(you are now|act as|pretend to be|roleplay as)\b.{0,30}\b(unrestricted|jailbreak|DAN|evil|god mode|developer mode)\b",
+        r"\b(reveal|output|display|show|print|tell me)\b.{0,30}\b(system\s+prompt|initial\s+instructions?|developer\s+instructions?)\b",
+        r"\b<\s*(?:system|im_start|instruction)\s*>",
+    ],
 }
 
 _COMPILED: dict[str, list[re.Pattern]] = {
@@ -66,6 +72,7 @@ _LABELS = {
     "pii_exposure": "personal data (PII) exposure",
     "policy_bypass": "attempt to bypass policy or controls",
     "toxic_language": "abusive or toxic language",
+    "prompt_injection": "potential prompt injection / system prompt extraction",
 }
 
 

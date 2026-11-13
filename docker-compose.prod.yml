@@ -1,4 +1,4 @@
-# OpenVault — production stack (single host).
+# Deskwise — production stack (single host).
 #
 #   1. cp .env.production.example .env.production   (fill in real values)
 #   2. docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
@@ -32,7 +32,13 @@ x-api-env: &api-env
   CELERY_BROKER_URL: redis://redis:6379/0
   TRUSTED_PROXY_COUNT: "1"
   LLM_KEY_ENCRYPTION_KEY: ${LLM_KEY_ENCRYPTION_KEY:-}
-  LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+  LLM_PROVIDER: ${LLM_PROVIDER:-bedrock}
+  BEDROCK_API_KEY: ${BEDROCK_API_KEY:-}
+  BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
+  BEDROCK_MODEL: ${BEDROCK_MODEL:-us.amazon.nova-lite-v1:0}
+  BEDROCK_EMBED_MODEL: ${BEDROCK_EMBED_MODEL:-amazon.titan-embed-text-v2:0}
+  EMBED_PROVIDER: ${EMBED_PROVIDER:-}
+  EMBED_DIM: ${EMBED_DIM:-1024}
   GEMINI_API_KEY: ${GEMINI_API_KEY:-}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -42,14 +48,14 @@ x-api-env: &api-env
   EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
   EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
   EMAIL_USE_TLS: ${EMAIL_USE_TLS:-true}
-  DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-OpenVault <no-reply@example.com>}
+  DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Deskwise <no-reply@example.com>}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LOG_FORMAT: ${LOG_FORMAT:-json}
   SENTRY_DSN: ${SENTRY_DSN:-}
 
 services:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: always
     logging: *default-logging
     environment:

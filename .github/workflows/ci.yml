@@ -91,20 +91,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build backend image
-        run: docker build -f backend/Dockerfile -t openvault-api:ci .
+        run: docker build -f backend/Dockerfile -t deskwise-api:ci .
       - name: Build frontend image
-        run: docker build -f frontend/Dockerfile -t openvault-web:ci .
+        run: docker build -f frontend/Dockerfile -t deskwise-web:ci .
       - name: Trivy scan (backend image)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: openvault-api:ci
+          image-ref: deskwise-api:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "0" # report-only until baseline is clean; flip to "1"
       - name: Trivy scan (web image)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: openvault-web:ci
+          image-ref: deskwise-web:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "0"

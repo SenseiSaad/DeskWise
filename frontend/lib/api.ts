@@ -22,28 +22,69 @@ function detectBase(): string {
 
 export const API_BASE = detectBase()
 
+const AUTH_SESSION_PATHS = new Set(['/auth/me', '/auth/update-me', '/auth/mfa/setup'])
+export const SESSION_EXPIRED_EVENT = 'deskwise:session-expired'
+
+function canRefreshPath(path: string): boolean {
+  return !path.startsWith('/auth/') || AUTH_SESSION_PATHS.has(path)
+}
+
+function notifySessionExpired() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
+  }
+}
+
 let refreshing: Promise<boolean> | null = null
+let lastRefreshOkAt = 0
 
 // Try to renew the access cookie via the refresh cookie. Resolves true on success.
-async function tryRefresh(): Promise<boolean> {
-  refreshing ||= fetch(`${API_BASE}/api/auth/refresh`, {
-    method: 'POST',
-    credentials: 'include',
-  })
-    .then((r) => r.ok)
-    .catch(() => false)
-    .finally(() => {
-      setTimeout(() => { refreshing = null }, 50)
+async function tryRefresh(requestStartedAt?: number): Promise<boolean> {
+  if (requestStartedAt && lastRefreshOkAt > requestStartedAt) {
+    return true
+  }
+  if (!refreshing) {
+    refreshing = fetch(`${API_BASE}/api/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
     })
+      .then((r) => {
+        if (r.ok) {
+          lastRefreshOkAt = Date.now()
+          return true
+        }
+        return false
+      })
+      .catch(() => false)
+      .finally(() => {
+        refreshing = null
+      })
+  }
   return refreshing
 }
 
+async function fetchWithRefresh(
+  run: () => Promise<Response>,
+  allowRefresh = true,
+  emitExpired = true,
+): Promise<Response> {
+  const startedAt = Date.now()
+  let res = await run()
+  if (res.status === 401 && allowRefresh) {
+    const renewed = await tryRefresh(startedAt)
+    if (renewed) {
+      res = await run()
+    }
+    if (res.status === 401 && emitExpired) {
+      notifySessionExpired()
+    }
+  }
+  return res
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tiny client: response shapes are typed at each call site
-async function handle(res: Response, retry: () => Promise<Response>): Promise<any> {
-  if (res.status === 401) {
-    // Access token expired: renew once, replay the original request.
-    const renewed = await tryRefresh()
-    if (renewed) return handle(await retry(), async () => retry())
+async function handle(res: Response, sessionExpiredOn401: boolean): Promise<any> {
+  if (res.status === 401 && sessionExpiredOn401) {
     throw new Error('Session expired. Please sign in again.')
   }
   if (!res.ok) {
@@ -63,6 +104,7 @@ async function handle(res: Response, retry: () => Promise<Response>): Promise<an
 }
 
 function request(method: string, path: string, body?: unknown, isForm = false) {
+  const allowRefresh = canRefreshPath(path)
   const run = () =>
     fetch(`${API_BASE}/api${path}`, {
       method,
@@ -70,7 +112,7 @@ function request(method: string, path: string, body?: unknown, isForm = false) {
       headers: isForm || body == null ? undefined : { 'Content-Type': 'application/json' },
       body: isForm ? (body as FormData) : body == null ? undefined : JSON.stringify(body),
     })
-  return run().then((res) => handle(res, run))
+  return fetchWithRefresh(run, allowRefresh).then((res) => handle(res, allowRefresh))
 }
 
 export const api = {
@@ -186,21 +228,23 @@ export async function askStream(
   signal?: AbortSignal,
   options?: { mode?: ChatMode; provider?: string; conversationId?: number | null },
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/ask`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      question,
-      mode: options?.mode,
-      provider: options?.provider,
-      conversation_id: options?.conversationId ?? null,
+  const res = await fetchWithRefresh(() =>
+    fetch(`${API_BASE}/api/ask`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        mode: options?.mode,
+        provider: options?.provider,
+        conversation_id: options?.conversationId ?? null,
+      }),
+      signal,
     }),
-    signal,
-  })
+  )
   if (res.status === 401) {
-    const renewed = await tryRefresh()
-    if (renewed) return askStream(question, onEvent, signal, options)
+    onEvent({ type: 'error', message: 'Session expired. Please sign in again.' })
+    return
   }
   if (!res.ok || !res.body) {
     let detail = `Request failed (${res.status})`
@@ -248,7 +292,26 @@ export async function askStream(
 
 // ---- Types ---------------------------------------------------------------
 export type Role = 'admin' | 'employee' | 'viewer'
-export type UiLanguage = 'en' | 'ur'
+
+export const SUPPORTED_LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Spanish (Español)' },
+  { code: 'fr', label: 'French (Français)' },
+  { code: 'de', label: 'German (Deutsch)' },
+  { code: 'ar', label: 'Arabic (العربية)' },
+  { code: 'pt', label: 'Portuguese (Português)' },
+  { code: 'ur', label: 'Roman Urdu' },
+] as const
+
+export type UiLanguage = (typeof SUPPORTED_LANGUAGES)[number]['code']
+
+const SUPPORTED_LANGUAGE_CODES: ReadonlySet<string> = new Set(
+  SUPPORTED_LANGUAGES.map((l) => l.code),
+)
+
+export function isUiLanguage(value: unknown): value is UiLanguage {
+  return typeof value === 'string' && SUPPORTED_LANGUAGE_CODES.has(value)
+}
 
 // Common job titles offered in the dropdowns. These are display labels only and
 // do NOT affect permissions (which are governed by Role).
@@ -317,7 +380,10 @@ export interface User {
   manager?: string
   employee_id?: string
   join_date?: string | null
+  direct_upload?: boolean
 }
+
+let _directUploadEnabled: boolean | null = null
 
 export interface AuthResponse {
   user: User
@@ -337,7 +403,11 @@ export function isMfaResponse(res: unknown): res is MfaLoginResponse {
 
 // ---- Auth endpoints ------------------------------------------------------
 export const authApi = {
-  me: (): Promise<User> => api.get('/auth/me'),
+  me: async (): Promise<User> => {
+    const u = (await api.get('/auth/me')) as User
+    if (typeof u?.direct_upload === 'boolean') _directUploadEnabled = u.direct_upload
+    return u
+  },
   // Enterprise: sign in with EMAIL.
   enterpriseLogin: (p: { email: string; password: string }): Promise<AuthResponse | MfaLoginResponse> =>
     api.post('/auth/login', p),
@@ -538,8 +608,8 @@ export const workApi = {
     api.get(`/documents?page=${page}&page_size=${pageSize}`),
   upload: async (form: FormData): Promise<EnterpriseDoc> => {
     const file = form.get('file')
-    // On Vercel serverless, bodies > 4.5 MB are rejected; try direct S3 presigned upload when file > 4 MB.
-    if (file instanceof File && file.size > 4 * 1024 * 1024) {
+    // On Vercel serverless, bodies > 4.5 MB are rejected; try direct S3 presigned upload when supported.
+    if (file instanceof File && file.size > 4 * 1024 * 1024 && _directUploadEnabled !== false) {
       try {
         const presign = await api.post('/documents/presign', {
           filename: file.name,
@@ -568,6 +638,7 @@ export const workApi = {
           }
         }
       } catch {
+        _directUploadEnabled = false
         // Fall back to standard multipart upload if S3 presigning is not enabled.
       }
     }
@@ -783,11 +854,10 @@ export interface Announcement {
 
 // Authenticated download of a permitted enterprise document.
 export async function downloadOwnDocument(id: number, filename: string) {
-  const res = await fetch(`${API_BASE}/api/documents/${id}/download`, { credentials: 'include' })
-  if (res.status === 401) {
-    const renewed = await tryRefresh()
-    if (renewed) return downloadOwnDocument(id, filename)
-  }
+  const res = await fetchWithRefresh(() =>
+    fetch(`${API_BASE}/api/documents/${id}/download`, { credentials: 'include' }),
+  )
+  if (res.status === 401) throw new Error('Session expired. Please sign in again.')
   if (!res.ok) throw new Error(`Download failed (${res.status})`)
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
@@ -804,7 +874,8 @@ export async function downloadOwnDocument(id: number, filename: string) {
 // application .docx). `downloadUrl` may be relative or absolute.
 export async function downloadGeneratedForm(downloadUrl: string, filename?: string) {
   const url = /^https?:\/\//i.test(downloadUrl) ? downloadUrl : `${API_BASE}${downloadUrl}`
-  const res = await fetch(url, { credentials: 'include' })
+  const res = await fetchWithRefresh(() => fetch(url, { credentials: 'include' }))
+  if (res.status === 401) throw new Error('Session expired. Please sign in again.')
   if (!res.ok) throw new Error(`Download failed (${res.status})`)
   const blob = await res.blob()
   const objectUrl = URL.createObjectURL(blob)

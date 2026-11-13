@@ -234,3 +234,28 @@ def test_four_chat_modes_resolve_distinct_providers(monkeypatch):
     assert p_selfhosted.label == "selfhosted" and p_selfhosted.chat_model == "qwen2.5:7b"
     assert p_selfhosted.base == "http://10.0.1.50:11434"
 
+
+
+# ------------------------------------------------ non-admins cannot touch AI settings
+@pytest.mark.parametrize("role", ["employee", "viewer"])
+def test_non_admin_cannot_read_change_reset_or_test_llm_config(auth_client, make_company,
+                                                                make_user, role):
+    """Regression: these endpoints were IsAuthenticated, so any employee of a
+    custom-LLM plan could repoint the company's AI provider/key. Found in the
+    browser walkthrough (employee got HTTP 200 on PUT /api/admin/llm-config)."""
+    company = make_company(plan=_custom_llm_plan())
+    admin = make_user(company, email="boss@acme.test", role="admin")
+    member = make_user(company, email=f"{role}@acme.test", role=role)
+    auth_client(admin).put("/api/admin/llm-config",
+                           {"provider": "openai", "chat_model": "gpt-4o-mini"}, format="json")
+
+    client = auth_client(member)
+    assert client.get("/api/admin/llm-config").status_code == 403
+    assert client.put("/api/admin/llm-config",
+                      {"provider": "openai", "chat_model": "attacker-model",
+                       "api_key": "sk-attacker"}, format="json").status_code == 403
+    assert client.delete("/api/admin/llm-config").status_code == 403
+    assert client.post("/api/admin/llm-test", format="json").status_code == 403
+
+    row = LLMConfig.objects.get(company=company)
+    assert row.chat_model == "gpt-4o-mini"  # untouched by the rejected PUT/DELETE

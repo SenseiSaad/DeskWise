@@ -167,7 +167,7 @@ export function PricingSection({ showTable = false }: { showTable?: boolean }) {
                 <p className="mt-6 text-center text-sm text-muted-foreground">
                   Need something custom?{' '}
                   <a
-                    href="mailto:hello@openvault.site?subject=Deskwise%20custom%20plan"
+                    href="mailto:hello@deskwise.site?subject=Deskwise%20custom%20plan"
                     className="font-medium text-accent underline underline-offset-4 hover:text-accent/80 transition-colors"
                   >
                     Talk to us

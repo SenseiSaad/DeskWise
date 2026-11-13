@@ -98,6 +98,7 @@ def _upload_rejection(f):
 
 
 @api_view(["GET"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def health(request):
     """Liveness/readiness probe for load balancers and uptime monitors.
@@ -133,6 +134,7 @@ def health(request):
 
 
 @api_view(["GET"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def health_live(request):
     """Cheap liveness probe: no database or storage calls, just proves the
@@ -261,6 +263,7 @@ def _require_email_verification(user):
 
 # -------------------------------------------------------------------- auth
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @rate_limit("register", rate=5, per_seconds=600, key="ip")
 def register_company(request):
@@ -308,6 +311,7 @@ def register_company(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @rate_limit("login", rate=8, per_seconds=60, key="ip_email")
 def login(request):
@@ -347,6 +351,7 @@ def login(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @rate_limit("mfa", rate=10, per_seconds=60, key="ip")
 def mfa_activate(request):
@@ -375,6 +380,7 @@ def mfa_activate(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @rate_limit("mfa", rate=10, per_seconds=60, key="ip")
 def mfa_verify(request):
@@ -411,7 +417,8 @@ def mfa_setup(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def logout(request):
     """Clear the auth cookies and revoke the refresh token server-side."""
     raw = request.COOKIES.get(REFRESH_COOKIE)
@@ -427,6 +434,7 @@ def logout(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @rate_limit("refresh", rate=30, per_seconds=60, key="ip")
 def refresh(request):
@@ -469,7 +477,9 @@ def _as(request, user):
 @permission_classes([IsAuthenticated])
 def me(request):
     """Return the signed-in user's own profile (used to hydrate the frontend)."""
-    return Response(UserSerializer(request.user, context={"request": request}).data)
+    data = UserSerializer(request.user, context={"request": request}).data
+    data["direct_upload"] = storage.is_s3_enabled()
+    return Response(data)
 
 
 @api_view(["PATCH"])
@@ -495,8 +505,12 @@ def update_me(request):
     # so they are deliberately NOT self-editable — admins use /admin/users.
     if "language" in data:
         lang = str(data.get("language") or "en").strip().lower()
-        if lang not in ("en", "ur"):
-            return Response({"detail": "language must be 'en' or 'ur'."}, status=400)
+        allowed_langs = {code for code, _ in User.LANGUAGES}
+        if lang not in allowed_langs:
+            return Response(
+                {"detail": f"language must be one of: {', '.join(sorted(allowed_langs))}."},
+                status=400,
+            )
         user.language = lang
     new_password = data.get("new_password")
     if new_password:
@@ -515,6 +529,7 @@ def update_me(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @rate_limit("verify_request", rate=5, per_seconds=600, key="ip_email")
 def request_verification(request):
@@ -531,6 +546,7 @@ def request_verification(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @rate_limit("verify_confirm", rate=10, per_seconds=600, key="ip")
 def verify_email(request):
@@ -545,6 +561,7 @@ def verify_email(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @rate_limit("forgot", rate=5, per_seconds=600, key="ip_email")
 def forgot_password(request):
@@ -563,6 +580,7 @@ def forgot_password(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @rate_limit("reset_confirm", rate=10, per_seconds=600, key="ip")
 def reset_password(request):
@@ -834,14 +852,15 @@ def upload_confirm(request):
     return Response(DocumentSerializer(doc).data, status=201)
 
 
-_INDEX_LOCK = threading.BoundedSemaphore(2)
+_INDEX_LOCK = threading.BoundedSemaphore(4)
 
 
 def _index_in_background(doc: Document):
     """Extract/chunk/embed a document. Prefers the Celery worker when a broker
     is configured; on serverless platforms (SYNC_INDEXING=True) it runs inline
-    before returning; otherwise it runs on a daemon thread (bounded concurrency
-    so 20+ simultaneous uploads never contend on SQLite or thrash local Ollama)."""
+    before returning; otherwise it runs on a daemon thread: Stage 1 chunks land
+    immediately without waiting for locks, while Stage 2 embedding uses bounded
+    concurrency so uploads never contend on SQLite or thrash local Ollama."""
     if getattr(settings, "CELERY_BROKER_URL", "") and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
         from .tasks import index_document_task
         index_document_task.delay(doc.id)
@@ -855,18 +874,44 @@ def _index_in_background(doc: Document):
 
     def run():
         from django.db import close_old_connections
+        close_old_connections()
+        rows, pieces = [], []
+        try:
+            raw = storage.read_bytes(doc.stored_path, base_dir=settings.DATA_DIR)
+            rows, pieces = rag.prepare_document_chunks(doc, raw)
+            if not rows:
+                doc.indexing_status = "ready"
+                doc.index_error = ""
+                if Document.objects.filter(pk=doc.pk).exists():
+                    doc.save(update_fields=["indexing_status", "index_error"])
+                return
+        except Exception as exc:
+            doc.indexing_status = "failed"
+            doc.index_error = str(exc)[:300]
+            try:
+                if Document.objects.filter(pk=doc.pk).exists():
+                    doc.save(update_fields=["indexing_status", "index_error"])
+            except Exception:
+                pass
+            if not getattr(settings, "SYNC_INDEXING", False):
+                close_old_connections()
+            return
+
         with _INDEX_LOCK:
             close_old_connections()
             try:
-                raw = storage.read_bytes(doc.stored_path, base_dir=settings.DATA_DIR)
-                n = rag.index_document(doc, raw)
-                doc.indexing_status = "ready" if n >= 0 else "failed"
+                rag.attach_document_embeddings(doc, rows, pieces)
+                doc.indexing_status = "ready"
                 doc.index_error = ""
             except Exception as exc:
                 doc.indexing_status = "failed"
                 doc.index_error = str(exc)[:300]
             finally:
-                doc.save(update_fields=["indexing_status", "index_error"])
+                try:
+                    if Document.objects.filter(pk=doc.pk).exists():
+                        doc.save(update_fields=["indexing_status", "index_error"])
+                except Exception:
+                    pass
                 if not getattr(settings, "SYNC_INDEXING", False):
                     close_old_connections()
 
@@ -1513,7 +1558,7 @@ def audit_log(request):
         for row in qs[:5000]:
             w.writerow([row.created_at.isoformat(), row.action, row.detail, row.ip, row.user_id])
         resp = FileResponse(io.BytesIO(buf.getvalue().encode("utf-8")), as_attachment=True,
-                            filename=f"openvault-audit-{timezone.localdate().isoformat()}.csv")
+                            filename=f"deskwise-audit-{timezone.localdate().isoformat()}.csv")
         return resp
     page = _paginate(request, qs, default_page_size=100)
     return Response({
@@ -1729,7 +1774,7 @@ def shared_with_me(request):
 
 # --------------------------------------------------------- LLM provider config
 @api_view(["GET", "PUT", "DELETE"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAdmin])
 def llm_config(request):
     """Read or update LLM settings.
 
@@ -1791,7 +1836,7 @@ def llm_config(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAdmin])
 def llm_test(request):
     """Ping the currently-configured provider with a tiny prompt."""
     company = getattr(request.user, "company", None)
@@ -2003,6 +2048,7 @@ def usage(request):
 
 # --------------------------------------------------------- plans (public + admin)
 @api_view(["GET"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def plans(request):
     """Public plan catalogue (USD pricing) for the pricing page.
@@ -2088,6 +2134,7 @@ def billing_portal(request):
 
 @csrf_exempt
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def billing_webhook(request):
     """Handle incoming Stripe webhook events."""
@@ -2479,12 +2526,9 @@ def _artifact_payload(art):
 def _owned_artifact(request, pk):
     """Artifacts are private to the user who generated them and their tenant."""
     try:
-        art = GeneratedArtifact.objects.get(pk=pk)
+        return GeneratedArtifact.objects.get(pk=pk, user=request.user)
     except GeneratedArtifact.DoesNotExist:
         raise Http404
-    if art.user_id != request.user.id:
-        raise Http404
-    return art
 
 
 @api_view(["GET"])

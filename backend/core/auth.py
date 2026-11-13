@@ -41,11 +41,13 @@ def _cookie_kwargs(max_age):
 def set_auth_cookies(response, user):
     """Attach access + refresh JWT cookies to a DRF Response."""
     refresh = RefreshToken.for_user(user)
-    access_minutes = int(settings.SIMPLE_JWT.get("ACCESS_TOKEN_LIFETIME").total_seconds() // 60)
-    response.set_cookie(ACCESS_COOKIE, str(refresh.access_token), **_cookie_kwargs(access_minutes * 60))
-    # Refresh token outlives the access token (SimpleJWT default 1 day).
-    refresh_days = int(settings.SIMPLE_JWT.get("REFRESH_TOKEN_LIFETIME").total_seconds() // 86400) or 1
-    response.set_cookie(REFRESH_COOKIE, str(refresh), **_cookie_kwargs(refresh_days * 86400))
+    access_lifetime = settings.SIMPLE_JWT.get("ACCESS_TOKEN_LIFETIME")
+    refresh_lifetime = settings.SIMPLE_JWT.get("REFRESH_TOKEN_LIFETIME")
+    access_max_age = max(1, int(access_lifetime.total_seconds()))
+    refresh_max_age = max(1, int(refresh_lifetime.total_seconds()))
+    response.set_cookie(ACCESS_COOKIE, str(refresh.access_token), **_cookie_kwargs(access_max_age))
+    # Refresh token outlives the access token (SimpleJWT default 7 days).
+    response.set_cookie(REFRESH_COOKIE, str(refresh), **_cookie_kwargs(refresh_max_age))
     return response
 
 

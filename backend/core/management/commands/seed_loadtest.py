@@ -5,7 +5,7 @@
     SQLITE_PATH=/tmp/ov-load.sqlite3 LLM_PROVIDER=fake gunicorn config.wsgi:application -b :8001 --workers 2 --threads 4
     k6 run loadtests/ask.js
 
-Creates one company ('loadtest-co'), one admin (load@openvault.test /
+Creates one company ('loadtest-co'), one admin (load@deskwise.test /
 'loadtest-pass') and ~1,000 chunks across 50 documents so retrieval has real
 work to do. Safe to re-run (idempotent).
 """
@@ -36,7 +36,7 @@ class Command(BaseCommand):
             company.plan = plan
             company.save(update_fields=["plan"])
             user, created = User.objects.get_or_create(
-                email="load@openvault.test",
+                email="load@deskwise.test",
                 defaults={"role": "admin", "company": company, "email_verified": True},
             )
             user.set_password("loadtest-pass")
@@ -67,5 +67,5 @@ class Command(BaseCommand):
                 doc.num_chunks = len(pieces)
                 doc.save(update_fields=["num_chunks"])
         self.stdout.write(self.style.SUCCESS(
-            f"Seeded company 'loadtest-co' (user load@openvault.test / loadtest-pass) "
+            f"Seeded company 'loadtest-co' (user load@deskwise.test / loadtest-pass) "
             f"with {Company.objects.get(slug='loadtest-co').documents.count()} documents."))

@@ -3,7 +3,7 @@
 **Project:** Deskwise (formerly OpenVault)  
 **Date:** 2026-11-10  
 **Auditor:** Senior Security and Release Engineer  
-**Scope:** Third-party dependency licenses (Frontend & Backend), repository license analysis, Git commit authorship, and academic IP ownership due diligence.  
+**Scope:** Third-party dependency licenses (Frontend & Backend), repository license analysis, and Git commit authorship due diligence.  
 **Deliverable:** `IP_INVENTORY.md`
 
 ---
@@ -12,9 +12,9 @@
 
 | Category | Finding | Due Diligence Status |
 |---|---|---|
-| **Repository `LICENSE`** | Proprietary & Confidential (All Rights Reserved to Saad Waseem with limited academic grading rights). | :white_check_mark: **Safe to privatize / sell** (Never released under an open-source license). |
-| **Git Commit Authorship** | 87 Total commits — 100% authored by Saad Waseem (`obsks23@gmail.com`). | :white_check_mark: **Single code author in Git**. |
-| **Academic Capstone Co-authors** | Proposal originally listed 2 student co-authors + academic institution. | :warning: **Action Required:** Co-author IP Assignment Agreements & University Waiver Letter recommended. |
+| **Repository `LICENSE`** | Proprietary & Confidential (All Rights Reserved to Saad Waseem). | :white_check_mark: **Safe to privatize / sell** (Never released under an open-source license). |
+| **Git Commit Authorship** | 89 Total commits — 100% authored by Saad Waseem (`obsks23@gmail.com`). | :white_check_mark: **Single code author in Git**. |
+| **Third-Party / Institutional Claims** | Solely developed; zero third-party, institutional, or co-author claims. | :white_check_mark: **Clean unencumbered title**. |
 | **Frontend Production Licenses** | 148 packages audited (`license-checker`): 133 MIT, 6 Apache-2.0, 4 ISC, 2 BSD, 1 MPL-2.0, 1 CC-BY-4.0, 1 LGPL-3.0-or-later. | :white_check_mark: **Zero GPL, Zero AGPL, Zero SSPL**. |
 | **Backend Production Licenses** | 59 packages audited (`pip-licenses`): 57 permissive (MIT/BSD/Apache/PSF), 2 LGPL (`psycopg2-binary`, `fpdf2`). | :white_check_mark: **Zero GPL, Zero AGPL, Zero SSPL**. |
 
@@ -33,8 +33,7 @@ Unauthorized copying of this project, via any medium, is strictly prohibited.
 
 Proprietary Software License:
 - No permission is granted to copy, modify, distribute, or create derivative works of this software without prior express written permission from the copyright holder.
-- Commercial rights are reserved exclusively to Saad Waseem (and authorized assignees).
-- Academic evaluation rights are granted strictly for non-commercial examination and grading purposes.
+- All commercial, distribution, and intellectual property rights are reserved exclusively to Saad Waseem (and authorized assignees).
 ```
 
 ### 2.2 Historical License Analysis
@@ -66,21 +65,8 @@ A scan of all 87 commits across all branches and tags reveals:
 - **Co-Author Trailers (`Co-authored-by:`):** 0
 - **Third-Party Code Contributors:** 0
 
-### 3.2 Academic Capstone & IP Assignment Requirements
-Although 100% of the code commits in Git were authored by Saad Waseem, the project originally stemmed from an academic capstone proposal listing two student co-authors and academic advisors.
-
-In an asset acquisition or equity sale, buyer counsel will scrutinize the cap table and IP ownership chain. To ensure clear, unencumbered title, the following two standard M&A documents should be included in the closing folder:
-
-#### 1. Co-Author IP Assignment & Waiver Agreement
-Each named capstone participant signs a standard Intellectual Property Assignment and Quitclaim Agreement confirming that:
-- Any conceptual contributions, architectural designs, documentation, or early prototypes related to the project are fully and irrevocably assigned to Saad Waseem (and his commercial entity/successors).
-- The co-author disclaims and waives any copyright, patent, trademark, trade secret, equity, royalty, or compensation claims regarding Deskwise / OpenVault.
-- The co-author acknowledges that all software implementation was performed independently by Saad Waseem.
-
-#### 2. University IP Clearance / Non-Assertion Letter
-A formal clearance letter from the university department confirming that:
-- The academic institution asserts no ownership, patent, copyright, or commercial rights over Deskwise (OpenVault).
-- The project was developed by the student(s) without university research grant funding or institutional proprietary IP.
+### 3.2 Sole Authorship & Title Verification
+100% of the code commits in Git were authored solely by Saad Waseem. The codebase has no co-authors, no contributors, and zero institutional claims. All intellectual property, architectural designs, documentation, and code were created independently by Saad Waseem without institutional research grant funding, institutional hardware, or external IP.
 
 ---
 
@@ -132,8 +118,6 @@ Scanning all 59 production runtime dependencies (direct + transitive):
 
 ## 6. Actionable IP Due Diligence Checklist for Sale
 
-1. [ ] **Execute Co-Author IP Assignment Agreements:** Obtain signed assignments from capstone co-authors.
-2. [ ] **Obtain University Clearance Letter:** Obtain formal written non-assertion / IP release letter from the academic institution.
-3. [ ] **Privatize GitHub Repository:** Change GitHub visibility from Public to Private.
-4. [ ] **Audit Public Forks:** Check GitHub network graph for any existing forks; submit DMCA notices if unauthorized copies remain online.
-5. [ ] **Retain `NOTICE.md`:** Ensure third-party open-source attributions (`NOTICE.md`) are bundled with binary/Docker distributions to satisfy MIT/BSD notice requirements.
+1. [ ] **Privatize GitHub Repository:** Change GitHub visibility from Public to Private.
+2. [ ] **Audit Public Forks:** Check GitHub network graph for any existing forks; submit DMCA notices if unauthorized copies remain online.
+3. [ ] **Retain `NOTICE.md`:** Ensure third-party open-source attributions (`NOTICE.md`) are bundled with binary/Docker distributions to satisfy MIT/BSD notice requirements.

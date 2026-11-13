@@ -19,6 +19,7 @@ boto3==1.43.114
 botocore==1.43.114
 sentry-sdk==2.73.0
 celery==5.5.3
+stripe==16.0.0  # imported at top level by core/billing.py
 
 # Optional / lazily-imported integrations. The code degrades gracefully when
 # these are absent (calendar sync is simulated, QR falls back to a plain URL,

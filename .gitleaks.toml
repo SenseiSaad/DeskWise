@@ -4,7 +4,7 @@
 useDefault = true
 
 [allowlist]
-description = "OpenVault placeholders, examples, tests and build output"
+description = "Deskwise placeholders, examples, tests and build output"
 paths = [
   '''(^|/)\.env\.example$''',
   '''(^|/)\.env\.production\.example$''',

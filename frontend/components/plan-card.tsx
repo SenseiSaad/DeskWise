@@ -75,7 +75,7 @@ export function PlanCard({
 
       {ctaKind === 'contact' ? (
         <a
-          href="mailto:hello@openvault.site"
+          href="mailto:hello@deskwise.site"
           className={`mt-6 ${featured ? 'btn btn-primary w-full' : 'btn btn-secondary w-full'}`}
         >
           {ctaLabel} <ArrowRight className="size-3.5" aria-hidden />

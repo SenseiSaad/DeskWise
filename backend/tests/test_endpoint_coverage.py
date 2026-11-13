@@ -370,7 +370,10 @@ def test_update_me_language_validation(auth_client, make_company, make_user):
     company = make_company()
     user = make_user(company, email="lang@acme.test", role="admin")
     client = auth_client(user)
-    assert client.patch("/api/auth/update-me", {"language": "fr"}, format="json").status_code == 400
+    assert client.patch("/api/auth/update-me", {"language": "xx"}, format="json").status_code == 400
+    ok_fr = client.patch("/api/auth/update-me", {"language": "fr", "full_name": "S"}, format="json")
+    assert ok_fr.status_code == 200
+    assert ok_fr.json()["language"] == "fr"
     ok = client.patch("/api/auth/update-me", {"language": "ur", "full_name": "S"}, format="json")
     assert ok.json()["language"] == "ur"
 
