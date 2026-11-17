@@ -1,19 +1,28 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Deskwise — Unified Start Script (Frontend, Backend, and Database if needed)
+# Deskwise — Unified Start Script (Frontend, Backend, WebSockets, DB)
 #
 # Usage:
-#   ./start.sh              Start via Docker Compose (default when Docker is up;
-#                           auto-enables Postgres/Redis profiles when configured)
+#   ./start.sh              Smart fast start (rebuilds only changed images, then
+#                           swaps containers and prunes replaced <none> images)
+#   ./start.sh --rebuild    Force rebuild + remove old unused/stale images after
+#                           the new containers are up (keeps layer cache safely)
+#   ./start.sh --fresh      Force full --no-cache rebuild + remove old images
 #   ./start.sh --docker     Force Docker Compose mode (:3000 Web, :8000 API, DB)
-#   ./start.sh --native     Start local host servers (gunicorn/runserver + Next.js,
-#                           plus Docker Postgres DB if --pg or postgres URL is set)
+#   ./start.sh --native     Start local host servers (uvicorn ASGI + Next.js,
+#                           plus Docker Postgres DB if --pg or postgres URL)
 #   ./start.sh --pg         Enable PostgreSQL + pgvector database container
-#   ./start.sh --redis      Enable Redis container
+#   ./start.sh --redis      Enable Redis container (multi-worker channel layer)
+#   ./start.sh --build      Force rebuilding Docker images (keep layer cache)
+#   ./start.sh --no-build   Never rebuild Docker images if they already exist
+#   ./start.sh --migrate    Force running Django migrations & seed_plans
+#   ./start.sh --open       Open http://localhost:3000 in browser when ready
 #
 # Stop everything cleanly with: ./stop.sh
 # ==============================================================================
 set -euo pipefail
+
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
@@ -21,6 +30,7 @@ cd "$ROOT"
 LOG_DIR="$ROOT/.dev-logs"
 BACKEND_DIR="$ROOT/backend"
 FRONTEND_DIR="$ROOT/frontend"
+APP_ICON="$FRONTEND_DIR/public/openvault-logo-300.png"
 
 # Load Node version managers cleanly if present on the machine
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
@@ -35,6 +45,13 @@ fi
 MODE="auto"
 USE_PG=0
 USE_REDIS=0
+FORCE_BUILD=0
+PRUNE_OLD=0
+NO_CACHE=0
+NO_BUILD=0
+FORCE_MIGRATE=0
+OPEN_BROWSER=0
+GUI_MODE=0
 
 for arg in "$@"; do
   case "$arg" in
@@ -42,16 +59,40 @@ for arg in "$@"; do
     --native|native) MODE="native" ;;
     --pg) USE_PG=1 ;;
     --redis) USE_REDIS=1 ;;
+    --build) FORCE_BUILD=1 ;;
+    --rebuild|--clean-build) FORCE_BUILD=1; PRUNE_OLD=1 ;;
+    --fresh|--no-cache) FORCE_BUILD=1; PRUNE_OLD=1; NO_CACHE=1 ;;
+    --no-build) NO_BUILD=1 ;;
+    --migrate) FORCE_MIGRATE=1 ;;
+    --open) OPEN_BROWSER=1 ;;
+    --gui) GUI_MODE=1; OPEN_BROWSER=1 ;;
     -h|--help)
-      sed -n '2,15p' "$0"
+      sed -n '2,23p' "$0"
       exit 0
       ;;
     *)
-      echo "Unknown option: $arg (use --docker, --native, --pg, --redis)" >&2
+      echo "Unknown option: $arg (use --docker, --native, --pg, --redis, --build, --rebuild, --fresh, --no-build, --migrate, --open)" >&2
       exit 2
       ;;
   esac
 done
+
+if [[ "$GUI_MODE" == "1" ]]; then
+  mkdir -p "$LOG_DIR"
+  exec > "$LOG_DIR/launcher.log" 2>&1
+  on_gui_exit() {
+    local rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+      if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u critical -a "Deskwise" -i "$APP_ICON" "Deskwise Failed to Start" "Check $LOG_DIR/launcher.log" >/dev/null 2>&1 || true
+      fi
+      if command -v kdialog >/dev/null 2>&1; then
+        kdialog --error "Deskwise failed to start. See $LOG_DIR/launcher.log" >/dev/null 2>&1 || true
+      fi
+    fi
+  }
+  trap on_gui_exit EXIT
+fi
 
 gen_secret() {
   if command -v openssl >/dev/null 2>&1; then
@@ -69,24 +110,68 @@ env_val() {
   echo "${v:-$3}"
 }
 
+_read_aws_cred_file() {
+  local cred_file="$1" section="$2" key="$3"
+  [[ -f "$cred_file" ]] || return 1
+  awk -v sec="[$section]" -v k="$key" '
+    { line=$0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", line) }
+    substr(line, 1, 1) == "[" { in_sec = (line == sec) ? 1 : 0; next }
+    in_sec && index(line, "=") > 0 {
+      keypart = substr(line, 1, index(line, "=") - 1)
+      gsub(/[[:space:]]+$/, "", keypart)
+      if (keypart == k) {
+        val = substr(line, index(line, "=") + 1)
+        gsub(/^[[:space:]]+|[[:space:]]*(#.*)?$/, "", val)
+        print val
+        exit
+      }
+    }
+  ' "$cred_file"
+}
+
 load_bedrock_aws_creds() {
   local env_file="$1"
-  local bedrock_key_val bedrock_prof aws_creds
+  local bedrock_key_val bedrock_prof target_sec cred_file ak sk st aws_creds
   bedrock_key_val="$(env_val "$env_file" BEDROCK_API_KEY "")"
   bedrock_prof="${BEDROCK_AWS_PROFILE:-$(env_val "$env_file" BEDROCK_AWS_PROFILE "")}"
-  if [[ -z "${AWS_ACCESS_KEY_ID:-}" && -z "$bedrock_key_val" ]] && command -v aws >/dev/null 2>&1; then
-    local aws_export_cmd=(aws configure export-credentials --format env)
-    [[ -n "$bedrock_prof" ]] && aws_export_cmd+=(--profile "$bedrock_prof")
-    if aws_creds="$("${aws_export_cmd[@]}" 2>/dev/null)" && [[ -n "$aws_creds" ]]; then
-      eval "$aws_creds"
-      export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+  if [[ -z "${AWS_ACCESS_KEY_ID:-}" && -z "$bedrock_key_val" ]]; then
+    target_sec="${bedrock_prof:-${AWS_PROFILE:-default}}"
+    cred_file="${AWS_SHARED_CREDENTIALS_FILE:-$HOME/.aws/credentials}"
+    ak="$(_read_aws_cred_file "$cred_file" "$target_sec" "aws_access_key_id" || true)"
+    sk="$(_read_aws_cred_file "$cred_file" "$target_sec" "aws_secret_access_key" || true)"
+    st="$(_read_aws_cred_file "$cred_file" "$target_sec" "aws_session_token" || true)"
+    if [[ -n "$ak" && -n "$sk" ]]; then
+      export AWS_ACCESS_KEY_ID="$ak" AWS_SECRET_ACCESS_KEY="$sk"
+      [[ -n "$st" ]] && export AWS_SESSION_TOKEN="$st"
       if [[ -z "${AWS_DEFAULT_REGION:-}" ]]; then
-        local region_cmd=(aws configure get region)
-        [[ -n "$bedrock_prof" ]] && region_cmd+=(--profile "$bedrock_prof")
-        AWS_DEFAULT_REGION="$(env_val "$env_file" BEDROCK_REGION "$("${region_cmd[@]}" 2>/dev/null || echo us-east-1)")"
+        AWS_DEFAULT_REGION="$(env_val "$env_file" BEDROCK_REGION "")"
+        if [[ -z "$AWS_DEFAULT_REGION" ]]; then
+          local cfg_sec cfg_file
+          cfg_file="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
+          cfg_sec="$([[ "$target_sec" == "default" ]] && echo "default" || echo "profile $target_sec")"
+          AWS_DEFAULT_REGION="$(_read_aws_cred_file "$cfg_file" "$cfg_sec" "region" || true)"
+          AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+        fi
         export AWS_DEFAULT_REGION
       fi
       echo "[deskwise] Loaded AWS CLI credentials for Bedrock${bedrock_prof:+ (profile: $bedrock_prof)} (${AWS_DEFAULT_REGION})."
+    elif command -v aws >/dev/null 2>&1; then
+      local aws_export_cmd=(aws configure export-credentials --format env)
+      [[ -n "$bedrock_prof" ]] && aws_export_cmd+=(--profile "$bedrock_prof")
+      if aws_creds="$("${aws_export_cmd[@]}" 2>/dev/null)" && [[ -n "$aws_creds" ]]; then
+        eval "$aws_creds"
+        export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+        if [[ -z "${AWS_DEFAULT_REGION:-}" ]]; then
+          AWS_DEFAULT_REGION="$(env_val "$env_file" BEDROCK_REGION "")"
+          if [[ -z "$AWS_DEFAULT_REGION" ]]; then
+            local region_cmd=(aws configure get region)
+            [[ -n "$bedrock_prof" ]] && region_cmd+=(--profile "$bedrock_prof")
+            AWS_DEFAULT_REGION="$("${region_cmd[@]}" 2>/dev/null || echo us-east-1)"
+          fi
+          export AWS_DEFAULT_REGION
+        fi
+        echo "[deskwise] Loaded AWS CLI credentials for Bedrock${bedrock_prof:+ (profile: $bedrock_prof)} (${AWS_DEFAULT_REGION})."
+      fi
     fi
   fi
 }
@@ -97,29 +182,146 @@ ensure_env() {
     cp "$template" "$target"
     echo "[deskwise] Created $target from $template"
   fi
-  if grep -qE '^SECRET_KEY=\s*$' "$target"; then
+  if grep -qE '^SECRET_KEY=\s*$' "$target" || ! grep -qE '^SECRET_KEY=' "$target"; then
     local sk; sk="$(gen_secret)"
-    sed -i.bak "s|^SECRET_KEY=.*|SECRET_KEY=${sk}|" "$target" && rm -f "${target}.bak"
+    sed -i.bak '/^SECRET_KEY=/d' "$target" && rm -f "${target}.bak"
+    printf '\nSECRET_KEY=%s\n' "$sk" >> "$target"
     echo "[deskwise] Generated SECRET_KEY in $target"
   fi
-  if grep -qE '^LLM_KEY_ENCRYPTION_KEY=\s*$' "$target"; then
+  if grep -qE '^LLM_KEY_ENCRYPTION_KEY=\s*$' "$target" || ! grep -qE '^LLM_KEY_ENCRYPTION_KEY=' "$target"; then
     local lk; lk="$(gen_secret)"
-    sed -i.bak "s|^LLM_KEY_ENCRYPTION_KEY=.*|LLM_KEY_ENCRYPTION_KEY=${lk}|" "$target" && rm -f "${target}.bak"
+    sed -i.bak '/^LLM_KEY_ENCRYPTION_KEY=/d' "$target" && rm -f "${target}.bak"
+    printf 'LLM_KEY_ENCRYPTION_KEY=%s\n' "$lk" >> "$target"
     echo "[deskwise] Generated LLM_KEY_ENCRYPTION_KEY in $target"
+  fi
+  # docker-compose.yml validates services.db POSTGRES_PASSWORD even when --profile pg is inactive.
+  local cur_pg_pass
+  cur_pg_pass="$(env_val "$target" POSTGRES_PASSWORD "")"
+  if [[ -z "$cur_pg_pass" || "$cur_pg_pass" == "replace-with-secure-db-password" ]]; then
+    local pg_pw; pg_pw="$(gen_secret)"
+    sed -i.bak '/^#\?\s*POSTGRES_PASSWORD=/d' "$target" && rm -f "${target}.bak"
+    printf 'POSTGRES_PASSWORD=%s\n' "$pg_pw" >> "$target"
+    echo "[deskwise] Set POSTGRES_PASSWORD in $target for Compose validation"
   fi
 }
 
 wait_for_url() {
-  local url="$1" label="$2" tries="${3:-45}"
-  for ((i = 1; i <= tries; i++)); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+  local url="$1" label="$2" timeout_s="${3:-45}"
+  local max_tries=$(( timeout_s * 6 ))
+  for ((i = 1; i <= max_tries; i++)); do
+    if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then
       echo "[deskwise] $label ready -> $url"
       return 0
     fi
-    sleep 1
+    sleep 0.15
   done
   echo "[deskwise] ERROR: Timed out waiting for $label at $url" >&2
   return 1
+}
+
+wait_all_ready() {
+  local api_port="$1" web_port="$2" timeout_s="${3:-45}"
+  local pid_api pid_web rc=0
+  wait_for_url "http://127.0.0.1:${api_port}/api/health" "Backend API" "$timeout_s" &
+  pid_api=$!
+  wait_for_url "http://127.0.0.1:${web_port}" "Frontend Web" "$timeout_s" &
+  pid_web=$!
+  wait "$pid_api" || rc=1
+  wait "$pid_web" || rc=1
+  return "$rc"
+}
+
+boot_stamp_hash() {
+  local db_key="$1"
+  {
+    printf '%s\n' "$db_key"
+    cat "$BACKEND_DIR"/core/migrations/*.py "$BACKEND_DIR"/core/management/commands/seed_plans.py 2>/dev/null || true
+  } | { sha256sum 2>/dev/null || shasum -a 256 2>/dev/null || cksum; } | awk '{print $1}'
+}
+
+needs_image_build() {
+  local svc="$1" img="$2" src_dir="$3"
+  local stamp="$LOG_DIR/.docker_build_${svc}.stamp"
+  local img_created changed
+  img_created="$(docker image inspect -f '{{.Created}}' "$img" 2>/dev/null || true)"
+  if [[ -z "$img_created" ]]; then
+    return 0
+  fi
+  if [[ "$NO_BUILD" == "1" ]]; then
+    return 1
+  fi
+  if [[ "$FORCE_BUILD" == "1" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$stamp" ]]; then
+    touch -d "$img_created" "$stamp" 2>/dev/null || return 0
+  fi
+  if [[ "$ROOT/docker-compose.yml" -nt "$stamp" ]]; then
+    return 0
+  fi
+  changed="$(
+    find "$ROOT/$src_dir" -maxdepth 6 \
+      \( -name .venv -o -name node_modules -o -name .next -o -name out -o -name __pycache__ -o -name .git -o -name .pytest_cache -o -name htmlcov -o -name media -o -name '*.sqlite3*' -o -name '*.pyc' -o -name '.coverage*' -o -name '*.tsbuildinfo' -o -name '.env*' -o -name '*.log' \) -prune \
+      -o -type f -newer "$stamp" -print -quit 2>/dev/null || true
+  )"
+  [[ -n "$changed" ]]
+}
+
+# Stop and remove containers from other Compose projects holding our ports so we never serve a stale copy.
+stop_conflicting_containers() {
+  local port cid own_cids stale_c
+  own_cids="$(docker compose ps -a -q 2>/dev/null || true)"
+  for port in "$@"; do
+    for cid in $(docker ps --filter "publish=${port}" -q 2>/dev/null || true); do
+      if [[ -z "$own_cids" ]] || ! printf '%s\n' "$own_cids" | grep -q "^${cid}"; then
+        local cname
+        cname="$(docker inspect -f '{{.Name}}' "$cid" 2>/dev/null | sed 's|^/||' || echo "$cid")"
+        echo "[deskwise] Stopping conflicting container on :${port} (${cname}) ..."
+        docker rm -f "$cid" >/dev/null 2>&1 || true
+      fi
+    done
+  done
+  for stale_c in openvault_audit_copy-web-1 openvault_audit_copy-api-1; do
+    if docker inspect "$stale_c" >/dev/null 2>&1; then
+      docker rm -f "$stale_c" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+# Safe post-build cleanup: always prune replaced <none> dangling layers and unused legacy images.
+cleanup_old_images() {
+  echo "[deskwise] Pruning replaced dangling Docker images ..."
+  docker image prune -f >/dev/null 2>&1 || true
+  local stale_img
+  for stale_img in openvault_audit_copy-api:latest openvault_audit_copy-web:latest openvault-api:drill openvault-web:drill; do
+    if docker image inspect "$stale_img" >/dev/null 2>&1; then
+      if [[ -z "$(docker ps -a --filter "ancestor=$stale_img" -q 2>/dev/null || true)" ]]; then
+        echo "[deskwise] Removing stale image: $stale_img"
+        docker rmi "$stale_img" >/dev/null 2>&1 || true
+      fi
+    fi
+  done
+  if [[ "$PRUNE_OLD" == "1" ]]; then
+    docker builder prune -f --filter "until=72h" >/dev/null 2>&1 || true
+  fi
+}
+
+notify_desktop() {
+  local title="$1" body="$2"
+  if command -v notify-send >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+    notify-send -a "Deskwise" -i "$APP_ICON" "$title" "$body" >/dev/null 2>&1 || true
+  fi
+}
+
+open_browser() {
+  local url="$1"
+  if [[ "$OPEN_BROWSER" == "1" ]] && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+    if command -v xdg-open >/dev/null 2>&1; then
+      nohup xdg-open "$url" >/dev/null 2>&1 < /dev/null &
+    elif command -v google-chrome >/dev/null 2>&1; then
+      nohup google-chrome "$url" >/dev/null 2>&1 < /dev/null &
+    fi
+  fi
 }
 
 native_watch_ok() {
@@ -193,8 +395,10 @@ if [[ "$MODE" == "docker" ]]; then
     PROFILES+=(--profile redis)
   fi
 
-  # Clear any native dev processes so host ports :8000/:3000 are free for Docker.
-  "$ROOT/stop.sh" --native >/dev/null 2>&1 || true
+  # Clear any leftover native dev processes so host ports are free for Docker.
+  if [[ -f "$LOG_DIR/backend.pid" || -f "$LOG_DIR/frontend.pid" ]]; then
+    "$ROOT/stop.sh" --native >/dev/null 2>&1 || true
+  fi
   mkdir -p "$LOG_DIR"
 
   # Forward local loopback Ollama (127.0.0.1:11434) onto the Docker bridge gateway
@@ -238,29 +442,54 @@ asyncio.run(main())
     fi
   fi
 
-  # Pass configured AWS CLI credentials into container runtime in memory only
-  # (never written into .env or disk files). Supports BEDROCK_AWS_PROFILE to keep
-  # the Bedrock AWS account separate from AWS_PROFILE used for infra/deploy.
   load_bedrock_aws_creds "$ROOT/.env"
 
-  echo "[deskwise] Starting Docker stack (${PROFILES[*]:-SQLite + API + Web}) ..."
-  docker compose "${PROFILES[@]}" up -d --build --wait
+  stop_conflicting_containers "$API_PORT" "$WEB_PORT"
 
-  echo "[deskwise] Running migrations & seeding plans ..."
-  docker compose exec -T api python manage.py migrate --noinput
-  docker compose exec -T api python manage.py seed_plans
+  REBUILT=0
+  if [[ "$NO_BUILD" == "0" ]]; then
+    BUILD_ARGS=()
+    [[ "$NO_CACHE" == "1" ]] && BUILD_ARGS+=(--no-cache)
+    echo "[deskwise] Building latest Docker images (api web) ..."
+    docker compose build "${BUILD_ARGS[@]}" api web
+    touch "$LOG_DIR/.docker_build_api.stamp" "$LOG_DIR/.docker_build_web.stamp"
+    REBUILT=1
+  fi
 
-  wait_for_url "http://localhost:${API_PORT}/api/health" "Backend API" 45
-  wait_for_url "http://localhost:${WEB_PORT}" "Frontend Web" 45
+  echo "[deskwise] Starting fresh Docker containers (${PROFILES[*]:-SQLite + API + Web}) ..."
+  export AUTO_MIGRATE=false
+  if (( ${#PROFILES[@]} > 0 )); then
+    docker compose "${PROFILES[@]}" up -d --no-build --force-recreate --remove-orphans
+  else
+    docker compose up -d --no-build --force-recreate --remove-orphans
+  fi
+
+  if [[ "$REBUILT" == "1" || "$PRUNE_OLD" == "1" ]]; then
+    cleanup_old_images
+  fi
+
+  BOOT_HASH="$(boot_stamp_hash "${PG_DB}|${PG_HOST}|${DB_URL}")"
+  if [[ "$FORCE_MIGRATE" == "1" ]] || ! docker compose exec -T api sh -c \
+    'test -f /app/data/.deskwise_boot_stamp && [ "$(cat /app/data/.deskwise_boot_stamp)" = "'"$BOOT_HASH"'" ]' \
+    >/dev/null 2>&1; then
+    echo "[deskwise] Running migrations & seeding plans ..."
+    docker compose exec -T api sh -c \
+      'python manage.py migrate --noinput && python manage.py seed_plans && printf "%s" "'"$BOOT_HASH"'" > /app/data/.deskwise_boot_stamp'
+  fi
+
+  wait_all_ready "$API_PORT" "$WEB_PORT" 45
+  touch "$LOG_DIR/.docker_running.stamp"
 
   echo
   echo "Deskwise is running (Docker): Web http://localhost:${WEB_PORT} | API http://localhost:${API_PORT}"
   echo "Stop all servers anytime with: ./stop.sh"
+  notify_desktop "Deskwise Started" "Web & API are ready at http://localhost:${WEB_PORT}"
+  open_browser "http://localhost:${WEB_PORT}"
   exit 0
 fi
 
 # ------------------------------------------------------------------------------
-# Native Host Mode (Python backend + Next.js frontend + optional Docker PG DB)
+# Native Host Mode (Python ASGI WebSockets + Next.js + optional Docker PG DB)
 # ------------------------------------------------------------------------------
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required for native mode." >&2; exit 1; }
 command -v node >/dev/null 2>&1 || { echo "ERROR: node is required for native mode." >&2; exit 1; }
@@ -280,6 +509,7 @@ if [[ "$USE_PG" == "1" ]] || [[ "$DB_URL" == postgres* ]]; then
 fi
 
 PY="$BACKEND_DIR/.venv/bin/python"
+UVICORN="$BACKEND_DIR/.venv/bin/uvicorn"
 GUNICORN="$BACKEND_DIR/.venv/bin/gunicorn"
 if [[ ! -x "$PY" ]]; then
   echo "[deskwise] Creating Python virtualenv at backend/.venv ..."
@@ -299,20 +529,44 @@ fi
 
 "$ROOT/stop.sh" --native >/dev/null 2>&1 || true
 
-echo "[deskwise] Running database migrations & seeding plans ..."
-(
-  cd "$BACKEND_DIR"
-  "$PY" manage.py migrate --noinput
-  "$PY" manage.py seed_plans
-)
-
-echo "[deskwise] Starting Backend API on :${API_PORT} ..."
-load_bedrock_aws_creds "$BACKEND_DIR/.env"
-if [[ -x "$GUNICORN" ]]; then
+NATIVE_BOOT_STAMP="$LOG_DIR/.native_boot.stamp"
+NATIVE_BOOT_HASH="$(boot_stamp_hash "native|${DB_URL}|${USE_PG}")"
+if [[ "$FORCE_MIGRATE" == "1" ]] \
+  || [[ ! -f "$NATIVE_BOOT_STAMP" ]] \
+  || [[ "$(cat "$NATIVE_BOOT_STAMP" 2>/dev/null || true)" != "$NATIVE_BOOT_HASH" ]] \
+  || [[ -z "$DB_URL" && ! -f "$BACKEND_DIR/db.sqlite3" ]]; then
+  echo "[deskwise] Running database migrations & seeding plans ..."
   (
     cd "$BACKEND_DIR"
-    setsid nohup "$GUNICORN" config.wsgi:application \
-      --bind "0.0.0.0:${API_PORT}" --workers 1 --threads 8 --timeout 180 \
+    "$PY" manage.py migrate --noinput
+    "$PY" manage.py seed_plans
+  )
+  printf '%s' "$NATIVE_BOOT_HASH" > "$NATIVE_BOOT_STAMP"
+fi
+
+echo "[deskwise] Starting Backend ASGI API + WebSockets on :${API_PORT} ..."
+load_bedrock_aws_creds "$BACKEND_DIR/.env"
+if [[ -x "$UVICORN" ]]; then
+  (
+    cd "$BACKEND_DIR"
+    setsid nohup "$UVICORN" config.asgi:application \
+      --host 0.0.0.0 --port "${API_PORT}" \
+      > "$LOG_DIR/backend.log" 2>&1 < /dev/null &
+    echo $! > "$LOG_DIR/backend.pid"
+  )
+elif "$PY" -c "import uvicorn" >/dev/null 2>&1; then
+  (
+    cd "$BACKEND_DIR"
+    setsid nohup "$PY" -m uvicorn config.asgi:application \
+      --host 0.0.0.0 --port "${API_PORT}" \
+      > "$LOG_DIR/backend.log" 2>&1 < /dev/null &
+    echo $! > "$LOG_DIR/backend.pid"
+  )
+elif [[ -x "$GUNICORN" ]]; then
+  (
+    cd "$BACKEND_DIR"
+    setsid nohup "$GUNICORN" config.asgi:application -k uvicorn_worker.UvicornWorker \
+      --bind "0.0.0.0:${API_PORT}" --workers 1 --timeout 180 \
       > "$LOG_DIR/backend.log" 2>&1 < /dev/null &
     echo $! > "$LOG_DIR/backend.pid"
   )
@@ -341,10 +595,11 @@ echo "[deskwise] Starting Frontend Web on :${WEB_PORT} ..."
   echo $! > "$LOG_DIR/frontend.pid"
 )
 
-wait_for_url "http://localhost:${API_PORT}/api/health" "Backend API" 45
-wait_for_url "http://localhost:${WEB_PORT}" "Frontend Web" 60
+wait_all_ready "$API_PORT" "$WEB_PORT" 60
 
 echo
 echo "Deskwise is running (Native): Web http://localhost:${WEB_PORT} | API http://localhost:${API_PORT}"
 echo "Logs: $LOG_DIR/backend.log | $LOG_DIR/frontend.log"
 echo "Stop all servers anytime with: ./stop.sh"
+notify_desktop "Deskwise Started" "Web & API are ready at http://localhost:${WEB_PORT}"
+open_browser "http://localhost:${WEB_PORT}"

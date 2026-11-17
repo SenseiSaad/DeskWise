@@ -9,6 +9,7 @@ const STRINGS: Record<string, Entry> = {
   // workspace sidebar / nav
   overview: { en: 'Overview', es: 'Resumen', fr: 'Aperçu', de: 'Übersicht', ar: 'نظرة عامة', pt: 'Visão geral', ur: 'Khulasa' },
   askAi: { en: 'Ask AI', es: 'Preguntar a la IA', fr: 'Demander à l’IA', de: 'KI fragen', ar: 'اسأل الذكاء الاصطناعي', pt: 'Perguntar à IA', ur: 'AI se poochein' },
+  teamChat: { en: 'Team Chat', es: 'Chat de equipo', fr: 'Chat d’équipe', de: 'Team-Chat', ar: 'دردشة الفريق', pt: 'Chat da equipa', ur: 'Team Chat' },
   documents: { en: 'Documents', es: 'Documentos', fr: 'Documents', de: 'Dokumente', ar: 'المستندات', pt: 'Documentos', ur: 'Documents' },
   shared: { en: 'Shared with me', es: 'Compartido conmigo', fr: 'Partagés avec moi', de: 'Mit mir geteilt', ar: 'تمت مشاركتها معي', pt: 'Partilhado comigo', ur: 'Mere sath share' },
   attendance: { en: 'Attendance', es: 'Asistencia', fr: 'Présence', de: 'Anwesenheit', ar: 'الحضور', pt: 'Presença', ur: 'Haziri' },
@@ -69,6 +70,7 @@ const STRINGS: Record<string, Entry> = {
 export type StringKey =
   | 'overview'
   | 'askAi'
+  | 'teamChat'
   | 'documents'
   | 'shared'
   | 'attendance'

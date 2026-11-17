@@ -271,8 +271,12 @@ def register_company(request):
     s = RegisterCompanySerializer(data=request.data)
     s.is_valid(raise_exception=True)
     d = s.validated_data
-    if User.objects.filter(email__iexact=d["email"]).exists():
-        return Response({"detail": "Email already registered."}, status=400)
+    if User.objects.filter(email__iexact=d["email"].strip()).exists():
+        return Response(
+            {"detail": "This email is already registered to a workspace. Each workspace requires "
+                       "a unique work email — sign in to your existing workspace or use another email."},
+            status=400,
+        )
 
     base = slugify(d["company_name"]) or "company"
     slug, n = base, 1
@@ -324,7 +328,12 @@ def login(request):
     """
     s = LoginSerializer(data=request.data)
     s.is_valid(raise_exception=True)
-    user = authenticate(username=s.validated_data["email"], password=s.validated_data["password"])
+    raw_email = s.validated_data["email"].strip()
+    canonical_email = (
+        User.objects.filter(email__iexact=raw_email).values_list("email", flat=True).first()
+        or raw_email.lower()
+    )
+    user = authenticate(username=canonical_email, password=s.validated_data["password"])
     if user is None:
         return Response({"detail": "Invalid email or password."}, status=401)
     if _require_email_verification(user):
@@ -1465,8 +1474,12 @@ def users(request):
     s = UserCreateSerializer(data=request.data)
     s.is_valid(raise_exception=True)
     d = s.validated_data
-    if User.objects.filter(email__iexact=d["email"]).exists():
-        return Response({"detail": "Email already registered."}, status=400)
+    if User.objects.filter(email__iexact=d["email"].strip()).exists():
+        return Response(
+            {"detail": "This email is already registered in Deskwise. Please enter a unique work "
+                       "email for this workspace."},
+            status=400,
+        )
 
     # Seat limit: the stricter of the company's own cap and the plan's.
     plan = _plan_for(company)

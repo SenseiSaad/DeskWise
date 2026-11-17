@@ -174,7 +174,7 @@ export default function WorkspaceChatPage() {
   )
 
   return (
-    <div className="relative flex h-[calc(100dvh-13rem)] min-h-0 overflow-hidden rounded-[28px] border border-[#e6e3dc] bg-[#fffdfa] shadow-sm lg:h-[calc(100dvh-5rem)] lg:min-h-[34rem]">
+    <div className="relative flex h-[calc(100dvh-13rem)] min-h-0 overflow-hidden rounded-[28px] border border-border bg-surface-elevated shadow-sm lg:h-[calc(100dvh-5rem)] lg:min-h-[34rem]">
       <HistorySidebar
         open={sidebarOpen}
         onOpen={() => setSidebarOpen(true)}
@@ -188,7 +188,7 @@ export default function WorkspaceChatPage() {
         lang={language}
       />
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#fffdfa]">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface-elevated">
         <ChatHeader
           llm={llm}
           mode={mode}
@@ -200,7 +200,7 @@ export default function WorkspaceChatPage() {
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto flex h-full w-full max-w-4xl flex-col">
             {loadingConv ? (
-              <div className="grid h-full place-items-center text-sm text-[#6b6862]">
+              <div className="grid h-full place-items-center text-sm text-muted-foreground">
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="size-4 animate-spin" /> Loading thread…
                 </span>
@@ -274,26 +274,26 @@ function HistorySidebar({
           type="button"
           aria-label="Close conversation history"
           onClick={onClose}
-          className="absolute inset-0 z-30 bg-[#1d1d1b]/20 backdrop-blur-[1px] lg:hidden"
+          className="absolute inset-0 z-30 bg-black/30 backdrop-blur-[1px] lg:hidden"
         />
       ) : null}
 
       <aside
-        className={`z-40 flex shrink-0 flex-col border-r border-[#e6e3dc] bg-[#f4f2ec] transition-[width] duration-200 ${
+        className={`z-40 flex shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 ${
           open ? 'flex w-72' : 'hidden lg:flex lg:w-14'
         } max-lg:absolute max-lg:inset-y-0 max-lg:left-0 max-lg:w-[min(19rem,86vw)] max-lg:shadow-2xl`}
       >
         {open ? (
           <>
             <div className="flex items-center justify-between px-4 py-4">
-              <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6b6862]">
+              <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 <History className="size-3.5" />
                 {t('history', lang)}
               </span>
               <button
                 type="button"
                 onClick={onClose}
-                className="grid size-8 place-items-center rounded-xl text-[#6b6862] transition hover:bg-[#ece8df] hover:text-[#1d1d1b]"
+                className="grid size-8 place-items-center rounded-xl text-muted-foreground transition hover:bg-surface-2 hover:text-foreground"
                 title="Collapse history"
                 aria-label="Collapse conversation history"
               >
@@ -309,7 +309,7 @@ function HistorySidebar({
                   if (typeof window !== 'undefined' && window.innerWidth < 1024) onClose()
                 }}
                 disabled={streaming}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1d1d1b] px-3 py-2.5 text-xs font-medium text-white transition hover:bg-[#3c3b37] disabled:opacity-50"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-xs font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
               >
                 <Plus className="size-3.5" />
                 {t('newChat', lang)}
@@ -318,7 +318,7 @@ function HistorySidebar({
 
             <div className="mt-3 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
               {conversations.length === 0 ? (
-                <p className="mt-8 px-3 text-center text-xs leading-relaxed text-[#8c8a83]">
+                <p className="mt-8 px-3 text-center text-xs leading-relaxed text-muted-foreground">
                   No past conversations yet.
                   <br />
                   Ask a question or create a document.
@@ -332,8 +332,8 @@ function HistorySidebar({
                       onClick={() => onSelect(c.id)}
                       className={`group flex cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs transition ${
                         isSelected
-                          ? 'bg-[#1d1d1b] font-medium text-white'
-                          : 'text-[#4f4d47] hover:bg-[#ece8df]'
+                          ? 'bg-primary font-medium text-primary-foreground'
+                          : 'text-foreground/85 hover:bg-surface-2 hover:text-foreground'
                       }`}
                     >
                       <div className="flex min-w-0 items-center gap-2">
@@ -347,8 +347,8 @@ function HistorySidebar({
                         onClick={(e) => onDelete(c.id, e)}
                         className={`rounded p-1 opacity-100 transition lg:opacity-0 lg:group-hover:opacity-100 ${
                           isSelected
-                            ? 'text-white/80 hover:bg-white/10 hover:text-white'
-                            : 'text-[#9a3b2c] hover:bg-[#fbe4e0]'
+                            ? 'text-primary-foreground/80 hover:bg-primary-foreground/15 hover:text-primary-foreground'
+                            : 'text-danger hover:bg-danger-soft'
                         }`}
                         title="Delete thread"
                         aria-label="Delete conversation"
@@ -361,7 +361,7 @@ function HistorySidebar({
               )}
             </div>
 
-            <div className="border-t border-[#e6e3dc] px-3 py-3 text-[10px] leading-relaxed text-[#8c8a83]">
+            <div className="border-t border-border px-3 py-3 text-[10px] leading-relaxed text-muted-foreground">
               History is private to your account and company.
             </div>
           </>
@@ -374,7 +374,7 @@ function HistorySidebar({
                 onOpen()
               }}
               disabled={streaming}
-              className="grid size-9 place-items-center rounded-xl bg-[#1d1d1b] text-white transition hover:bg-[#3c3b37] disabled:opacity-50"
+              className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
               title={t('newChat', lang)}
               aria-label={t('newChat', lang)}
             >
@@ -383,13 +383,13 @@ function HistorySidebar({
             <button
               type="button"
               onClick={onOpen}
-              className="grid size-9 place-items-center rounded-xl text-[#6b6862] transition hover:bg-[#ece8df] hover:text-[#1d1d1b]"
+              className="grid size-9 place-items-center rounded-xl text-muted-foreground transition hover:bg-surface-2 hover:text-foreground"
               title="Open conversation history"
               aria-label="Open conversation history"
             >
               <PanelLeftOpen className="size-4" />
             </button>
-            <span className="mt-1 text-[9px] uppercase tracking-[0.14em] text-[#a29e94] [writing-mode:vertical-rl]">
+            <span className="mt-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground [writing-mode:vertical-rl]">
               {t('history', lang)}
             </span>
           </div>
@@ -418,22 +418,32 @@ function ChatHeader({
   const selfhostedReady = !!llm?.selfhosted?.online
 
   const options: { id: ChatMode; label: string; ready: boolean; icon: typeof Laptop; model?: string }[] = [
-    { id: 'local', label: 'Local (Ollama)', ready: localOnline, icon: Laptop, model: llm?.local?.model },
+    {
+      id: 'local',
+      label: 'Local (Ollama)',
+      ready: localOnline,
+      icon: Laptop,
+      model: localOnline
+        ? llm?.local?.model
+        : llm?.local?.model
+        ? `${llm.local.model} (not installed)`
+        : 'Requires a local model',
+    },
     { id: 'online', label: 'Bedrock (AWS)', ready: onlineReady, icon: Globe, model: llm?.online_api?.model },
     { id: 'gemini', label: 'Gemini', ready: geminiReady, icon: Sparkles, model: llm?.gemini?.model },
     { id: 'selfhosted', label: 'Self-Hosted EC2', ready: selfhostedReady, icon: Server, model: llm?.selfhosted?.model },
   ]
-  const currentOpt = options.find((o) => o.id === mode) || options[0]
+  const currentOpt = options.find((o) => o.id === mode) || options[1]
   const CurrentIcon = currentOpt.icon
 
   return (
-    <header className="flex items-center justify-between gap-3 border-b border-[#e6e3dc] px-4 py-3 sm:px-5">
+    <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
       <div className="flex min-w-0 items-center gap-2.5">
         {!sidebarOpen ? (
           <button
             type="button"
             onClick={onOpenSidebar}
-            className="hidden size-8 shrink-0 place-items-center rounded-xl text-[#6b6862] transition hover:bg-[#f2efe9] hover:text-[#1d1d1b] lg:grid"
+            className="hidden size-8 shrink-0 place-items-center rounded-xl text-muted-foreground transition hover:bg-surface-2 hover:text-foreground lg:grid"
             title="Open conversation history"
             aria-label="Open conversation history"
           >
@@ -443,17 +453,17 @@ function ChatHeader({
         <button
           type="button"
           onClick={onOpenSidebar}
-          className="grid size-8 shrink-0 place-items-center rounded-xl text-[#6b6862] transition hover:bg-[#f2efe9] hover:text-[#1d1d1b] lg:hidden"
+          className="grid size-8 shrink-0 place-items-center rounded-xl text-muted-foreground transition hover:bg-surface-2 hover:text-foreground lg:hidden"
           title="Open conversation history"
           aria-label="Open conversation history"
         >
           <History className="size-4" />
         </button>
         <div className="min-w-0">
-          <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-[#1d1d1b]">
+          <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground">
             Ask AI
           </h1>
-          <p className="hidden truncate text-[11px] text-[#6b6862] sm:block">
+          <p className="hidden truncate text-[11px] text-muted-foreground sm:block">
             Grounded in your documents · sources cited
           </p>
         </div>
@@ -474,7 +484,7 @@ function ChatHeader({
               description: opt.model || undefined,
               badge: opt.ready ? 'Ready' : 'Offline',
               dot: opt.ready ? 'online' : 'offline',
-              disabled: !opt.ready && opt.id !== mode,
+              disabled: !opt.ready,
             }))}
           />
         </div>
@@ -495,26 +505,26 @@ function EmptyState({
   return (
     <div className="grid h-full place-items-center py-6 text-center">
       <div className="w-full max-w-2xl">
-        <span className="mx-auto grid size-11 place-items-center rounded-2xl bg-[#f4f2ec]">
+        <span className="mx-auto grid size-11 place-items-center rounded-2xl bg-surface-2">
           {mode === 'online' ? (
-            <Globe className="size-5 text-[#20211f]" aria-hidden />
+            <Globe className="size-5 text-foreground" aria-hidden />
           ) : mode === 'selfhosted' ? (
-            <Server className="size-5 text-[#20211f]" aria-hidden />
+            <Server className="size-5 text-foreground" aria-hidden />
           ) : (
-            <Sparkles className="size-5 text-[#20211f]" aria-hidden />
+            <Sparkles className="size-5 text-foreground" aria-hidden />
           )}
         </span>
-        <h2 className="mt-3 text-lg font-semibold text-[#1d1d1b]">
+        <h2 className="mt-3 text-lg font-semibold text-foreground">
           Ask your documents, or create one
         </h2>
-        <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-[#6b6862]">
+        <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
           {isAvailable
             ? `Answers use ${modeLabel(mode)} and cite your files. Documents use your profile and details in the request; missing fields are asked.`
             : `${modeLabel(mode)} is not configured or reachable right now.`}
         </p>
 
         <div className="mt-6 text-left">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8c8a83]">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Create a document
           </p>
           <div className="grid gap-2 sm:grid-cols-3">
@@ -523,14 +533,14 @@ function EmptyState({
                 key={doc.label}
                 type="button"
                 onClick={() => onPick(doc.prompt)}
-                className="group flex items-center gap-2.5 rounded-2xl border border-[#dcdad3] bg-white px-3.5 py-3 text-left transition hover:border-[#1d1d1b] hover:shadow-sm"
+                className="group flex items-center gap-2.5 rounded-2xl border border-border-strong bg-surface-elevated px-3.5 py-3 text-left transition hover:border-foreground hover:shadow-sm"
               >
-                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-[#f4f2ec] text-[#4f4d47] transition group-hover:bg-[#1d1d1b] group-hover:text-white">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-surface-2 text-muted-foreground transition group-hover:bg-primary group-hover:text-primary-foreground">
                   <FileText className="size-4" aria-hidden />
                 </span>
                 <span className="min-w-0">
-                  <span className="block truncate text-xs font-medium text-[#1d1d1b]">{doc.label}</span>
-                  <span className="block text-[10px] text-[#8c8a83]">Auto-filled form</span>
+                  <span className="block truncate text-xs font-medium text-foreground">{doc.label}</span>
+                  <span className="block text-[10px] text-muted-foreground">Auto-filled form</span>
                 </span>
               </button>
             ))}
@@ -538,7 +548,7 @@ function EmptyState({
         </div>
 
         <div className="mt-5 text-left">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8c8a83]">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Or ask a question
           </p>
           <div className="flex flex-col gap-2">
@@ -547,7 +557,7 @@ function EmptyState({
                 key={ex}
                 type="button"
                 onClick={() => onPick(ex)}
-                className="rounded-xl border border-[#e6e3dc] bg-[#fffdfa] px-3.5 py-2.5 text-left text-xs text-[#4f4d47] transition hover:border-[#c9c6bd] hover:bg-white"
+                className="rounded-xl border border-border bg-surface px-3.5 py-2.5 text-left text-xs text-foreground/85 transition hover:border-border-strong hover:bg-surface-2 hover:text-foreground"
               >
                 {ex}
               </button>
@@ -581,7 +591,7 @@ function FormattedMessage({
   // HTML that a template or an LLM answer might contain before it reaches the
   // DOM. No Markdown symbols are ever shown to the user.
   return (
-    <div ref={onNode} dir="auto" className="ov-md text-sm text-[#20211f]">
+    <div ref={onNode} dir="auto" className="ov-md text-sm text-foreground">
       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
         {content}
       </ReactMarkdown>
@@ -681,26 +691,26 @@ function ArtifactCard({ a }: { a: Artifact }) {
   }
 
   return (
-    <div className="mt-3 overflow-hidden rounded-2xl border border-[#d9e5d9] bg-white shadow-sm">
-      <div className="flex items-start gap-3 bg-[#e8f2e8] px-4 py-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#dcebdd] text-[#2f5b36]">
+    <div className="mt-3 overflow-hidden rounded-2xl border border-ok/30 bg-surface-elevated shadow-sm">
+      <div className="flex items-start gap-3 bg-ok-soft px-4 py-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-elevated/80 text-ok">
           <FileText className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="min-w-0 truncate text-sm font-semibold text-[#20211f]" title={a.title}>
+            <p className="min-w-0 truncate text-sm font-semibold text-foreground" title={a.title}>
               {a.title || 'Generated document'}
             </p>
-            <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#5c6b5e] ring-1 ring-[#cfe0d0]">
+            <span className="rounded-full bg-surface-elevated px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-ok ring-1 ring-ok/30">
               {a.kind}
             </span>
           </div>
-          <p className="mt-0.5 text-[11px] text-[#5c6b5e]">
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
             {missing > 0 ? `${missing} detail${missing === 1 ? '' : 's'} still needed` : 'Ready to download'}
           </p>
           {filled.length > 0 ? (
-            <p className="mt-1 flex items-start gap-1 text-[10px] leading-relaxed text-[#5c6b5e]">
-              <CheckCircle2 className="mt-0.5 size-3 shrink-0 text-[#3f6b45]" aria-hidden />
+            <p className="mt-1 flex items-start gap-1 text-[10px] leading-relaxed text-muted-foreground">
+              <CheckCircle2 className="mt-0.5 size-3 shrink-0 text-ok" aria-hidden />
               <span>Already filled: {filled.slice(0, 6).join(', ')}{filled.length > 6 ? '…' : ''}</span>
             </p>
           ) : null}
@@ -710,7 +720,7 @@ function ArtifactCard({ a }: { a: Artifact }) {
             type="button"
             disabled={busy !== null}
             onClick={() => download('docx')}
-            className="inline-flex items-center gap-1 rounded-full border border-[#cfe0d0] bg-white px-3 py-1.5 text-[10px] font-medium text-[#2f5b36] transition-all duration-150 hover:bg-[#f1f7f0] active:scale-[0.97] disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-full border border-ok/35 bg-surface-elevated px-3 py-1.5 text-[10px] font-medium text-ok transition-all duration-150 hover:bg-ok-soft active:scale-[0.97] disabled:opacity-50"
           >
             {busy === 'docx' ? (
               <Loader2 className="size-3 animate-spin" />
@@ -725,7 +735,7 @@ function ArtifactCard({ a }: { a: Artifact }) {
             type="button"
             disabled={busy !== null}
             onClick={() => download('pdf')}
-            className="inline-flex items-center gap-1 rounded-full border border-[#cfe0d0] bg-white px-3 py-1.5 text-[10px] font-medium text-[#2f5b36] transition-all duration-150 hover:bg-[#f1f7f0] active:scale-[0.97] disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-full border border-ok/35 bg-surface-elevated px-3 py-1.5 text-[10px] font-medium text-ok transition-all duration-150 hover:bg-ok-soft active:scale-[0.97] disabled:opacity-50"
           >
             {busy === 'pdf' ? (
               <Loader2 className="size-3 animate-spin" />
@@ -739,15 +749,15 @@ function ArtifactCard({ a }: { a: Artifact }) {
         </div>
       </div>
 
-      <div className="border-t border-[#e6efe5] px-4 py-3">
+      <div className="border-t border-border px-4 py-3">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="inline-flex rounded-lg bg-[#f2efe9] p-0.5">
+          <div className="inline-flex rounded-lg bg-surface-2 p-0.5">
             {hasStructured ? (
               <button
                 type="button"
                 onClick={() => setView('form')}
                 className={`rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                  view === 'form' ? 'bg-white text-[#1d1d1b] shadow-sm' : 'text-[#6b6862]'
+                  view === 'form' ? 'bg-surface-elevated text-foreground shadow-sm' : 'text-muted-foreground'
                 }`}
               >
                 Form view
@@ -757,13 +767,13 @@ function ArtifactCard({ a }: { a: Artifact }) {
               type="button"
               onClick={() => setView('text')}
               className={`rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                view === 'text' ? 'bg-white text-[#1d1d1b] shadow-sm' : 'text-[#6b6862]'
+                view === 'text' ? 'bg-surface-elevated text-foreground shadow-sm' : 'text-muted-foreground'
               }`}
             >
               Text view
             </button>
           </div>
-          <span className="text-[10px] text-[#8c8a83]">
+          <span className="text-[10px] text-muted-foreground">
             {a.kind === 'email' ? 'Email draft' : 'Preview before download'}
           </span>
         </div>
@@ -782,12 +792,12 @@ function ArtifactCard({ a }: { a: Artifact }) {
               <table className="w-full text-left text-xs">
                 <tbody>
                   {s.table.map((row, i) => (
-                    <tr key={i} className="border-b border-[#f0ede6] last:border-0">
+                    <tr key={i} className="border-b border-border last:border-0">
                       {row.map((cell, j) =>
                         i === 0 ? (
-                          <th key={j} className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#6b6862]">{cell}</th>
+                          <th key={j} className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{cell}</th>
                         ) : (
-                          <td key={j} className="px-2 py-1.5 text-[#20211f]">{cell}</td>
+                          <td key={j} className="px-2 py-1.5 text-foreground">{cell}</td>
                         ),
                       )}
                     </tr>
@@ -796,26 +806,26 @@ function ArtifactCard({ a }: { a: Artifact }) {
               </table>
             ) : null}
             {s.sections?.map((sec, i) => (
-              <div key={i} className="rounded-xl border border-[#f0ede6] bg-[#fffdfa] px-3 py-2.5">
-                <h4 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6b6862]">
+              <div key={i} className="rounded-xl border border-border bg-surface px-3 py-2.5">
+                <h4 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                   {sec.heading}
                 </h4>
                 <dl className="mt-1.5 space-y-1">
                   {sec.fields.map((f, j) => (
                     <div key={j} className="grid grid-cols-[minmax(7rem,38%)_1fr] gap-2 text-xs">
-                      <dt className="text-[#6b6862]">{f.label}</dt>
-                      <dd className={f.placeholder ? 'font-medium text-[#a66a12]' : 'text-[#20211f]'}>
+                      <dt className="text-muted-foreground">{f.label}</dt>
+                      <dd className={f.placeholder ? 'font-medium text-warn' : 'text-foreground'}>
                         {f.value || '—'}
                       </dd>
                     </div>
                   ))}
                   {sec.checkboxes?.map((cb, j) => (
-                    <div key={`cb-${j}`} className="text-xs text-[#4f4d47]">
+                    <div key={`cb-${j}`} className="text-xs text-foreground/85">
                       {cb.checked ? '☑' : '☐'} {cb.label}
                     </div>
                   ))}
                   {sec.lines?.map((l, j) => (
-                    <p key={`l-${j}`} className="whitespace-pre-wrap text-xs text-[#4f4d47]">{l}</p>
+                    <p key={`l-${j}`} className="whitespace-pre-wrap text-xs text-foreground/85">{l}</p>
                   ))}
                 </dl>
               </div>
@@ -828,7 +838,7 @@ function ArtifactCard({ a }: { a: Artifact }) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.15 }}
-              className="max-h-72 overflow-y-auto rounded-xl border border-[#f0ede6] bg-[#fffdfa] px-3 py-2.5 pr-2"
+              className="max-h-72 overflow-y-auto rounded-xl border border-border bg-surface px-3 py-2.5 pr-2"
             >
               <FormattedMessage content={a.content_md} />
             </motion.div>
@@ -863,15 +873,15 @@ function MissingFieldsCard({
         })
         onFill(filled)
       }}
-      className="mt-3 rounded-2xl border border-[#f0d7a8] bg-[#fdf6e6] p-4"
+      className="mt-3 rounded-2xl border border-warn/35 bg-warn-soft p-4"
     >
       <div className="flex items-start gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#f6e9c9] text-[#8a6516]">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-elevated/80 text-warn">
           <ReceiptText className="size-4" aria-hidden />
         </span>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-[#8a6516]">Complete your document</p>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-[#8a6516]">
+          <p className="text-sm font-semibold text-warn">Complete your document</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-warn">
             We used your profile and any details in the request. Add the {defs.length} remaining detail{defs.length === 1 ? '' : 's'} below —
             nothing is invented, and anything you leave blank stays as a placeholder.
           </p>
@@ -881,13 +891,13 @@ function MissingFieldsCard({
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {defs.map((f) => {
           const common =
-            'w-full rounded-xl border border-[#e6dcc0] bg-white px-3 py-2 text-xs text-[#20211f] outline-none transition placeholder:text-[#a9a396] focus:border-[#b8860b] focus:ring-2 focus:ring-[#f0d7a8]'
+            'w-full rounded-xl border border-warn/35 bg-surface-elevated px-3 py-2 text-xs text-foreground outline-none transition placeholder:text-muted-foreground focus:border-warn focus:ring-2 focus:ring-warn/25'
           return (
             <label
               key={f.raw}
               className={`block ${f.type === 'textarea' ? 'sm:col-span-2' : ''}`}
             >
-              <span className="mb-1 block text-[11px] font-medium text-[#8a6516]">{f.label}</span>
+              <span className="mb-1 block text-[11px] font-medium text-warn">{f.label}</span>
               {f.type === 'select' ? (
                 <SmoothSelect
                   value={values[f.raw] || ''}
@@ -895,7 +905,7 @@ function MissingFieldsCard({
                   placeholder={`Select ${f.label.toLowerCase()}…`}
                   ariaLabel={f.label}
                   size="sm"
-                  className="border-[#e6dcc0] bg-white"
+                  className="border-warn/35 bg-surface-elevated"
                   options={[
                     { value: '', label: `Select ${f.label.toLowerCase()}…` },
                     ...(f.options || []).map((opt) => ({ value: opt, label: opt })),
@@ -921,7 +931,7 @@ function MissingFieldsCard({
                 />
               )}
               {f.hint && f.type !== 'text' ? (
-                <span className="mt-1 block text-[10px] text-[#a9a396]">{f.hint}</span>
+                <span className="mt-1 block text-[10px] text-muted-foreground">{f.hint}</span>
               ) : null}
             </label>
           )
@@ -932,12 +942,12 @@ function MissingFieldsCard({
         <button
           type="submit"
           disabled={busy}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#1d1d1b] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#3c3b37] disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
         >
           {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />}
           {busy ? 'Updating…' : 'Update document'}
         </button>
-        <span className="text-[10px] text-[#a9a396]">
+        <span className="text-[10px] text-muted-foreground">
           {filledCount}/{defs.length} added · you can come back and edit after generating
         </span>
       </div>
@@ -1087,10 +1097,10 @@ function Bubble({
   if (msg.role === 'user') {
     return (
       <div className="flex flex-col items-end">
-        <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-[#1d1d1b] px-4 py-3 text-sm leading-relaxed text-white">
+        <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground">
           {msg.content}
         </div>
-        <span className="mt-1 px-2 text-[10px] text-[#8c8a83]">
+        <span className="mt-1 px-2 text-[10px] text-muted-foreground">
           {documentRequest ? 'Document request · profile and request details' : `via ${modeLabel(msg.mode)}`}
         </span>
       </div>
@@ -1104,8 +1114,8 @@ function Bubble({
           <div
             className={`rounded-3xl rounded-bl-lg border px-4 py-3 text-sm leading-relaxed ${
               msg.error
-                ? 'border-[#f0c8c0] bg-[#fbe4e0] text-[#9a3b2c]'
-                : 'border-[#dcdad3] bg-[#fffdfa] text-[#20211f]'
+                ? 'border-danger/35 bg-danger-soft text-danger'
+                : 'border-border-strong bg-surface text-foreground'
             }`}
           >
             {visibleContent ? (
@@ -1116,7 +1126,7 @@ function Bubble({
                 }}
               />
             ) : streaming ? (
-              <span className="inline-flex items-center gap-2 text-[#6b6862]">
+              <span className="inline-flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" aria-hidden /> Thinking…
               </span>
             ) : null}
@@ -1154,13 +1164,13 @@ function Bubble({
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           {msg.sources && msg.sources.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-[#6b6862]">
+              <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
                 {t('sources', lang)}
               </span>
               {msg.sources.map((s) => (
                 <span
                   key={s}
-                  className="inline-flex items-center gap-1 rounded-full bg-[#f4f2ec] px-2 py-0.5 text-[11px] text-[#65645f]"
+                  className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-foreground/85"
                 >
                   <FileText className="size-3" aria-hidden /> {s}
                 </span>
@@ -1176,18 +1186,18 @@ function Bubble({
                 type="button"
                 onClick={copyRich}
                 title="Copy formatted (rich) text"
-                className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-[#6b6862] transition hover:border-[#dcdad3] hover:bg-[#f2efe9] hover:text-[#1d1d1b]"
+                className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-border-strong hover:bg-surface-2 hover:text-foreground"
               >
-                {copied === 'rich' ? <Check className="size-3 text-emerald-600" /> : <ClipboardCopy className="size-3" />}
+                {copied === 'rich' ? <Check className="size-3 text-ok" /> : <ClipboardCopy className="size-3" />}
                 <span>{copied === 'rich' ? 'Copied!' : 'Copy formatted'}</span>
               </button>
               <button
                 type="button"
                 onClick={copyPlain}
                 title="Copy as plain text"
-                className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-[#6b6862] transition hover:border-[#dcdad3] hover:bg-[#f2efe9] hover:text-[#1d1d1b]"
+                className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-border-strong hover:bg-surface-2 hover:text-foreground"
               >
-                {copied === 'plain' ? <Check className="size-3 text-emerald-600" /> : <Copy className="size-3" />}
+                {copied === 'plain' ? <Check className="size-3 text-ok" /> : <Copy className="size-3" />}
                 <span>{copied === 'plain' ? 'Copied!' : 'Copy plain'}</span>
               </button>
               <button
@@ -1195,7 +1205,7 @@ function Bubble({
                 disabled={busy}
                 onClick={() => download('docx')}
                 title="Download as DOCX"
-                className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-[#6b6862] transition hover:border-[#dcdad3] hover:bg-[#f2efe9] hover:text-[#1d1d1b] disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-border-strong hover:bg-surface-2 hover:text-foreground disabled:opacity-40"
               >
                 <FileDown className="size-3" /> <span>DOCX</span>
               </button>
@@ -1204,7 +1214,7 @@ function Bubble({
                 disabled={busy}
                 onClick={() => download('pdf')}
                 title="Download as PDF"
-                className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-[#6b6862] transition hover:border-[#dcdad3] hover:bg-[#f2efe9] hover:text-[#1d1d1b] disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-border-strong hover:bg-surface-2 hover:text-foreground disabled:opacity-40"
               >
                 <FileSpreadsheet className="size-3" /> <span>PDF</span>
               </button>
@@ -1217,9 +1227,9 @@ function Bubble({
                       flash('subject')
                     }}
                     title="Copy email subject"
-                    className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-[#6b6862] transition hover:border-[#dcdad3] hover:bg-[#f2efe9] hover:text-[#1d1d1b]"
+                    className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-border-strong hover:bg-surface-2 hover:text-foreground"
                   >
-                    {copied === 'subject' ? <Check className="size-3 text-emerald-600" /> : <Mail className="size-3" />}
+                    {copied === 'subject' ? <Check className="size-3 text-ok" /> : <Mail className="size-3" />}
                     <span>Subject</span>
                   </button>
                   <button
@@ -1229,16 +1239,16 @@ function Bubble({
                       flash('body')
                     }}
                     title="Copy email body"
-                    className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-[#6b6862] transition hover:border-[#dcdad3] hover:bg-[#f2efe9] hover:text-[#1d1d1b]"
+                    className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-border-strong hover:bg-surface-2 hover:text-foreground"
                   >
-                    {copied === 'body' ? <Check className="size-3 text-emerald-600" /> : <Copy className="size-3" />}
+                    {copied === 'body' ? <Check className="size-3 text-ok" /> : <Copy className="size-3" />}
                     <span>Body</span>
                   </button>
                   <button
                     type="button"
                     onClick={openMailApp}
                     title="Open in your mail app"
-                    className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-[#6b6862] transition hover:border-[#dcdad3] hover:bg-[#f2efe9] hover:text-[#1d1d1b]"
+                    className="inline-flex items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-border-strong hover:bg-surface-2 hover:text-foreground"
                   >
                     <ExternalLink className="size-3" /> <span>Mail app</span>
                   </button>
@@ -1248,15 +1258,15 @@ function Bubble({
           ) : null}
 
           {msg.id && !streaming && onRate ? (
-            <div className="flex items-center gap-1 border-l border-[#e6e3dc] pl-1.5">
+            <div className="flex items-center gap-1 border-l border-border pl-1.5">
               <button
                 type="button"
                 onClick={() => onRate(1)}
                 title={t('helpful', lang)}
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition ${
                   msg.rating === 1
-                    ? 'bg-[#dcebdd] font-medium text-[#2f5b36]'
-                    : 'text-[#8c8a83] hover:bg-[#f2efe9] hover:text-[#1d1d1b]'
+                    ? 'bg-ok-soft font-medium text-ok'
+                    : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground'
                 }`}
               >
                 <ThumbsUp className="size-3" />
@@ -1268,8 +1278,8 @@ function Bubble({
                 title={t('notHelpful', lang)}
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition ${
                   msg.rating === -1
-                    ? 'bg-[#fbe4e0] font-medium text-[#9a3b2c]'
-                    : 'text-[#8c8a83] hover:bg-[#f2efe9] hover:text-[#1d1d1b]'
+                    ? 'bg-danger-soft font-medium text-danger'
+                    : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground'
                 }`}
               >
                 <ThumbsDown className="size-3" />
@@ -1285,7 +1295,7 @@ function Bubble({
 
 function FlagBanner({ flag }: { flag: { message: string; categories: string[] } }) {
   return (
-    <div className="mt-2 flex items-start gap-2 rounded-2xl border border-[#f0d7a8] bg-[#fdf6e6] px-3.5 py-2.5 text-xs text-[#8a6516]">
+    <div className="mt-2 flex items-start gap-2 rounded-2xl border border-warn/35 bg-warn-soft px-3.5 py-2.5 text-xs text-warn">
       <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
       <div>
         <p className="font-medium">{flag.message}</p>
@@ -1294,7 +1304,7 @@ function FlagBanner({ flag }: { flag: { message: string; categories: string[] } 
             {flag.categories.map((c) => (
               <span
                 key={c}
-                className="rounded-full bg-[#f6e9c9] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#8a6516]"
+                className="rounded-full bg-surface-elevated/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-warn"
               >
                 {c.replace(/_/g, ' ')}
               </span>
@@ -1309,7 +1319,7 @@ function FlagBanner({ flag }: { flag: { message: string; categories: string[] } 
 function WorkflowCard({ wf }: { wf: WorkflowResult }) {
   if (wf.status === 'error') {
     return (
-      <div className="mt-2 flex items-start gap-2 rounded-2xl border border-[#f0c8c0] bg-[#fbe4e0] px-3.5 py-2.5 text-xs text-[#9a3b2c]">
+      <div className="mt-2 flex items-start gap-2 rounded-2xl border border-danger/35 bg-danger-soft px-3.5 py-2.5 text-xs text-danger">
         <X className="mt-0.5 size-4 shrink-0" aria-hidden />
         <p>{wf.message || 'The assistant could not complete that action.'}</p>
       </div>
@@ -1318,7 +1328,7 @@ function WorkflowCard({ wf }: { wf: WorkflowResult }) {
   if (wf.action === 'leave_request') return <LeaveFormCard wf={wf} />
   if (wf.action === 'schedule_meeting') return <MeetingCard wf={wf} />
   return (
-    <div className="mt-2 rounded-2xl border border-[#cfe0d0] bg-[#f1f7f0] px-3.5 py-2.5 text-xs text-[#2f5b36]">
+    <div className="mt-2 rounded-2xl border border-ok/35 bg-ok-soft px-3.5 py-2.5 text-xs text-ok">
       {wf.message}
     </div>
   )
@@ -1342,14 +1352,14 @@ function LeaveFormCard({ wf }: { wf: WorkflowResult }) {
   }
 
   return (
-    <div className="mt-2 rounded-2xl border border-[#cfe0d0] bg-[#f1f7f0] p-3.5">
+    <div className="mt-2 rounded-2xl border border-ok/35 bg-ok-soft p-3.5">
       <div className="flex items-start gap-2.5">
-        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-[#dcebdd] text-[#2f5b36]">
+        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-surface-elevated/80 text-ok">
           <FileText className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-[#20211f]">Leave application ready</p>
-          <p className="mt-0.5 text-xs text-[#5c6b5e]">
+          <p className="text-sm font-medium text-foreground">Leave application ready</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {wf.message}
             {wf.leave_date ? ` (${wf.leave_date})` : ''}
           </p>
@@ -1357,12 +1367,12 @@ function LeaveFormCard({ wf }: { wf: WorkflowResult }) {
             type="button"
             onClick={onDownload}
             disabled={busy || !wf.download_url}
-            className="mt-2.5 inline-flex items-center gap-1.5 rounded-xl bg-[#2f5b36] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#274b2d] disabled:opacity-50"
+            className="mt-2.5 inline-flex items-center gap-1.5 rounded-xl bg-[#2f5b36] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#274b2d] dark:bg-[#3e7849] dark:hover:bg-[#498b55] disabled:opacity-50"
           >
             {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
             {busy ? 'Preparing…' : 'Download .docx'}
           </button>
-          {err ? <p className="mt-1.5 text-[11px] text-[#9a3b2c]">{err}</p> : null}
+          {err ? <p className="mt-1.5 text-[11px] text-danger">{err}</p> : null}
         </div>
       </div>
     </div>
@@ -1373,22 +1383,22 @@ function MeetingCard({ wf }: { wf: WorkflowResult }) {
   const booked = wf.status === 'ok' && wf.calendar?.status === 'created'
   const emailSent = wf.email?.status === 'sent'
   return (
-    <div className="mt-2 rounded-2xl border border-[#cdd8ea] bg-[#f0f4fb] p-3.5">
+    <div className="mt-2 rounded-2xl border border-info/35 bg-info-soft p-3.5">
       <div className="flex items-start gap-2.5">
-        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-[#dbe4f5] text-[#2f4a7a]">
+        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-surface-elevated/80 text-info">
           <CalendarCheck className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-[#20211f]">{wf.title || 'Meeting'}</p>
-          <p className="mt-0.5 text-xs text-[#55617a]">{wf.message}</p>
+          <p className="text-sm font-medium text-foreground">{wf.title || 'Meeting'}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{wf.message}</p>
           {wf.when ? (
-            <p className="mt-1 text-xs text-[#55617a]">
-              <span className="font-medium text-[#2f4a7a]">When:</span> {wf.when}
+            <p className="mt-1 text-xs text-muted-foreground">
+              <span className="font-medium text-info">When:</span> {wf.when}
             </p>
           ) : null}
           {wf.participants && wf.participants.length > 0 ? (
-            <p className="mt-0.5 text-xs text-[#55617a]">
-              <span className="font-medium text-[#2f4a7a]">With:</span> {wf.participants.join(', ')}
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              <span className="font-medium text-info">With:</span> {wf.participants.join(', ')}
             </p>
           ) : null}
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1400,7 +1410,7 @@ function MeetingCard({ wf }: { wf: WorkflowResult }) {
               href={wf.calendar.html_link}
               target="_blank"
               rel="noreferrer"
-              className="mt-2 inline-block text-xs font-medium text-[#2f4a7a] underline hover:text-[#20335c]"
+              className="mt-2 inline-block text-xs font-medium text-info underline hover:opacity-80"
             >
               Open in Google Calendar
             </a>
@@ -1425,7 +1435,7 @@ function StatusPill({
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-        ok ? 'bg-[#dcebdd] text-[#2f5b36]' : 'bg-[#eceadf] text-[#6b6862]'
+        ok ? 'bg-ok-soft text-ok' : 'bg-surface-2 text-muted-foreground'
       }`}
     >
       {mail ? (
@@ -1467,13 +1477,13 @@ function Composer({
   }, [value])
 
   return (
-    <div className="border-t border-[#e6e3dc] bg-[#fffdfa]/95 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
+    <div className="border-t border-border bg-surface-elevated/95 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
       <form
         onSubmit={(e) => {
           e.preventDefault()
           onSend()
         }}
-        className="mx-auto flex w-full max-w-4xl items-end gap-2 rounded-2xl border border-[#dcdad3] bg-white p-1.5 shadow-sm transition focus-within:border-[#1d1d1b] focus-within:ring-2 focus-within:ring-[#1d1d1b]/5"
+        className="mx-auto flex w-full max-w-4xl items-end gap-2 rounded-2xl border border-border-strong bg-surface p-1.5 shadow-sm transition focus-within:border-foreground focus-within:ring-2 focus-within:ring-foreground/10"
       >
         <textarea
           ref={inputRef}
@@ -1488,14 +1498,14 @@ function Composer({
           rows={2}
           disabled={disabled}
           placeholder={placeholder || 'Ask about your documents, or request a form…'}
-          className="max-h-40 min-h-[3rem] flex-1 resize-none bg-transparent px-3 py-2 text-sm leading-relaxed text-[#1d1d1b] outline-none placeholder:text-[#8c8a83]"
+          className="max-h-40 min-h-[3rem] flex-1 resize-none bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
           aria-label="Your question"
         />
         {streaming ? (
           <button
             type="button"
             onClick={onStop}
-            className="mb-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-[#efece6] text-[#4f4d47] transition hover:bg-[#e6e3dc]"
+            className="mb-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-surface-2 text-foreground transition hover:opacity-85"
             aria-label="Stop generating"
           >
             <Square className="size-4" aria-hidden />
@@ -1504,17 +1514,17 @@ function Composer({
           <button
             type="submit"
             disabled={disabled || !value.trim()}
-            className="mb-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-[#1d1d1b] text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="mb-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Send"
           >
             <ArrowUp className="size-4" aria-hidden />
           </button>
         )}
       </form>
-      <div className="mx-auto mt-2 flex w-full max-w-4xl flex-wrap items-center justify-between gap-1 px-1 text-[10px] text-[#8c8a83]">
+      <div className="mx-auto mt-2 flex w-full max-w-4xl flex-wrap items-center justify-between gap-1 px-1 text-[10px] text-muted-foreground">
         <span>Enter to send · Shift+Enter for a new line</span>
         <span className="inline-flex items-center gap-1">
-          <span className={`size-1.5 rounded-full ${streaming ? 'animate-pulse bg-[#4a8a5c]' : 'bg-[#b9b6ae]'}`} />
+          <span className={`size-1.5 rounded-full ${streaming ? 'animate-pulse bg-emerald-500' : 'bg-muted-foreground/50'}`} />
           {streaming ? 'Generating…' : modeLabel(mode)}
         </span>
       </div>

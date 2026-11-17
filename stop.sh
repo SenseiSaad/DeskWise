@@ -13,10 +13,20 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$ROOT/.dev-logs"
+APP_ICON="$ROOT/frontend/public/openvault-logo-300.png"
 NATIVE_ONLY=0
+GUI_MODE=0
 
-if [[ "${1:-}" == "--native" ]]; then
-  NATIVE_ONLY=1
+for arg in "$@"; do
+  case "$arg" in
+    --native) NATIVE_ONLY=1 ;;
+    --gui) GUI_MODE=1 ;;
+  esac
+done
+
+if [[ "$GUI_MODE" == "1" ]]; then
+  mkdir -p "$LOG_DIR"
+  exec > "$LOG_DIR/launcher.log" 2>&1
 fi
 
 kill_pidfile() {
@@ -46,5 +56,7 @@ if [[ "$NATIVE_ONLY" == "0" ]] && command -v docker >/dev/null 2>&1 && docker co
   fi
 fi
 
-sleep 1
 echo "[deskwise] All servers stopped."
+if [[ "$GUI_MODE" == "1" ]] && command -v notify-send >/dev/null 2>&1; then
+  notify-send -a "Deskwise" -i "$APP_ICON" "Deskwise Stopped" "All servers stopped." >/dev/null 2>&1 || true
+fi

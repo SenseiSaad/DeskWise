@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
+    "channels",
     "core",
 ]
 
@@ -62,6 +63,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
+ASGI_APPLICATION = "config.asgi.application"
 
 TEMPLATES = [
     {
@@ -161,11 +163,22 @@ if os.getenv("CACHE_URL", "").startswith("redis"):
             "LOCATION": os.getenv("CACHE_URL"),
         }
     }
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": [os.getenv("CACHE_URL")]},
+        }
+    }
 else:
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "LOCATION": "openvault-ratelimit",
+        }
+    }
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
         }
     }
 
@@ -308,6 +321,10 @@ ATTENDANCE_QR_TOKEN_TTL = int(os.getenv("ATTENDANCE_QR_TOKEN_TTL", "600"))  # se
 ENABLE_ATTENDANCE = os.getenv("ENABLE_ATTENDANCE", "true").lower() in ("1", "true", "yes")
 ATTENDANCE_AUTO_FREEZE = os.getenv("ATTENDANCE_AUTO_FREEZE", "false").lower() in ("1", "true", "yes")
 ENABLE_DOCGEN = os.getenv("ENABLE_DOCGEN", "true").lower() in ("1", "true", "yes")
+
+# ── Team Chatroom ──
+# How long (in seconds) an author may edit their own team chat message.
+TEAM_CHAT_EDIT_WINDOW_SECONDS = int(os.getenv("TEAM_CHAT_EDIT_WINDOW_SECONDS", "900"))
 
 # ── Stripe Billing (Sandbox & Production) ──
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()

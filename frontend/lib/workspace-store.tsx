@@ -245,15 +245,22 @@ function writeSnapshot(storageKey: string, snapshot: PersistedWorkspaceSnapshot)
   }
 }
 
+function isModeOnline(mode: ChatMode, status: LlmStatus): boolean {
+  if (mode === 'online') return Boolean(status.online_api?.online)
+  if (mode === 'gemini') return Boolean(status.gemini?.online)
+  if (mode === 'selfhosted') return Boolean(status.selfhosted?.online)
+  return Boolean(status.local?.online)
+}
+
 function pickInitialMode(status: LlmStatus): ChatMode {
   if (status.provider === 'bedrock' && status.online_api?.online) return 'online'
   if (status.provider === 'gemini' && status.gemini?.online) return 'gemini'
   if (status.provider === 'selfhosted' && status.selfhosted?.online) return 'selfhosted'
-  if (status.local?.online) return 'local'
   if (status.online_api?.online) return 'online'
+  if (status.local?.online) return 'local'
   if (status.gemini?.online) return 'gemini'
   if (status.selfhosted?.online) return 'selfhosted'
-  return 'local'
+  return 'online'
 }
 
 export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
@@ -293,7 +300,7 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [llm, setLlm] = useState<LlmStatus | null>(null)
-  const [mode, setMode] = useState<ChatMode>('local')
+  const [mode, setMode] = useState<ChatMode>('online')
   const [modeInit, setModeInit] = useState(false)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(null)
@@ -330,7 +337,7 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
       setMessages([])
       setInput('')
       setCurrentConversationId(null)
-      setMode('local')
+      setMode('online')
       setModeInit(false)
       setSidebarOpen(true)
       return
@@ -347,14 +354,14 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
       setMessages(Array.isArray(snap.chat.messages) ? snap.chat.messages : [])
       setInput(snap.chat.input || '')
       setCurrentConversationId(snap.chat.currentConversationId ?? null)
-      setMode(snap.chat.mode || 'local')
+      setMode(snap.chat.mode || 'online')
       setModeInit(Boolean(snap.chat.modeInit))
       setSidebarOpen(snap.chat.sidebarOpen !== false)
     } else {
       setMessages([])
       setInput('')
       setCurrentConversationId(null)
-      setMode('local')
+      setMode('online')
       setModeInit(false)
       setSidebarOpen(true)
     }
@@ -581,9 +588,14 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
       if (userKeyRef.current !== expectedKey) return null
       setLlm(s)
       setMode((cur) => {
-        if (modeInit) return cur
-        setModeInit(true)
-        return pickInitialMode(s)
+        if (!modeInit) {
+          setModeInit(true)
+          return pickInitialMode(s)
+        }
+        if (!isModeOnline(cur, s)) {
+          return pickInitialMode(s)
+        }
+        return cur
       })
       return s
     } catch {

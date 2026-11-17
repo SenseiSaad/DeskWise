@@ -207,3 +207,40 @@ def test_short_access_timeout_cookie_and_refresh_expiry(
         assert "Session expired" in expired_ref.json()["detail"]
     finally:
         settings.SIMPLE_JWT = orig
+
+
+def test_email_case_insensitive_login_and_duplicate_workspace_block(api):
+    reg = api.post(
+        "/api/auth/register",
+        {
+            "company_name": "Case Test Co",
+            "admin_name": "Case Admin",
+            "email": "Alice.Smith@CaseCo.test",
+            "password": PASSWORD,
+        },
+        format="json",
+    )
+    assert reg.status_code == 201
+    api.post("/api/auth/logout", format="json")
+
+    # Login with different casing succeeds.
+    login_resp = api.post(
+        "/api/auth/login",
+        {"email": "alice.smith@caseco.test", "password": PASSWORD},
+        format="json",
+    )
+    assert login_resp.status_code == 200
+
+    # Re-using the same email for a second workspace is rejected clearly.
+    dup = api.post(
+        "/api/auth/register",
+        {
+            "company_name": "Second Co",
+            "admin_name": "Alice",
+            "email": "ALICE.SMITH@caseco.test",
+            "password": PASSWORD,
+        },
+        format="json",
+    )
+    assert dup.status_code == 400
+    assert "unique work email" in dup.json()["detail"].lower()

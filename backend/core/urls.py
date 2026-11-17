@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import team_chat_views, views
 
 urlpatterns = [
     # ops
@@ -49,6 +49,14 @@ urlpatterns = [
     path("conversations", views.conversations),
     path("conversations/<int:pk>", views.conversation_detail),
     path("messages/<int:pk>/rate", views.message_rate),
+    # employee team chatroom (real-time WebSocket + REST)
+    path("team-chat/rooms", team_chat_views.team_chat_rooms),
+    path("team-chat/rooms/<int:room_id>", team_chat_views.team_chat_room_detail),
+    path("team-chat/rooms/<int:room_id>/messages", team_chat_views.team_chat_messages),
+    path("team-chat/rooms/<int:room_id>/read", team_chat_views.team_chat_mark_read),
+    path("team-chat/messages/<int:msg_id>", team_chat_views.team_chat_message_detail),
+    path("team-chat/messages/<int:msg_id>/pin", team_chat_views.team_chat_message_pin),
+    path("team-chat/messages/<int:msg_id>/react", team_chat_views.team_chat_message_react),
     # generated workflow document downloads (Features 2 & 3)
     path("workflow/forms/<int:user_id>/<str:name>", views.workflow_form_download),
     # attendance + 3-strike discipline (Feature 5)

@@ -5,7 +5,7 @@ WORKDIR /app
 RUN npm install -g pnpm@12.3.4
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile --store-dir=/pnpm/store
+    pnpm install --frozen-lockfile --store-dir=/pnpm/store --network-concurrency 4 --fetch-timeout 300000
 
 FROM node:22-alpine AS builder
 WORKDIR /app

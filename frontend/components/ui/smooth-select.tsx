@@ -43,8 +43,8 @@ interface SmoothSelectProps<T extends string = string> {
 const DOT_CLASSES: Record<NonNullable<SmoothSelectOption['dot']>, string> = {
   online: 'bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,0.18)]',
   amber: 'bg-amber-500 shadow-[0_0_0_2px_rgba(245,158,11,0.18)]',
-  offline: 'bg-[#b5b1a8]',
-  muted: 'bg-[#9b978e]',
+  offline: 'bg-muted-foreground/50',
+  muted: 'bg-muted-foreground/40',
 }
 
 export function SmoothSelect<T extends string = string>({
@@ -189,10 +189,10 @@ export function SmoothSelect<T extends string = string>({
 
   const triggerSizeClass =
     size === 'pill'
-      ? 'h-8 rounded-full border-[#d8d5cc] bg-[#f4f2ec] px-3 text-[11px] font-medium hover:border-[#c9c6bd]'
+      ? 'h-8 rounded-full border-border-strong bg-surface px-3 text-[11px] font-medium hover:border-foreground/50'
       : size === 'sm'
-      ? 'h-10 rounded-xl border-[#d8d5cc] bg-[#fffdfa] px-3.5 text-xs hover:border-[#b9b5ab]'
-      : 'h-11 rounded-xl border-[#d8d5cc] bg-[#fffdfa] px-3.5 text-xs hover:border-[#1d1d1b]'
+      ? 'h-10 rounded-xl border-border-strong bg-surface-elevated px-3.5 text-xs hover:border-foreground/50'
+      : 'h-11 rounded-xl border-border-strong bg-surface-elevated px-3.5 text-xs hover:border-foreground'
 
   const menu =
     typeof document !== 'undefined'
@@ -218,7 +218,7 @@ export function SmoothSelect<T extends string = string>({
                   maxHeight: coords.maxHeight,
                   transformOrigin: coords.openUpward ? 'bottom center' : 'top center',
                 }}
-                className={`z-[120] overflow-y-auto overscroll-contain rounded-2xl border border-[#e3dfd6] bg-[#fffdfa]/98 p-1.5 shadow-xl shadow-[#1d1d1b]/[0.1] backdrop-blur-md ${menuClassName}`}
+                className={`z-[120] overflow-y-auto overscroll-contain rounded-2xl border border-border-strong bg-surface-elevated p-1.5 shadow-xl shadow-black/15 dark:shadow-black/50 backdrop-blur-md ${menuClassName}`}
               >
                 {options.map((opt, idx) => {
                   const isSelected = opt.value === value
@@ -241,10 +241,10 @@ export function SmoothSelect<T extends string = string>({
                         opt.disabled
                           ? 'cursor-not-allowed opacity-45'
                           : isSelected
-                          ? 'bg-[#f4f2ec] text-[#1d1d1b]'
+                          ? 'bg-surface-2 text-foreground'
                           : isActive
-                          ? 'bg-[#f9f7f2] text-[#1d1d1b]'
-                          : 'text-[#1d1d1b] hover:bg-[#f9f7f2]'
+                          ? 'bg-surface text-foreground'
+                          : 'text-foreground hover:bg-surface'
                       }`}
                     >
                       {opt.dot && (
@@ -254,23 +254,23 @@ export function SmoothSelect<T extends string = string>({
                       )}
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
-                          <span className="truncate text-xs font-medium text-[#1d1d1b]">
+                          <span className="truncate text-xs font-medium text-foreground">
                             {opt.label}
                           </span>
                           {opt.badge && (
-                            <span className="shrink-0 rounded-full bg-[#eae6dd] px-2 py-0.5 text-[10px] font-medium text-[#5c5953]">
+                            <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                               {opt.badge}
                             </span>
                           )}
                         </span>
                         {opt.description && (
-                          <span className="mt-0.5 block text-[11px] leading-snug text-[#6b6862]">
+                          <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
                             {opt.description}
                           </span>
                         )}
                       </span>
                       <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
-                        {isSelected && <Check className="size-3.5 text-[#1d1d1b]" />}
+                        {isSelected && <Check className="size-3.5 text-foreground" />}
                       </span>
                     </button>
                   )
@@ -295,23 +295,23 @@ export function SmoothSelect<T extends string = string>({
         disabled={disabled}
         onClick={() => !disabled && setOpen((v) => !v)}
         onKeyDown={handleKeyDown}
-        className={`group inline-flex w-full items-center justify-between gap-2 border text-left text-[#1d1d1b] outline-none transition-all duration-150 active:scale-[0.995] focus-visible:border-[#1d1d1b] focus-visible:ring-2 focus-visible:ring-[#1d1d1b]/15 disabled:cursor-not-allowed disabled:opacity-60 ${
-          open ? 'border-[#1d1d1b] ring-2 ring-[#1d1d1b]/10' : ''
+        className={`group inline-flex w-full items-center justify-between gap-2 border text-left text-foreground outline-none transition-all duration-150 active:scale-[0.995] focus-visible:border-foreground focus-visible:ring-2 focus-visible:ring-foreground/15 disabled:cursor-not-allowed disabled:opacity-60 ${
+          open ? 'border-foreground ring-2 ring-foreground/10' : ''
         } ${triggerSizeClass} ${className}`}
       >
         <span className="flex min-w-0 flex-1 items-center gap-2">
-          {leadingIcon && <span className="shrink-0 text-[#6b6862]">{leadingIcon}</span>}
+          {leadingIcon && <span className="shrink-0 text-muted-foreground">{leadingIcon}</span>}
           {selected?.dot && (
             <span className={`size-2 shrink-0 rounded-full ${DOT_CLASSES[selected.dot]}`} />
           )}
-          <span className={`truncate ${selected ? 'text-[#1d1d1b]' : 'text-[#6b6862]'}`}>
+          <span className={`truncate ${selected ? 'text-foreground' : 'text-muted-foreground'}`}>
             {selected ? selected.label : placeholder}
           </span>
         </span>
         <motion.span
           animate={{ rotate: open ? 180 : 0 }}
           transition={{ duration: 0.18, ease: EASE }}
-          className="shrink-0 text-[#6b6862] transition-colors group-hover:text-[#1d1d1b]"
+          className="shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
         >
           <ChevronDown className="size-3.5" />
         </motion.span>
@@ -378,7 +378,7 @@ export function SmoothDialogFrame({
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18, ease: EASE }}
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#1d1d1b]/45 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
     >
       <motion.div
         initial={{ opacity: 0, y: 12, scale: 0.97 }}
@@ -386,7 +386,7 @@ export function SmoothDialogFrame({
         exit={{ opacity: 0, y: 8, scale: 0.97 }}
         transition={{ duration: 0.2, ease: EASE }}
         onClick={(e) => e.stopPropagation()}
-        className={`w-full overflow-hidden rounded-3xl border border-[#e3dfd6] bg-[#fffdfa] shadow-2xl shadow-[#1d1d1b]/[0.14] ${maxWidthClass} ${panelClassName}`}
+        className={`w-full overflow-hidden rounded-3xl border border-border bg-surface-elevated shadow-2xl shadow-black/25 ${maxWidthClass} ${panelClassName}`}
       >
         {children}
       </motion.div>

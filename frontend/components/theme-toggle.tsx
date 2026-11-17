@@ -1,26 +1,24 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { Check, Monitor, Moon, Sun } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { Check, Moon, Sun } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useTheme, type Theme } from './theme-provider'
 
 const OPTIONS: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
   { value: 'dark', label: 'Dark', icon: Moon },
-  { value: 'system', label: 'System', icon: Monitor },
 ]
 
 const TRIGGER_LABEL: Record<Theme, string> = {
   light: 'Light theme',
   dark: 'Dark theme',
-  system: 'System theme',
 }
 
 /**
  * Two presentations of the same control:
  * - `menu`: a compact icon button with a popover, used in the site header.
- * - `segmented`: an inline three-way switch, used in the footer / auth screens.
+ * - `segmented`: an inline Light / Dark switch, used in the footer / auth screens.
  */
 export function ThemeToggle({
   variant = 'menu',
@@ -30,6 +28,7 @@ export function ThemeToggle({
   compact?: boolean
 }) {
   const { theme, setTheme } = useTheme()
+  const pillId = useId()
   const [open, setOpen] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -85,7 +84,7 @@ export function ThemeToggle({
             >
               {isActive && (
                 <motion.span
-                  layoutId="theme-active-indicator"
+                  layoutId={`theme-active-indicator-${pillId}`}
                   className="absolute inset-0 -z-10 rounded-full bg-primary shadow-sm"
                   transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                 />

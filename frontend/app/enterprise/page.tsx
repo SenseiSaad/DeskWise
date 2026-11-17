@@ -538,6 +538,9 @@ function EnterpriseInner() {
                       autoComplete="email"
                       className="field mt-1.5"
                     />
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Each organization uses a unique work email for strict tenant isolation.
+                    </p>
                   </div>
                   <div>
                     <label htmlFor="create-password" className={labelClass}>

@@ -48,14 +48,14 @@ import { useWorkspaceStore } from '@/lib/workspace-store'
 const EASE = [0.22, 1, 0.36, 1] as const
 
 type Sort = 'recent' | 'downloads' | 'name' | 'size'
-const eyebrow = 'text-xs font-semibold uppercase tracking-[0.16em] text-[#6b6862]'
+const eyebrow = 'text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground'
 const focusRing =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1d1d1b]/25 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7f6f2]'
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/25 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
 const inputClass =
-  'h-11 w-full rounded-xl border border-[#d8d5cc] bg-[#fffdfa] px-3.5 text-sm text-[#1d1d1b] outline-none transition-colors placeholder:text-[#6b6862] focus:border-[#1d1d1b]'
-const primaryBtn = `inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1d1d1b] px-4 text-xs font-medium text-white transition-all duration-150 hover:bg-[#3c3b37] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`
-const ghostBtn = `inline-flex items-center justify-center gap-1.5 rounded-full border border-[#dcdad3] bg-[#fffdfa] px-3 py-1.5 text-xs font-medium text-[#1d1d1b] transition-all duration-150 hover:border-[#1d1d1b] hover:bg-[#faf8f3] active:scale-[0.98] disabled:opacity-60 ${focusRing}`
-const dangerBtn = `inline-flex items-center gap-1.5 rounded-full border border-[#e6c9c1] bg-[#fffdfa] px-3 py-1.5 text-xs font-medium text-[#9a3b2c] transition-all duration-150 hover:border-[#9a3b2c] hover:bg-[#fbe4e0] active:scale-[0.98] disabled:opacity-50 ${focusRing}`
+  'h-11 w-full rounded-xl border border-border-strong bg-surface-elevated px-3.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground'
+const primaryBtn = `inline-flex h-10 items-center justify-center gap-2 rounded-full bg-primary px-4 text-xs font-medium text-primary-foreground transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`
+const ghostBtn = `inline-flex items-center justify-center gap-1.5 rounded-full border border-border-strong bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground transition-all duration-150 hover:border-foreground hover:bg-surface active:scale-[0.98] disabled:opacity-60 ${focusRing}`
+const dangerBtn = `inline-flex items-center gap-1.5 rounded-full border border-danger/30 bg-surface-elevated px-3 py-1.5 text-xs font-medium text-danger transition-all duration-150 hover:border-danger hover:bg-danger-soft active:scale-[0.98] disabled:opacity-50 ${focusRing}`
 
 function formatBytes(n: number) {
   if (!n || n < 0) return '0 B'
@@ -89,20 +89,20 @@ function AccessBadge({
 }) {
   if (scope === 'restricted') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[#fff0d3] px-2.5 py-0.5 text-[11px] font-medium text-[#8a6316]">
+      <span className="inline-flex items-center gap-1 rounded-full bg-warn-soft px-2.5 py-0.5 text-[11px] font-medium text-warn">
         <Lock className="size-3" /> Selected people
       </span>
     )
   }
   if (scope === 'department') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[#e8edfb] px-2.5 py-0.5 text-[11px] font-medium text-[#2d529f]">
+      <span className="inline-flex items-center gap-1 rounded-full bg-info-soft px-2.5 py-0.5 text-[11px] font-medium text-info">
         <Users className="size-3" /> {deptName || 'Department'}
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-[#e6f1e4] px-2.5 py-0.5 text-[11px] font-medium text-[#4a7a5a]">
+    <span className="inline-flex items-center gap-1 rounded-full bg-ok-soft px-2.5 py-0.5 text-[11px] font-medium text-ok">
       <Building2 className="size-3" /> Company-wide
     </span>
   )
@@ -117,7 +117,7 @@ function IndexingBadge({
 }) {
   if (status === 'pending') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200/70">
+      <span className="inline-flex items-center gap-1 rounded-full bg-warn-soft px-2.5 py-0.5 text-[10px] font-medium text-warn ring-1 ring-warn/30">
         <Loader2 className="size-3 animate-spin" /> Preparing…
       </span>
     )
@@ -125,7 +125,7 @@ function IndexingBadge({
   if (status === 'failed') {
     return (
       <span className="inline-flex items-center gap-1">
-        <span className="inline-flex items-center gap-1 rounded-full bg-[#fbe4e0] px-2.5 py-0.5 text-[10px] font-medium text-[#9a3b2c]">
+        <span className="inline-flex items-center gap-1 rounded-full bg-danger-soft px-2.5 py-0.5 text-[10px] font-medium text-danger">
           Needs retry
         </span>
         {onRetry && (
@@ -133,7 +133,7 @@ function IndexingBadge({
             type="button"
             onClick={onRetry}
             title="Retry preparation"
-            className="rounded-full p-1 text-xs text-[#9a3b2c] transition-colors hover:bg-[#fbe4e0]"
+            className="rounded-full p-1 text-xs text-danger transition-colors hover:bg-danger-soft"
           >
             <RefreshCw className="size-3" />
           </button>
@@ -253,27 +253,27 @@ function UploadPanel({
   const step2Done = step1Done && (scope !== 'department' || Boolean(deptId))
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#dedbd3] bg-[#fffdfa] shadow-sm shadow-[#1d1d1b]/[0.03] transition-shadow hover:shadow-md hover:shadow-[#1d1d1b]/[0.05]">
+    <div className="overflow-hidden rounded-2xl border border-border-strong bg-surface-elevated shadow-sm shadow-black/5 transition-shadow hover:shadow-md">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className={`flex w-full items-center justify-between gap-3 rounded-2xl px-5 py-4 text-left transition-colors hover:bg-[#faf8f3]/70 ${focusRing}`}
+        className={`flex w-full items-center justify-between gap-3 rounded-2xl px-5 py-4 text-left transition-colors hover:bg-surface ${focusRing}`}
       >
         <span className="flex items-center gap-3.5">
-          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#1d1d1b] text-white shadow-sm">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
             <Upload className="size-4" />
           </span>
           <span>
             <span className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-[#1d1d1b]">Upload a document</span>
+              <span className="text-sm font-semibold text-foreground">Upload a document</span>
               {files.length > 0 && (
-                <span className="rounded-full bg-[#e6f1e4] px-2 py-0.5 text-[10px] font-medium text-[#3c694a]">
+                <span className="rounded-full bg-ok-soft px-2 py-0.5 text-[10px] font-medium text-ok">
                   {files.length} staged
                 </span>
               )}
             </span>
-            <span className="mt-0.5 block text-xs text-[#6b6862]">
+            <span className="mt-0.5 block text-xs text-muted-foreground">
               Drop files, set who can open them, and track every step live.
             </span>
           </span>
@@ -281,30 +281,30 @@ function UploadPanel({
         <motion.span
           animate={{ rotate: open ? 180 : 0 }}
           transition={{ duration: 0.2, ease: EASE }}
-          className="grid size-8 shrink-0 place-items-center rounded-full bg-[#f4f2ec] text-[#5d5b55]"
+          className="grid size-8 shrink-0 place-items-center rounded-full bg-surface-2 text-muted-foreground"
         >
           <ChevronDown className="size-4" />
         </motion.span>
       </button>
 
       <SmoothCollapse open={open}>
-        <form onSubmit={submit} className="space-y-5 border-t border-[#eae7df] p-5">
+        <form onSubmit={submit} className="space-y-5 border-t border-border p-5">
           {/* Visible 3-step upload pipeline */}
-          <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-2.5 text-[11px]">
-            <div className={`flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-colors ${step1Done ? 'bg-[#e6f1e4]/70 text-[#2f5b36]' : 'bg-white text-[#1d1d1b] shadow-xs'}`}>
-              <span className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${step1Done ? 'bg-[#3c694a] text-white' : 'bg-[#1d1d1b] text-white'}`}>
+          <div className="grid grid-cols-3 gap-2 rounded-2xl border border-border bg-surface p-2.5 text-[11px]">
+            <div className={`flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-colors ${step1Done ? 'bg-ok-soft text-ok' : 'bg-surface-elevated text-foreground shadow-xs'}`}>
+              <span className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${step1Done ? 'bg-ok text-primary-foreground' : 'bg-primary text-primary-foreground'}`}>
                 {step1Done ? <Check className="size-3" /> : '1'}
               </span>
               <span className="truncate font-medium">Choose files</span>
             </div>
-            <div className={`flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-colors ${step2Done ? 'bg-[#e6f1e4]/70 text-[#2f5b36]' : step1Done ? 'bg-white text-[#1d1d1b] shadow-xs' : 'text-[#6b6862]'}`}>
-              <span className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${step2Done ? 'bg-[#3c694a] text-white' : step1Done ? 'bg-[#1d1d1b] text-white' : 'bg-[#e6e3dc] text-[#6b6862]'}`}>
+            <div className={`flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-colors ${step2Done ? 'bg-ok-soft text-ok' : step1Done ? 'bg-surface-elevated text-foreground shadow-xs' : 'text-muted-foreground'}`}>
+              <span className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${step2Done ? 'bg-ok text-primary-foreground' : step1Done ? 'bg-primary text-primary-foreground' : 'bg-surface-2 text-muted-foreground'}`}>
                 {step2Done ? <Check className="size-3" /> : '2'}
               </span>
               <span className="truncate font-medium">Set access</span>
             </div>
-            <div className="flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-[#6b6862]">
-              <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#e6e3dc] text-[10px] font-semibold text-[#6b6862]">
+            <div className="flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-muted-foreground">
+              <span className="grid size-5 shrink-0 place-items-center rounded-full bg-surface-2 text-[10px] font-semibold text-muted-foreground">
                 3
               </span>
               <span className="truncate font-medium">Upload & prepare</span>
@@ -313,10 +313,10 @@ function UploadPanel({
 
           <div>
             <div className="mb-1.5 flex items-center justify-between">
-              <label htmlFor="up-file" className="text-xs font-medium text-[#1d1d1b]">
+              <label htmlFor="up-file" className="text-xs font-medium text-foreground">
                 Files
               </label>
-              <span className="text-[11px] text-[#6b6862]">PDF, DOCX, XLSX, TXT, MD, CSV</span>
+              <span className="text-[11px] text-muted-foreground">PDF, DOCX, XLSX, TXT, MD, CSV</span>
             </div>
             <label
               htmlFor="up-file"
@@ -328,8 +328,8 @@ function UploadPanel({
               onDrop={handleDrop}
               className={`group flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 py-6 text-center transition-all duration-150 ${
                 dragOver
-                  ? 'scale-[1.01] border-[#1d1d1b] bg-[#f4f1e8]'
-                  : 'border-[#dcd7cc] bg-[#faf8f3]/70 hover:border-[#1d1d1b]/50 hover:bg-[#f6f3eb]'
+                  ? 'scale-[1.01] border-foreground bg-surface-2'
+                  : 'border-border-strong bg-surface hover:border-foreground/50 hover:bg-surface-2'
               }`}
             >
               <input
@@ -340,13 +340,13 @@ function UploadPanel({
                 onChange={(e) => setFiles(Array.from(e.target.files || []))}
                 className="sr-only"
               />
-              <span className="grid size-11 place-items-center rounded-2xl bg-[#efeae0] text-[#1d1d1b] transition-transform duration-150 group-hover:scale-105">
+              <span className="grid size-11 place-items-center rounded-2xl bg-surface-2 text-foreground transition-transform duration-150 group-hover:scale-105">
                 <CloudUpload className="size-5" />
               </span>
-              <span className="mt-3 text-xs font-semibold text-[#1d1d1b]">
+              <span className="mt-3 text-xs font-semibold text-foreground">
                 Click to browse or drag & drop files here
               </span>
-              <span className="mt-1 text-[11px] text-[#6b6862]">
+              <span className="mt-1 text-[11px] text-muted-foreground">
                 Uploads continue in the background even if you switch tabs
               </span>
             </label>
@@ -358,9 +358,9 @@ function UploadPanel({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.16, ease: EASE }}
-                  className="mt-3 rounded-xl border border-[#e6e2d8] bg-[#faf8f3] p-3"
+                  className="mt-3 rounded-xl border border-border bg-surface p-3"
                 >
-                  <div className="mb-2 flex items-center justify-between text-[11px] text-[#4c4943]">
+                  <div className="mb-2 flex items-center justify-between text-[11px] text-foreground/85">
                     <span className="font-semibold">
                       {files.length} {files.length === 1 ? 'file' : 'files'} ready ({formatBytes(files.reduce((acc, f) => acc + f.size, 0))})
                     </span>
@@ -370,7 +370,7 @@ function UploadPanel({
                         setFiles([])
                         if (fileRef.current) fileRef.current.value = ''
                       }}
-                      className="font-medium text-[#6b6862] underline-offset-2 hover:text-[#1d1d1b] hover:underline"
+                      className="font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                     >
                       Clear all
                     </button>
@@ -383,16 +383,16 @@ function UploadPanel({
                         initial={{ opacity: 0, scale: 0.94 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.94 }}
-                        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#e0dcd2] bg-white px-2.5 py-1 text-[11px] text-[#1d1d1b] shadow-2xs"
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border-strong bg-surface-elevated px-2.5 py-1 text-[11px] text-foreground shadow-2xs"
                       >
-                        <FileText className="size-3 shrink-0 text-[#6b6862]" />
+                        <FileText className="size-3 shrink-0 text-muted-foreground" />
                         <span className="max-w-[11rem] truncate font-medium">{f.name}</span>
-                        <span className="text-[10px] text-[#8a867e]">{formatBytes(f.size)}</span>
+                        <span className="text-[10px] text-muted-foreground">{formatBytes(f.size)}</span>
                         <button
                           type="button"
                           onClick={() => removeFileAt(idx)}
                           aria-label={`Remove ${f.name}`}
-                          className="ml-0.5 rounded-full p-0.5 text-[#6b6862] hover:bg-[#f2efe8] hover:text-[#1d1d1b]"
+                          className="ml-0.5 rounded-full p-0.5 text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                         >
                           <X className="size-3" />
                         </button>
@@ -406,7 +406,7 @@ function UploadPanel({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label htmlFor="up-category" className="mb-1.5 block text-xs font-medium text-[#1d1d1b]">
+              <label htmlFor="up-category" className="mb-1.5 block text-xs font-medium text-foreground">
                 Category
               </label>
               <input
@@ -425,8 +425,8 @@ function UploadPanel({
                       onClick={() => setCategory(c)}
                       className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
                         category === c
-                          ? 'bg-[#1d1d1b] text-white'
-                          : 'bg-[#f0ede6] text-[#5d5b55] hover:bg-[#e5e1d7]'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-surface-2 text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       {c}
@@ -436,8 +436,8 @@ function UploadPanel({
               )}
             </div>
             <div>
-              <label htmlFor="up-tags" className="mb-1.5 block text-xs font-medium text-[#1d1d1b]">
-                Tags <span className="font-normal text-[#6b6862]">(optional, comma-separated)</span>
+              <label htmlFor="up-tags" className="mb-1.5 block text-xs font-medium text-foreground">
+                Tags <span className="font-normal text-muted-foreground">(optional, comma-separated)</span>
               </label>
               <input
                 id="up-tags"
@@ -450,8 +450,8 @@ function UploadPanel({
           </div>
 
           <div>
-            <label htmlFor="up-description" className="mb-1.5 block text-xs font-medium text-[#1d1d1b]">
-              Short description <span className="font-normal text-[#6b6862]">(optional)</span>
+            <label htmlFor="up-description" className="mb-1.5 block text-xs font-medium text-foreground">
+              Short description <span className="font-normal text-muted-foreground">(optional)</span>
             </label>
             <input
               id="up-description"
@@ -462,8 +462,8 @@ function UploadPanel({
             />
           </div>
 
-          <fieldset className="rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-4">
-            <legend className="px-1 text-xs font-semibold text-[#1d1d1b]">Who can access this document?</legend>
+          <fieldset className="rounded-2xl border border-border bg-surface p-4">
+            <legend className="px-1 text-xs font-semibold text-foreground">Who can access this document?</legend>
             <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
               {[
                 {
@@ -492,8 +492,8 @@ function UploadPanel({
                     key={item.id}
                     className={`relative cursor-pointer rounded-xl border p-3.5 transition-all duration-150 ${
                       active
-                        ? 'border-[#1d1d1b] bg-white shadow-sm ring-2 ring-[#1d1d1b]/10'
-                        : 'border-[#dcdad3] bg-[#fffdfa]/60 hover:border-[#b9b5ab] hover:bg-white'
+                        ? 'border-foreground bg-surface-elevated shadow-sm ring-2 ring-foreground/10'
+                        : 'border-border-strong bg-surface-elevated/60 hover:border-foreground/50 hover:bg-surface-elevated'
                     }`}
                   >
                     <input
@@ -502,17 +502,17 @@ function UploadPanel({
                       checked={active}
                       onChange={() => setScope(item.id)}
                     />
-                    <span className="flex items-center justify-between gap-2 text-xs font-semibold text-[#1d1d1b]">
+                    <span className="flex items-center justify-between gap-2 text-xs font-semibold text-foreground">
                       <span className="flex items-center gap-2">
                         <Icon className="size-3.5" /> {item.title}
                       </span>
                       {active && (
-                        <span className="grid size-4 place-items-center rounded-full bg-[#1d1d1b] text-white">
+                        <span className="grid size-4 place-items-center rounded-full bg-primary text-primary-foreground">
                           <Check className="size-2.5" />
                         </span>
                       )}
                     </span>
-                    <span className="mt-1.5 block text-[11px] leading-relaxed text-[#6b6862]">
+                    <span className="mt-1.5 block text-[11px] leading-relaxed text-muted-foreground">
                       {item.desc}
                     </span>
                   </label>
@@ -522,7 +522,7 @@ function UploadPanel({
 
             <SmoothCollapse open={scope === 'department'}>
               <div className="mt-3">
-                <label className="mb-1.5 block text-xs font-medium text-[#1d1d1b]">Select Department</label>
+                <label className="mb-1.5 block text-xs font-medium text-foreground">Select Department</label>
                 <SmoothSelect
                   value={deptId === '' ? '' : String(deptId)}
                   onChange={(val) => setDeptId(val ? Number(val) : '')}
@@ -534,12 +534,12 @@ function UploadPanel({
             </SmoothCollapse>
           </fieldset>
 
-          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-[#eae7df] bg-[#faf8f3]/70 px-3.5 py-2.5 text-xs text-[#3b3934] transition-colors hover:bg-[#faf8f3]">
+          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3.5 py-2.5 text-xs text-foreground transition-colors hover:bg-surface-2">
             <span className="flex items-center gap-2.5">
-              <Sparkles className="size-4 text-[#6b6862]" />
+              <Sparkles className="size-4 text-muted-foreground" />
               <span>
-                <span className="block font-medium text-[#1d1d1b]">Official reference document</span>
-                <span className="block text-[11px] text-[#6b6862]">
+                <span className="block font-medium text-foreground">Official reference document</span>
+                <span className="block text-[11px] text-muted-foreground">
                   Prioritize this file as a verified source when answering team questions
                 </span>
               </span>
@@ -553,11 +553,11 @@ function UploadPanel({
               />
               <span
                 className={`flex h-5 w-9 items-center rounded-full p-0.5 transition-colors duration-200 ${
-                  isOkf ? 'bg-[#1d1d1b]' : 'bg-[#d8d4ca]'
+                  isOkf ? 'bg-primary' : 'bg-border-strong'
                 }`}
               >
                 <span
-                  className={`size-4 rounded-full bg-white shadow-xs transition-transform duration-200 ${
+                  className={`size-4 rounded-full bg-background shadow-xs transition-transform duration-200 ${
                     isOkf ? 'translate-x-4' : 'translate-x-0'
                   }`}
                 />
@@ -566,7 +566,7 @@ function UploadPanel({
           </label>
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-            <span className="text-xs text-[#6b6862]">
+            <span className="text-xs text-muted-foreground">
               {files.length === 0
                 ? 'Choose at least one file to continue'
                 : files.length === 1
@@ -617,15 +617,15 @@ function PreviewModal({
       panelClassName="flex max-h-[85vh] flex-col p-6"
       ariaLabel={`Preview ${doc.filename}`}
     >
-      <div className="flex items-center justify-between border-b border-[#eae7df] pb-3">
+      <div className="flex items-center justify-between border-b border-border pb-3">
         <div className="flex min-w-0 items-center gap-2">
-          <Eye className="size-4 shrink-0 text-[#1d1d1b]" />
-          <h2 className="truncate text-sm font-semibold text-[#1d1d1b]">{doc.filename}</h2>
+          <Eye className="size-4 shrink-0 text-foreground" />
+          <h2 className="truncate text-sm font-semibold text-foreground">{doc.filename}</h2>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full p-1.5 text-[#6b6862] transition-colors hover:bg-[#efece4] hover:text-[#1d1d1b]"
+          className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
         >
           <X className="size-4" />
         </button>
@@ -633,27 +633,27 @@ function PreviewModal({
 
       <div className="flex-1 overflow-y-auto py-4">
         {loading ? (
-          <div className="grid h-48 place-items-center text-xs text-[#6b6862]">
+          <div className="grid h-48 place-items-center text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-2">
               <Loader2 className="size-4 animate-spin" /> Loading document preview…
             </span>
           </div>
         ) : error ? (
-          <p className="rounded-xl bg-[#fbe4e0] p-4 text-xs text-[#9a3b2c]">{error}</p>
+          <p className="rounded-xl bg-danger-soft p-4 text-xs text-danger">{error}</p>
         ) : (
           <div>
-            <p className="mb-2 text-[11px] text-[#6b6862]">
+            <p className="mb-2 text-[11px] text-muted-foreground">
               Readable content prepared for instant search and AI answers
               {data?.truncated ? ' (showing excerpt)' : ''}
             </p>
-            <div className="rounded-2xl border border-[#eae7df] bg-[#f9f8f5] p-4 font-mono text-xs leading-relaxed text-[#2c2b29] whitespace-pre-wrap">
+            <div className="rounded-2xl border border-border bg-surface p-4 font-mono text-xs leading-relaxed text-foreground whitespace-pre-wrap">
               {data?.text || '(No readable text extracted from this file)'}
             </div>
           </div>
         )}
       </div>
 
-      <div className="flex justify-end border-t border-[#eae7df] pt-3">
+      <div className="flex justify-end border-t border-border pt-3">
         <button type="button" onClick={onClose} className={ghostBtn}>
           Close
         </button>
@@ -719,37 +719,37 @@ function VersionsModal({
       panelClassName="flex max-h-[85vh] flex-col p-6"
       ariaLabel={`Version history for ${doc.filename}`}
     >
-      <div className="flex items-center justify-between border-b border-[#eae7df] pb-3">
+      <div className="flex items-center justify-between border-b border-border pb-3">
         <div className="flex min-w-0 items-center gap-2">
-          <History className="size-4 shrink-0 text-[#1d1d1b]" />
-          <h2 className="truncate text-sm font-semibold text-[#1d1d1b]">
+          <History className="size-4 shrink-0 text-foreground" />
+          <h2 className="truncate text-sm font-semibold text-foreground">
             Version history: {displayTitle(doc.filename)}
           </h2>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full p-1.5 text-[#6b6862] transition-colors hover:bg-[#efece4] hover:text-[#1d1d1b]"
+          className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
         >
           <X className="size-4" />
         </button>
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto py-4">
-        <form onSubmit={handleUpload} className="rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-3.5">
-          <p className="text-xs font-semibold text-[#1d1d1b]">Upload new version</p>
-          <p className="mt-0.5 text-[11px] text-[#6b6862]">
+        <form onSubmit={handleUpload} className="rounded-2xl border border-border bg-surface p-3.5">
+          <p className="text-xs font-semibold text-foreground">Upload new version</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
             The current file will be saved in version history.
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-xl border border-dashed border-[#d8d5cc] bg-white px-3 py-2 text-xs text-[#6b6862] transition-colors hover:border-[#1d1d1b]">
+            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-xl border border-dashed border-border-strong bg-surface-elevated px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-foreground">
               <input
                 type="file"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 className="sr-only"
               />
-              <CloudUpload className="size-4 shrink-0 text-[#1d1d1b]" />
-              <span className="truncate font-medium text-[#1d1d1b]">
+              <CloudUpload className="size-4 shrink-0 text-foreground" />
+              <span className="truncate font-medium text-foreground">
                 {file ? file.name : 'Choose replacement file…'}
               </span>
             </label>
@@ -762,25 +762,25 @@ function VersionsModal({
               Upload
             </button>
           </div>
-          {error && <p className="mt-2 text-xs text-[#9a3b2c]">{error}</p>}
+          {error && <p className="mt-2 text-xs text-danger">{error}</p>}
         </form>
 
         <div>
-          <p className="mb-2 text-xs font-semibold text-[#6b6862]">Past versions</p>
+          <p className="mb-2 text-xs font-semibold text-muted-foreground">Past versions</p>
           {loading ? (
-            <p className="text-xs text-[#6b6862]">Loading versions…</p>
+            <p className="text-xs text-muted-foreground">Loading versions…</p>
           ) : versions.length === 0 ? (
-            <p className="text-xs text-[#6b6862]">No previous versions on file.</p>
+            <p className="text-xs text-muted-foreground">No previous versions on file.</p>
           ) : (
             <ul className="space-y-2">
               {versions.map((v) => (
                 <li
                   key={v.id}
-                  className="flex items-center justify-between rounded-xl border border-[#eae7df] bg-white p-3 text-xs"
+                  className="flex items-center justify-between rounded-xl border border-border bg-surface-elevated p-3 text-xs"
                 >
                   <div>
-                    <span className="font-semibold text-[#1d1d1b]">Version {v.version_number}</span>
-                    <p className="text-[#6b6862]">
+                    <span className="font-semibold text-foreground">Version {v.version_number}</span>
+                    <p className="text-muted-foreground">
                       {v.filename} · {formatBytes(v.size)} · {formatDate(v.created_at)}
                     </p>
                   </div>
@@ -791,7 +791,7 @@ function VersionsModal({
         </div>
       </div>
 
-      <div className="flex justify-end border-t border-[#eae7df] pt-3">
+      <div className="flex justify-end border-t border-border pt-3">
         <button type="button" onClick={onClose} className={ghostBtn}>
           Done
         </button>
@@ -852,12 +852,12 @@ function EditMetadataModal({
       panelClassName="p-6"
       ariaLabel="Edit document details"
     >
-      <div className="flex items-center justify-between border-b border-[#eae7df] pb-3">
-        <h2 className="text-sm font-semibold text-[#1d1d1b]">Edit document details</h2>
+      <div className="flex items-center justify-between border-b border-border pb-3">
+        <h2 className="text-sm font-semibold text-foreground">Edit document details</h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full p-1.5 text-[#6b6862] transition-colors hover:bg-[#efece4] hover:text-[#1d1d1b]"
+          className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
         >
           <X className="size-4" />
         </button>
@@ -865,7 +865,7 @@ function EditMetadataModal({
 
       <form onSubmit={handleSave} className="mt-4 space-y-4">
         <div>
-          <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Description</label>
+          <label className="mb-1 block text-xs font-medium text-foreground">Description</label>
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -874,7 +874,7 @@ function EditMetadataModal({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Category</label>
+          <label className="mb-1 block text-xs font-medium text-foreground">Category</label>
           <input
             value={category}
             onChange={(e) => setCategory(e.target.value)}
@@ -883,7 +883,7 @@ function EditMetadataModal({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Tags (comma separated)</label>
+          <label className="mb-1 block text-xs font-medium text-foreground">Tags (comma separated)</label>
           <input
             value={tagsInput}
             onChange={(e) => setTagsInput(e.target.value)}
@@ -892,7 +892,7 @@ function EditMetadataModal({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Who can view</label>
+          <label className="mb-1 block text-xs font-medium text-foreground">Who can view</label>
           <SmoothSelect<EnterpriseDoc['access_scope']>
             value={scope}
             onChange={setScope}
@@ -907,7 +907,7 @@ function EditMetadataModal({
 
         <SmoothCollapse open={scope === 'department'}>
           <div>
-            <label className="mb-1 block text-xs font-medium text-[#1d1d1b]">Department</label>
+            <label className="mb-1 block text-xs font-medium text-foreground">Department</label>
             <SmoothSelect
               value={deptId === '' ? '' : String(deptId)}
               onChange={(val) => setDeptId(val ? Number(val) : '')}
@@ -921,7 +921,7 @@ function EditMetadataModal({
           </div>
         </SmoothCollapse>
 
-        {error && <p className="text-xs text-[#9a3b2c]">{error}</p>}
+        {error && <p className="text-xs text-danger">{error}</p>}
 
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className={ghostBtn}>
@@ -1017,27 +1017,27 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
       maxWidthClass="max-w-2xl"
       ariaLabel="Control document access"
     >
-      <div className="flex items-start justify-between gap-3 border-b border-[#eae7df] p-5">
+      <div className="flex items-start justify-between gap-3 border-b border-border p-5">
         <div className="min-w-0">
-          <p className="flex items-center gap-2 text-sm font-semibold text-[#1d1d1b]">
+          <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Share2 className="size-4 shrink-0" /> Control document access
           </p>
-          <p className="mt-1 truncate text-xs text-[#6b6862]">{displayTitle(doc.filename)}</p>
+          <p className="mt-1 truncate text-xs text-muted-foreground">{displayTitle(doc.filename)}</p>
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="grid size-8 shrink-0 place-items-center rounded-full text-[#6b6862] transition-colors hover:bg-[#efece4] hover:text-[#1d1d1b]"
+          className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
         >
           <X className="size-4" />
         </button>
       </div>
 
       <div className="space-y-4 p-5">
-        <div className="rounded-2xl bg-[#f5f2ea] p-4">
-          <p className="text-xs font-semibold text-[#1d1d1b]">Find a registered company</p>
-          <p className="mt-0.5 text-xs text-[#6b6862]">
+        <div className="rounded-2xl border border-border bg-surface p-4">
+          <p className="text-xs font-semibold text-foreground">Find a registered company</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Enter a partner company code to grant specific people access to this document.
           </p>
           <form onSubmit={findCompany} className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -1067,16 +1067,16 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.18, ease: EASE }}
               onSubmit={addShare}
-              className="rounded-2xl border border-[#dcdad3] bg-white p-4"
+              className="rounded-2xl border border-border-strong bg-surface-elevated p-4"
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold text-[#1d1d1b]">{company.name}</p>
-                  <p className="text-[11px] text-[#6b6862]">
+                  <p className="text-xs font-semibold text-foreground">{company.name}</p>
+                  <p className="text-[11px] text-muted-foreground">
                     Code {company.access_code} · {company.member_count} members
                   </p>
                 </div>
-                <Building2 className="size-4 text-[#6b6862]" />
+                <Building2 className="size-4 text-muted-foreground" />
               </div>
               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                 <div className="flex-1">
@@ -1109,15 +1109,15 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
         </AnimatePresence>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#6b6862]">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             Named people with access
           </p>
           {loading ? (
-            <p className="flex items-center gap-2 text-xs text-[#6b6862]">
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" /> Loading…
             </p>
           ) : shares.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-[#dcdad3] px-4 py-4 text-center text-xs text-[#6b6862]">
+            <p className="rounded-xl border border-dashed border-border-strong px-4 py-4 text-center text-xs text-muted-foreground">
               No named recipients yet.
             </p>
           ) : (
@@ -1125,14 +1125,14 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
               {shares.map((s) => (
                 <li
                   key={s.user_id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-[#eae7df] bg-[#faf8f3] px-3.5 py-2.5"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3.5 py-2.5"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-medium text-[#1d1d1b]">
+                    <p className="truncate text-xs font-medium text-foreground">
                       {s.full_name || s.email}
                       {s.title ? ` · ${s.title}` : ''}
                     </p>
-                    <p className="truncate text-[11px] text-[#6b6862]">
+                    <p className="truncate text-[11px] text-muted-foreground">
                       {s.email} · {s.company_name || 'Company'}
                     </p>
                   </div>
@@ -1401,13 +1401,13 @@ export default function DocumentsPage() {
 
   return (
     <div className="pb-8">
-      <header className="flex flex-col gap-4 border-b border-[#e6e3dc] pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <header className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className={eyebrow}>Employer workspace</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
             Your team&apos;s <span className="font-serif font-normal italic">vault.</span>
           </h1>
-          <p className="mt-2 max-w-xl text-xs leading-relaxed text-[#6b6862]">
+          <p className="mt-2 max-w-xl text-xs leading-relaxed text-muted-foreground">
             Store company knowledge, control access by person or department, and collaborate with registered partners.
           </p>
         </div>
@@ -1424,25 +1424,25 @@ export default function DocumentsPage() {
 
       {/* Stats Cards */}
       <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-2xs transition-shadow hover:shadow-sm">
-          <p className="text-[11px] uppercase tracking-[0.1em] text-[#6b6862]">Documents</p>
-          <p className="mt-1 text-2xl font-semibold text-[#1d1d1b]">{totalCount || docs.length}</p>
+        <div className="rounded-2xl border border-border bg-surface-elevated p-4 shadow-2xs transition-shadow hover:shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">Documents</p>
+          <p className="mt-1 text-2xl font-semibold text-foreground">{totalCount || docs.length}</p>
         </div>
-        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-2xs transition-shadow hover:shadow-sm">
-          <p className="text-[11px] uppercase tracking-[0.1em] text-[#6b6862]">Private</p>
-          <p className="mt-1 text-2xl font-semibold text-[#1d1d1b]">
+        <div className="rounded-2xl border border-border bg-surface-elevated p-4 shadow-2xs transition-shadow hover:shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">Private</p>
+          <p className="mt-1 text-2xl font-semibold text-foreground">
             {docs.filter((d) => d.access_scope === 'restricted').length}
           </p>
         </div>
-        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-2xs transition-shadow hover:shadow-sm">
-          <p className="text-[11px] uppercase tracking-[0.1em] text-[#6b6862]">Search-ready</p>
-          <p className="mt-1 text-2xl font-semibold text-[#1d1d1b]">
+        <div className="rounded-2xl border border-border bg-surface-elevated p-4 shadow-2xs transition-shadow hover:shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">Search-ready</p>
+          <p className="mt-1 text-2xl font-semibold text-foreground">
             {docs.filter((d) => d.indexing_status !== 'pending' && d.indexing_status !== 'failed').length}
           </p>
         </div>
-        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-2xs transition-shadow hover:shadow-sm">
-          <p className="text-[11px] uppercase tracking-[0.1em] text-[#6b6862]">Downloads</p>
-          <p className="mt-1 text-2xl font-semibold text-[#1d1d1b]">
+        <div className="rounded-2xl border border-border bg-surface-elevated p-4 shadow-2xs transition-shadow hover:shadow-sm">
+          <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">Downloads</p>
+          <p className="mt-1 text-2xl font-semibold text-foreground">
             {docs.reduce((n, d) => n + (d.downloads || 0), 0)}
           </p>
         </div>
@@ -1471,14 +1471,14 @@ export default function DocumentsPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.2, ease: EASE }}
-            className="mt-4 rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-xs"
+            className="mt-4 rounded-2xl border border-border bg-surface-elevated p-4 shadow-xs"
           >
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs font-medium text-[#1d1d1b]">
+              <div className="flex items-center gap-2 text-xs font-medium text-foreground">
                 {uploadJobs.some((j) => j.status === 'queued' || j.status === 'uploading' || j.status === 'indexing') ? (
-                  <Loader2 className="size-3.5 animate-spin text-sky-600" />
+                  <Loader2 className="size-3.5 animate-spin text-info" />
                 ) : (
-                  <CheckCircle2 className="size-3.5 text-emerald-600" />
+                  <CheckCircle2 className="size-3.5 text-ok" />
                 )}
                 <span>
                   Document progress ({uploadJobs.filter((j) => j.status === 'ready').length}/{uploadJobs.length} ready)
@@ -1488,7 +1488,7 @@ export default function DocumentsPage() {
                 <button
                   type="button"
                   onClick={dismissUploadJobs}
-                  className="text-[11px] font-medium text-[#6b6862] transition-colors hover:text-[#1d1d1b]"
+                  className="text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Clear list
                 </button>
@@ -1527,27 +1527,27 @@ export default function DocumentsPage() {
                 return (
                   <div
                     key={job.id}
-                    className="rounded-xl border border-[#ece9e2] bg-[#faf8f3] p-3 text-xs"
+                    className="rounded-xl border border-border bg-surface p-3 text-xs"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 flex-1 truncate font-medium text-[#1d1d1b]">
+                      <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                         {job.filename}
                       </span>
                       <span
                         className={`shrink-0 text-[11px] font-medium ${
                           job.status === 'ready'
-                            ? 'text-emerald-700'
+                            ? 'text-ok'
                             : job.status === 'failed'
-                            ? 'text-rose-700'
+                            ? 'text-danger'
                             : job.status === 'indexing'
-                            ? 'text-amber-700'
-                            : 'text-sky-700'
+                            ? 'text-warn'
+                            : 'text-info'
                         }`}
                       >
                         {stageLabel}
                       </span>
                     </div>
-                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#e6e2d8]">
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
                       <motion.div
                         initial={{ width: '8%' }}
                         animate={{ width: `${pct}%` }}
@@ -1566,14 +1566,14 @@ export default function DocumentsPage() {
       {/* Filter and search bar */}
       <section className="mt-6 space-y-3">
         <div className="flex flex-col gap-3 sm:flex-row">
-          <div className="relative flex h-11 flex-1 items-center rounded-xl border border-[#d8d5cc] bg-[#fffdfa] transition-colors focus-within:border-[#1d1d1b]">
-            <Search className="absolute left-3.5 size-4 text-[#6b6862]" />
+          <div className="relative flex h-11 flex-1 items-center rounded-xl border border-border-strong bg-surface-elevated transition-colors focus-within:border-foreground">
+            <Search className="absolute left-3.5 size-4 text-muted-foreground" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               aria-label="Search documents"
               placeholder="Search by title, description, category, tags…"
-              className="h-full w-full bg-transparent pl-10 pr-4 text-xs text-[#1d1d1b] outline-none placeholder:text-[#6b6862]"
+              className="h-full w-full bg-transparent pl-10 pr-4 text-xs text-foreground outline-none placeholder:text-muted-foreground"
             />
           </div>
           <div className="sm:w-48">
@@ -1605,12 +1605,12 @@ export default function DocumentsPage() {
         {/* Tag Filter Chips */}
         {allTags.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            <span className="text-[11px] font-medium text-[#6b6862]">Tags:</span>
+            <span className="text-[11px] font-medium text-muted-foreground">Tags:</span>
             <button
               type="button"
               onClick={() => setSelectedTag('')}
               className={`rounded-full px-2.5 py-0.5 text-[11px] transition-colors ${
-                !selectedTag ? 'bg-[#1d1d1b] text-white' : 'bg-[#f0ede6] text-[#6b6862] hover:bg-[#e6e3dc]'
+                !selectedTag ? 'bg-primary text-primary-foreground' : 'bg-surface-2 text-muted-foreground hover:text-foreground'
               }`}
             >
               All
@@ -1622,8 +1622,8 @@ export default function DocumentsPage() {
                 onClick={() => setSelectedTag(selectedTag === tg ? '' : tg)}
                 className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] transition-colors ${
                   selectedTag === tg
-                    ? 'bg-[#1d1d1b] text-white'
-                    : 'bg-[#f0ede6] text-[#4f4d47] hover:bg-[#e6e3dc]'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-surface-2 text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Tag className="size-2.5" />
@@ -1636,15 +1636,15 @@ export default function DocumentsPage() {
 
       {/* Batch toolbar */}
       {editor && visible.length > 0 && (
-        <div className="mt-4 flex items-center justify-between rounded-xl border border-[#eae7df] bg-[#faf8f3] px-4 py-2 text-xs">
+        <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-2 text-xs">
           <div className="flex items-center gap-3">
             <input
               type="checkbox"
               checked={selectedIds.size > 0 && selectedIds.size === visible.length}
               onChange={toggleSelectAll}
-              className="size-4 rounded accent-[#1d1d1b]"
+              className="size-4 rounded accent-primary"
             />
-            <span className="text-[#6b6862]">
+            <span className="text-muted-foreground">
               {selectedIds.size > 0
                 ? `${selectedIds.size} of ${visible.length} selected`
                 : 'Select all'}
@@ -1665,7 +1665,7 @@ export default function DocumentsPage() {
       {actionError && (
         <p
           role="alert"
-          className="mt-4 flex items-center gap-2 rounded-xl bg-[#fbe4e0] px-4 py-3 text-xs text-[#9a3b2c]"
+          className="mt-4 flex items-center gap-2 rounded-xl bg-danger-soft px-4 py-3 text-xs text-danger"
         >
           <AlertCircle className="size-4" />
           {actionError}
@@ -1679,21 +1679,21 @@ export default function DocumentsPage() {
             {[0, 1, 2].map((skeleton) => (
               <div
                 key={skeleton}
-                className="h-24 animate-pulse rounded-2xl border border-[#eae7df] bg-[#fffdfa]/80"
+                className="h-24 animate-pulse rounded-2xl border border-border bg-surface-elevated/80"
               />
             ))}
           </div>
         ) : loadError ? (
-          <div className="rounded-3xl border border-[#e6c9c1] bg-[#fbe4e0] p-10 text-center">
-            <p className="text-xs text-[#9a3b2c]">{loadError}</p>
+          <div className="rounded-3xl border border-danger/30 bg-danger-soft p-10 text-center">
+            <p className="text-xs text-danger">{loadError}</p>
             <button onClick={() => load(page)} className={`mt-4 ${ghostBtn}`}>
               Try again
             </button>
           </div>
         ) : visible.length === 0 ? (
-          <div className="rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-12 text-center">
+          <div className="rounded-3xl border border-border bg-surface-elevated p-12 text-center">
             <p className="font-serif text-xl italic">No documents found.</p>
-            <p className="mt-1 text-xs text-[#6b6862]">Upload a document or adjust your filters.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Upload a document or adjust your filters.</p>
           </div>
         ) : (
           <ul className="space-y-3">
@@ -1709,7 +1709,7 @@ export default function DocumentsPage() {
               return (
                 <li
                   key={doc.id}
-                  className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 shadow-2xs transition-all duration-150 hover:border-[#d5d1c6] hover:shadow-md hover:shadow-[#1d1d1b]/[0.04]"
+                  className="rounded-2xl border border-border bg-surface-elevated p-4 shadow-2xs transition-all duration-150 hover:border-border-strong hover:shadow-md"
                 >
                   <div className="flex flex-col gap-3.5 lg:flex-row lg:items-center lg:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
@@ -1718,16 +1718,16 @@ export default function DocumentsPage() {
                           type="checkbox"
                           checked={selectedIds.has(doc.id)}
                           onChange={() => toggleSelect(doc.id)}
-                          className="mt-1 size-4 rounded accent-[#1d1d1b]"
+                          className="mt-1 size-4 rounded accent-primary"
                         />
                       )}
-                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#f2efe8]">
-                        <FileText className="size-4 text-[#5d5b55]" />
+                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-2">
+                        <FileText className="size-4 text-muted-foreground" />
                       </span>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h2
-                            className="truncate text-sm font-semibold text-[#1d1d1b]"
+                            className="truncate text-sm font-semibold text-foreground"
                             title={doc.filename}
                           >
                             {displayTitle(doc.filename)}
@@ -1741,20 +1741,20 @@ export default function DocumentsPage() {
                             onRetry={() => retryIndex(doc)}
                           />
                           {doc.version > 1 && (
-                            <span className="rounded-full bg-[#f0ede6] px-2 py-0.5 text-[10px] font-medium text-[#6b6862]">
+                            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                               v{doc.version}
                             </span>
                           )}
                         </div>
 
                         {doc.description && (
-                          <p className="mt-1 line-clamp-2 text-xs text-[#6b6862]">
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                             {doc.description}
                           </p>
                         )}
 
-                        <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#6b6862]">
-                          <span className="rounded-full bg-[#f4f2ec] px-2 py-0.5 font-medium text-[#4f4d47]">
+                        <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
+                          <span className="rounded-full bg-surface-2 px-2 py-0.5 font-medium text-foreground/85">
                             {doc.category || 'General'}
                           </span>
                           <span>{formatBytes(doc.size)}</span>
@@ -1762,10 +1762,10 @@ export default function DocumentsPage() {
                           <span
                             className={
                               doc.indexing_status === 'failed'
-                                ? 'font-medium text-[#9a3b2c]'
+                                ? 'font-medium text-danger'
                                 : doc.indexing_status === 'pending'
-                                ? 'font-medium text-amber-700'
-                                : 'text-[#4a7a5a]'
+                                ? 'font-medium text-warn'
+                                : 'text-ok'
                             }
                           >
                             {statusText}
@@ -1786,7 +1786,7 @@ export default function DocumentsPage() {
                                 {doc.tags.map((tg) => (
                                   <span
                                     key={tg}
-                                    className="rounded-full bg-[#f4f2ec] px-2 py-0.5 text-[10px] text-[#555]"
+                                    className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] text-muted-foreground"
                                   >
                                     #{tg}
                                   </span>
@@ -1814,7 +1814,7 @@ export default function DocumentsPage() {
                         disabled={isBusy}
                         className={
                           justDownloaded
-                            ? `inline-flex items-center justify-center gap-1.5 rounded-full border border-[#b7dcc0] bg-[#e6f1e4] px-3 py-1.5 text-xs font-medium text-[#2f5b36] transition-all duration-150 ${focusRing}`
+                            ? `inline-flex items-center justify-center gap-1.5 rounded-full border border-ok/35 bg-ok-soft px-3 py-1.5 text-xs font-medium text-ok transition-all duration-150 ${focusRing}`
                             : ghostBtn
                         }
                       >
@@ -1873,7 +1873,7 @@ export default function DocumentsPage() {
 
         {/* Pagination controls */}
         {pages > 1 && (
-          <div className="mt-6 flex items-center justify-between border-t border-[#eae7df] pt-4">
+          <div className="mt-6 flex items-center justify-between border-t border-border pt-4">
             <button
               type="button"
               disabled={page <= 1 || loading}
@@ -1882,7 +1882,7 @@ export default function DocumentsPage() {
             >
               Previous
             </button>
-            <span className="text-xs text-[#6b6862]">
+            <span className="text-xs text-muted-foreground">
               Page {page} of {pages} ({totalCount} total documents)
             </span>
             <button

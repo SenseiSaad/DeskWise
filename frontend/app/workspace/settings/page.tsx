@@ -34,19 +34,19 @@ import { SmoothSelect } from '@/components/ui/smooth-select'
 import { useWorkspaceStore } from '@/lib/workspace-store'
 
 const focusRing =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1d1d1b]/25 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7f6f2]'
-const eyebrow = 'text-xs font-semibold uppercase tracking-[0.16em] text-[#6b6862]'
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/25 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+const eyebrow = 'text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground'
 const inputClass =
-  'h-11 w-full rounded-xl border border-[#d8d5cc] bg-[#fffdfa] px-3.5 text-xs text-[#1d1d1b] outline-none transition-colors placeholder:text-[#6b6862] focus:border-[#1d1d1b]'
+  'h-11 w-full rounded-xl border border-border-strong bg-surface-elevated px-3.5 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground'
 const primaryBtn =
-  `inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#1d1d1b] px-5 text-xs font-medium text-white transition-colors hover:bg-[#3c3b37] disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`
+  `inline-flex h-10 items-center justify-center gap-2 rounded-full bg-primary px-5 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`
 const ghostBtn =
-  `inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[#dcdad3] bg-[#fffdfa] px-4 text-xs font-medium text-[#1d1d1b] transition-colors hover:border-[#1d1d1b] disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`
-const label = 'mb-1 block text-xs font-medium text-[#1d1d1b]'
+  `inline-flex h-10 items-center justify-center gap-2 rounded-full border border-border-strong bg-surface-elevated px-4 text-xs font-medium text-foreground transition-colors hover:border-foreground disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`
+const label = 'mb-1 block text-xs font-medium text-foreground'
 
 const BEDROCK_DEFAULT_MODEL = 'us.amazon.nova-lite-v1:0'
 const BEDROCK_DEFAULT_REGION = 'us-east-1'
-const OLLAMA_DEFAULT_MODEL = 'llama3.2:3b'
+const OLLAMA_DEFAULT_MODEL = 'qwen2.5:0.5b'
 const OLLAMA_DEFAULT_URL = 'http://localhost:11434'
 type ActiveLlmProvider = Extract<LlmProvider, 'bedrock' | 'ollama'>
 
@@ -363,25 +363,25 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-4xl pb-10">
-      <header className="border-b border-[#e6e3dc] pb-6">
+      <header className="border-b border-border pb-6">
         <p className={eyebrow}>Workspace Management</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
           Settings &amp; <span className="font-serif font-normal italic">plans.</span>
         </h1>
-        <p className="mt-2 max-w-xl text-xs leading-relaxed text-[#6b6862]">
+        <p className="mt-2 max-w-xl text-xs leading-relaxed text-muted-foreground">
           Manage company profile, subscription quotas (USD), and AI model configurations.
         </p>
 
         {/* Tab Switcher (admins only) */}
         {isAdmin && (
-        <div className="mt-6 flex gap-2 border-b border-[#eae7df] pb-px text-xs font-medium">
+        <div className="mt-6 flex gap-2 border-b border-border pb-px text-xs font-medium">
           <button
             type="button"
             onClick={() => setTab('company')}
             className={`flex items-center gap-2 border-b-2 px-4 py-2 transition ${
               tab === 'company'
-                ? 'border-[#1d1d1b] font-semibold text-[#1d1d1b]'
-                : 'border-transparent text-[#6b6862] hover:text-[#1d1d1b]'
+                ? 'border-foreground font-semibold text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             <Building2 className="size-3.5" /> Company Profile
@@ -391,8 +391,8 @@ export default function SettingsPage() {
             onClick={() => setTab('plan')}
             className={`flex items-center gap-2 border-b-2 px-4 py-2 transition ${
               tab === 'plan'
-                ? 'border-[#1d1d1b] font-semibold text-[#1d1d1b]'
-                : 'border-transparent text-[#6b6862] hover:text-[#1d1d1b]'
+                ? 'border-foreground font-semibold text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             <CreditCard className="size-3.5" /> Plan &amp; Quotas
@@ -402,8 +402,8 @@ export default function SettingsPage() {
             onClick={() => setTab('ai')}
             className={`flex items-center gap-2 border-b-2 px-4 py-2 transition ${
               tab === 'ai'
-                ? 'border-[#1d1d1b] font-semibold text-[#1d1d1b]'
-                : 'border-transparent text-[#6b6862] hover:text-[#1d1d1b]'
+                ? 'border-foreground font-semibold text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             <Cpu className="size-3.5" /> AI Engine
@@ -416,20 +416,20 @@ export default function SettingsPage() {
       {isAdmin && tab === 'company' && (
         <section className="mt-6">
           {compLoading ? (
-            <p className="flex items-center gap-2 text-xs text-[#6b6862]">
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="size-4 animate-spin" /> Loading company profile…
             </p>
           ) : !profile ? (
-            <p className="text-xs text-[#6b6862]">No company attached to current session.</p>
+            <p className="text-xs text-muted-foreground">No company attached to current session.</p>
           ) : (
             <form onSubmit={onSaveCompany} className="max-w-xl space-y-4">
-              <div className="rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-4 text-xs">
-                <p className="font-semibold text-[#1d1d1b]">Company Access Code</p>
+              <div className="rounded-2xl border border-border bg-surface-2 p-4 text-xs">
+                <p className="font-semibold text-foreground">Company Access Code</p>
                 <div className="mt-1 flex items-center justify-between">
-                  <span className="font-mono text-sm font-semibold tracking-wider text-[#1d1d1b]">
+                  <span className="font-mono text-sm font-semibold tracking-wider text-foreground">
                     {profile.access_code || '—'}
                   </span>
-                  <span className="text-[11px] text-[#6b6862]">
+                  <span className="text-[11px] text-muted-foreground">
                     Share with partners for granular cross-tenant sharing
                   </span>
                 </div>
@@ -536,9 +536,9 @@ export default function SettingsPage() {
 
       {/* My profile — used to fill template fields */}
       {tab === 'company' && user && (
-        <section className="mt-8 border-t border-[#eae7df] pt-6">
-          <h2 className="text-sm font-semibold text-[#1d1d1b]">My Profile</h2>
-          <p className="mt-1 text-xs text-[#6b6862]">
+        <section className="mt-8 border-t border-border pt-6">
+          <h2 className="text-sm font-semibold text-foreground">My Profile</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
             Only filled fields are used when generating forms and emails. Empty fields stay as
             [Field name] placeholders. Role and department are managed by your admin because
             they control document access.
@@ -578,38 +578,38 @@ export default function SettingsPage() {
       {tab === 'plan' && (
         <section className="mt-6 space-y-8">
           {planLoading ? (
-            <p className="flex items-center gap-2 text-xs text-[#6b6862]">
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="size-4 animate-spin" /> Loading plans and usage…
             </p>
           ) : (
             <>
               {/* Current Plan Overview & Usage Bars */}
-              <div className="rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-6 shadow-sm">
+              <div className="rounded-3xl border border-border bg-surface p-6 shadow-sm">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6b6862]">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       Current Subscription
                     </span>
-                    <h2 className="mt-1 text-2xl font-bold tracking-tight text-[#1d1d1b]">
+                    <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
                       {currentPlan?.name || 'Free'} Plan
                     </h2>
-                    <p className="mt-1 text-xs text-[#6b6862]">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       ${currentPlan?.price_usd?.toLocaleString('en-US') || 0} / {currentPlan?.billing_period || 'month'}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {currentPlan?.allow_versions && (
-                      <span className="rounded-full bg-[#f4f2ec] px-2.5 py-1 text-[11px] font-medium text-[#4a7a5a]">
+                      <span className="rounded-full bg-ok-soft px-2.5 py-1 text-[11px] font-medium text-ok">
                         ✓ Versioning
                       </span>
                     )}
                     {currentPlan?.allow_departments && (
-                      <span className="rounded-full bg-[#f4f2ec] px-2.5 py-1 text-[11px] font-medium text-[#2d529f]">
+                      <span className="rounded-full bg-info-soft px-2.5 py-1 text-[11px] font-medium text-info">
                         ✓ Departments
                       </span>
                     )}
                     {currentPlan?.allow_custom_llm && (
-                      <span className="rounded-full bg-[#f4f2ec] px-2.5 py-1 text-[11px] font-medium text-[#6b46c1]">
+                      <span className="rounded-full bg-accent-soft px-2.5 py-1 text-[11px] font-medium text-accent">
                         ✓ BYO AI Key
                       </span>
                     )}
@@ -617,21 +617,21 @@ export default function SettingsPage() {
                 </div>
 
                 {/* Usage bars */}
-                <div className="mt-6 grid gap-4 border-t border-[#f0ede6] pt-5 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-4">
+                <div className="mt-6 grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-border bg-surface-2 p-4">
                     <div className="flex items-center justify-between text-xs font-medium">
-                      <span className="flex items-center gap-1.5 text-[#1d1d1b]">
-                        <MessageSquare className="size-3.5 text-[#6b6862]" /> Monthly Questions
+                      <span className="flex items-center gap-1.5 text-foreground">
+                        <MessageSquare className="size-3.5 text-muted-foreground" /> Monthly Questions
                       </span>
-                      <span className="text-[#6b6862]">
+                      <span className="text-muted-foreground">
                         {analytics?.usage?.asks_this_month ?? 0} /{' '}
                         {currentPlan?.monthly_ask_limit ?? 'Unlimited'}
                       </span>
                     </div>
                     {currentPlan?.monthly_ask_limit ? (
-                      <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-[#e6e3dc]">
+                      <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-border">
                         <div
-                          className="h-full bg-[#1d1d1b] transition-all"
+                          className="h-full bg-primary transition-all"
                           style={{
                             width: `${Math.min(
                               100,
@@ -645,16 +645,16 @@ export default function SettingsPage() {
                     ) : null}
                   </div>
 
-                  <div className="rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-4">
+                  <div className="rounded-2xl border border-border bg-surface-2 p-4">
                     <div className="flex items-center justify-between text-xs font-medium">
-                      <span className="flex items-center gap-1.5 text-[#1d1d1b]">
-                        <Users className="size-3.5 text-[#6b6862]" /> Member Seats
+                      <span className="flex items-center gap-1.5 text-foreground">
+                        <Users className="size-3.5 text-muted-foreground" /> Member Seats
                       </span>
-                      <span className="text-[#6b6862]">
+                      <span className="text-muted-foreground">
                         {profile?.max_employees || currentPlan?.max_members || 'Unlimited'} max
                       </span>
                     </div>
-                    <p className="mt-2 text-[11px] text-[#6b6862]">
+                    <p className="mt-2 text-[11px] text-muted-foreground">
                       Admin controls seats in Company Profile.
                     </p>
                   </div>
@@ -663,7 +663,7 @@ export default function SettingsPage() {
 
               {/* USD Tier Table */}
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-[#6b6862]">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                   Available Tiers (USD)
                 </h3>
                 <div className="mt-4 grid gap-4 md:grid-cols-4">
@@ -674,69 +674,69 @@ export default function SettingsPage() {
                         key={p.id}
                         className={`flex flex-col justify-between rounded-3xl border p-5 transition ${
                           isCurrent
-                            ? 'border-[#1d1d1b] bg-white ring-2 ring-[#1d1d1b]/10'
-                            : 'border-[#e6e3dc] bg-[#fffdfa]'
+                            ? 'border-foreground bg-surface-elevated ring-2 ring-foreground/10'
+                            : 'border-border bg-surface'
                         }`}
                       >
                         <div>
                           <div className="flex items-center justify-between">
-                            <span className="font-semibold text-[#1d1d1b]">{p.name}</span>
+                            <span className="font-semibold text-foreground">{p.name}</span>
                             {isCurrent && (
-                              <span className="rounded-full bg-[#1d1d1b] px-2 py-0.5 text-[10px] text-white">
+                              <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] text-primary-foreground">
                                 Current
                               </span>
                             )}
                           </div>
-                          <p className="mt-3 text-xl font-bold tracking-tight text-[#1d1d1b]">
+                          <p className="mt-3 text-xl font-bold tracking-tight text-foreground">
                             ${p.price_usd.toLocaleString('en-US')}
-                            <span className="text-xs font-normal text-[#6b6862]">/mo</span>
+                            <span className="text-xs font-normal text-muted-foreground">/mo</span>
                           </p>
 
-                          <ul className="mt-4 space-y-2 text-xs text-[#4f4d47]">
+                          <ul className="mt-4 space-y-2 text-xs text-muted-foreground">
                             <li className="flex items-center gap-2">
-                              <Check className="size-3.5 text-[#4a7a5a]" />
+                              <Check className="size-3.5 text-ok" />
                               {p.max_members ? `${p.max_members} members` : 'Unlimited members'}
                             </li>
                             <li className="flex items-center gap-2">
-                              <Check className="size-3.5 text-[#4a7a5a]" />
+                              <Check className="size-3.5 text-ok" />
                               {p.max_documents ? `${p.max_documents} docs` : 'Unlimited docs'}
                             </li>
                             <li className="flex items-center gap-2">
-                              <Check className="size-3.5 text-[#4a7a5a]" />
+                              <Check className="size-3.5 text-ok" />
                               {p.storage_mb ? `${p.storage_mb >= 1024 ? `${p.storage_mb / 1024} GB` : `${p.storage_mb} MB`} storage` : 'Unlimited storage'}
                             </li>
                             <li className="flex items-center gap-2">
-                              <Check className="size-3.5 text-[#4a7a5a]" />
+                              <Check className="size-3.5 text-ok" />
                               {p.monthly_ask_limit
                                 ? `${p.monthly_ask_limit.toLocaleString()} asks/mo`
                                 : 'Unlimited asks'}
                             </li>
                             {p.allow_versions && (
                               <li className="flex items-center gap-2">
-                                <Check className="size-3.5 text-[#4a7a5a]" /> File versioning
+                                <Check className="size-3.5 text-ok" /> File versioning
                               </li>
                             )}
                             {p.allow_departments && (
                               <li className="flex items-center gap-2">
-                                <Check className="size-3.5 text-[#4a7a5a]" /> Departments
+                                <Check className="size-3.5 text-ok" /> Departments
                               </li>
                             )}
                             {p.allow_custom_llm && (
                               <li className="flex items-center gap-2">
-                                <Check className="size-3.5 text-[#4a7a5a]" /> BYO AI API Key
+                                <Check className="size-3.5 text-ok" /> BYO AI API Key
                               </li>
                             )}
                           </ul>
                         </div>
 
                         {!isCurrent && (
-                          <div className="mt-6 border-t border-[#f0ede6] pt-3 space-y-2">
+                          <div className="mt-6 border-t border-border pt-3 space-y-2">
                             {p.price_usd > 0 && (
                               <button
                                 type="button"
                                 onClick={() => onCheckout(p.id)}
                                 disabled={upgradingPlanId === p.id}
-                                className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-[#1d1d1b] py-1.5 text-xs font-medium text-white hover:bg-[#3c3b37] disabled:opacity-50"
+                                className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-primary py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
                               >
                                 {upgradingPlanId === p.id ? (
                                   <>
@@ -755,7 +755,7 @@ export default function SettingsPage() {
                               <button
                                 type="button"
                                 onClick={() => onSelectPlan(p.id)}
-                                className="w-full rounded-full border border-[#1d1d1b] py-1.5 text-xs font-medium text-[#1d1d1b] hover:bg-[#1d1d1b] hover:text-white"
+                                className="w-full rounded-full border border-border-strong py-1.5 text-xs font-medium text-foreground hover:border-foreground hover:bg-primary hover:text-primary-foreground"
                               >
                                 Assign Plan (Admin)
                               </button>
@@ -776,16 +776,16 @@ export default function SettingsPage() {
       {tab === 'ai' && (
         <section className="mt-6">
           {aiLoading ? (
-            <p className="flex items-center gap-2 text-xs text-[#6b6862]">
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="size-4 animate-spin" /> Loading AI engine settings…
             </p>
           ) : (
             <div className="max-w-2xl space-y-6">
               {/* Company Override Banner */}
-              <div className="rounded-2xl border border-[#eae7df] bg-[#faf8f3] p-4 text-xs">
+              <div className="rounded-2xl border border-border bg-surface-2 p-4 text-xs">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="font-semibold text-[#1d1d1b]">
+                    <span className="font-semibold text-foreground">
                       {hasLegacyProviderConfig
                         ? 'Legacy AI provider needs updating'
                         : cfg?.is_company_override
@@ -796,7 +796,7 @@ export default function SettingsPage() {
                         ? 'Platform Default Settings'
                         : 'Inheriting Platform Default AI'}
                     </span>
-                    <p className="mt-0.5 text-[#6b6862]">
+                    <p className="mt-0.5 text-muted-foreground">
                       {hasLegacyProviderConfig
                         ? 'Saving will switch this configuration to Bedrock. Its old provider key will be cleared; enter a Bedrock key or leave it blank to use your configured AWS credentials.'
                         : cfg?.is_company_override
@@ -812,7 +812,7 @@ export default function SettingsPage() {
                       type="button"
                       onClick={onResetAi}
                       disabled={resettingAi}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-[#dcdad3] bg-white px-3 py-1.5 text-xs text-[#9a3b2c] hover:bg-[#fbe4e0]"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-elevated px-3 py-1.5 text-xs text-danger hover:bg-danger-soft"
                     >
                       <RotateCcw className="size-3" />
                       {resettingAi ? 'Resetting…' : 'Reset to platform'}
@@ -839,10 +839,10 @@ export default function SettingsPage() {
                       badge: p.badge,
                     }))}
                   />
-                  <p className="mt-1 text-[11px] text-[#6b6862]">
+                  <p className="mt-1 text-[11px] text-muted-foreground">
                     {activeProvider.blurb}
                     {activeProvider.badge && (
-                      <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-[#e8f0e4] px-2 py-0.5 text-[10px] font-semibold text-[#4a7a5a]">
+                      <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-ok-soft px-2 py-0.5 text-[10px] font-semibold text-ok">
                         <Check className="size-3" aria-hidden />
                         {activeProvider.badge}
                       </span>
@@ -894,7 +894,7 @@ export default function SettingsPage() {
                         : activeProvider.keyLabel}
                     </label>
                     <div className="relative">
-                      <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#6b6862]" />
+                      <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                       <input
                         id="api-key"
                         type="password"
@@ -913,7 +913,7 @@ export default function SettingsPage() {
                       />
                     </div>
                     {cfg?.platform_key_in_use && !cfg?.is_company_override && (
-                      <p className="mt-1 text-[11px] text-[#6b6862]">
+                      <p className="mt-1 text-[11px] text-muted-foreground">
                         Using platform AWS CLI / IAM credentials automatically. Leave blank unless overriding for this company.
                       </p>
                     )}
@@ -952,8 +952,8 @@ export default function SettingsPage() {
                   <div
                     className={`rounded-2xl border p-4 text-xs ${
                       testResult.ok
-                        ? 'border-[#cfe0d0] bg-[#f1f7f0] text-[#2f5b36]'
-                        : 'border-[#f0c8c0] bg-[#fbe4e0] text-[#9a3b2c]'
+                        ? 'border-ok/30 bg-ok-soft text-ok'
+                        : 'border-danger/30 bg-danger-soft text-danger'
                     }`}
                   >
                     <p className="font-semibold">
@@ -965,7 +965,7 @@ export default function SettingsPage() {
                         : testResult.detail || 'Could not connect.'}
                     </p>
                     {testResult.sample && (
-                      <p className="mt-2 rounded-xl bg-white/70 p-2 font-mono text-[11px]">
+                      <p className="mt-2 rounded-xl bg-surface-elevated/80 p-2 font-mono text-[11px]">
                         {testResult.sample}
                       </p>
                     )}

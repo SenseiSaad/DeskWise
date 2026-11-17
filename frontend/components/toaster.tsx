@@ -37,8 +37,8 @@ export function Toaster() {
           key={t.id}
           className={`animate-[fade-in-up_0.2s_ease-out] flex items-center gap-2 rounded-xl px-4 py-3 text-sm shadow-xl ${
             t.type === 'success'
-              ? 'bg-[#e6f1e4] text-[#3f6b4f] border border-[#d2e8cc]'
-              : 'bg-[#fbe4e0] text-[#9a3b2c] border border-[#f5cfc8]'
+              ? 'bg-ok-soft text-ok border border-ok/30'
+              : 'bg-danger-soft text-danger border border-danger/30'
           }`}
         >
           {t.type === 'success' ? <CheckCircle2 className="size-4" /> : <AlertCircle className="size-4" />}

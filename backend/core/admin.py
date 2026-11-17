@@ -3,7 +3,8 @@ from django.contrib import admin
 from .models import (
     Announcement, AskLog, AuditLog, AttendanceExemption, ChatConversation,
     ChatMessage, Company, Department, Chunk, Document, DocumentAccess,
-    DocumentShare, DocumentVersion, Holiday, LLMConfig, Plan, User,
+    DocumentShare, DocumentVersion, Holiday, LLMConfig, Plan, TeamMessage,
+    TeamRoom, User,
 )
 
 admin.site.site_header = "Deskwise administration"
@@ -123,3 +124,17 @@ class HolidayAdmin(admin.ModelAdmin):
 class AttendanceExemptionAdmin(admin.ModelAdmin):
     list_display = ("user", "start_date", "end_date", "reason", "created_by")
     search_fields = ("user__email",)
+
+
+@admin.register(TeamRoom)
+class TeamRoomAdmin(admin.ModelAdmin):
+    list_display = ("name", "company", "scope", "is_default", "created_at")
+    list_filter = ("scope", "is_default", "company")
+    search_fields = ("name", "slug")
+
+
+@admin.register(TeamMessage)
+class TeamMessageAdmin(admin.ModelAdmin):
+    list_display = ("id", "room", "sender_type", "sender", "is_pinned", "edited_at", "created_at")
+    list_filter = ("sender_type", "is_pinned", "company")
+    search_fields = ("content",)

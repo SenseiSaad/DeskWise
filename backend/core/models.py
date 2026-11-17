@@ -8,7 +8,7 @@ from datetime import timedelta
 from django.contrib.auth.models import (
     AbstractBaseUser, BaseUserManager, PermissionsMixin,
 )
-from django.db import models
+from django.db import IntegrityError, models, transaction
 
 from .crypto import decrypt_secret, encrypt_secret
 
@@ -99,7 +99,8 @@ class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra):
         if not email:
             raise ValueError("Email is required")
-        user = self.model(email=self.normalize_email(email), **extra)
+        cleaned = self.normalize_email(email).strip().lower()
+        user = self.model(email=cleaned, **extra)
         user.set_password(password)
         user.save(using=self._db)
         return user
@@ -686,3 +687,144 @@ class AttendanceExemption(models.Model):
 
     def __str__(self):
         return f"{self.user}: {self.start_date}..{self.end_date} {self.reason}"
+
+
+class TeamRoom(models.Model):
+    """Real-time employee chatroom scoped to one company.
+
+    Every company starts with one default room (`is_default=True`, slug='general')
+    open to all company members; admins can create extra rooms if needed.
+    """
+    SCOPES = [
+        ("company", "Entire company"),
+        ("department", "Department"),
+        ("private", "Selected members"),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="team_rooms")
+    name = models.CharField(max_length=80)
+    slug = models.SlugField(max_length=80)
+    description = models.CharField(max_length=240, blank=True, default="")
+    scope = models.CharField(max_length=20, choices=SCOPES, default="company")
+    department = models.ForeignKey(
+        Department, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="team_rooms",
+    )
+    is_default = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="created_team_rooms",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("company", "slug")
+        ordering = ["-is_default", "name", "id"]
+
+    @classmethod
+    def ensure_default(cls, company):
+        """Return the company's default all-employee chatroom, creating it once."""
+        existing = cls.objects.filter(company=company, is_default=True).first()
+        if existing is not None:
+            return existing
+        try:
+            with transaction.atomic():
+                room, _created = cls.objects.get_or_create(
+                    company=company,
+                    slug="general",
+                    defaults={
+                        "name": "General",
+                        "description": "Company-wide employee chatroom. Mention @DeskWise anytime for work.",
+                        "scope": "company",
+                        "is_default": True,
+                    },
+                )
+                if not room.is_default:
+                    room.is_default = True
+                    room.scope = "company"
+                    room.save(update_fields=["is_default", "scope"])
+                return room
+        except IntegrityError:
+            return cls.objects.filter(company=company, slug="general").first()
+
+    def __str__(self):
+        return f"{self.company.name} / {self.name}"
+
+
+class TeamRoomMember(models.Model):
+    """Explicit membership row for `private` TeamRooms."""
+    room = models.ForeignKey(TeamRoom, on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="team_room_memberships")
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("room", "user")
+
+
+class TeamRoomReadState(models.Model):
+    """Per-user last-seen message id in a room for unread count badges."""
+    room = models.ForeignKey(TeamRoom, on_delete=models.CASCADE, related_name="read_states")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="team_room_read_states")
+    last_read_message_id = models.BigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("room", "user")
+
+
+class TeamMessage(models.Model):
+    """A message inside an employee TeamRoom (human or @DeskWise AI)."""
+    SENDER_TYPES = [
+        ("user", "User"),
+        ("deskwise", "DeskWise AI"),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="team_messages")
+    room = models.ForeignKey(TeamRoom, on_delete=models.CASCADE, related_name="messages")
+    sender = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="team_messages",
+    )
+    sender_type = models.CharField(max_length=16, choices=SENDER_TYPES, default="user")
+    content = models.TextField()
+    reply_to = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="replies",
+    )
+    referenced_document = models.ForeignKey(
+        Document, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="team_chat_references",
+    )
+    sources = models.TextField(blank=True, default="")   # JSON list of source dicts/filenames
+    metadata = models.TextField(blank=True, default="{}")  # JSON dict (flag, mode, stream info)
+    is_pinned = models.BooleanField(default=False)
+    pinned_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="pinned_team_messages",
+    )
+    pinned_at = models.DateTimeField(null=True, blank=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["room", "created_at", "id"]),
+            models.Index(fields=["room", "is_pinned"]),
+        ]
+
+    def __str__(self):
+        author = "DeskWise" if self.sender_type == "deskwise" else (self.sender.email if self.sender_id else "Deleted")
+        return f"[{self.room.slug}] {author}: {self.content[:40]}"
+
+
+class TeamMessageReaction(models.Model):
+    """Emoji reaction toggle on a TeamMessage."""
+    message = models.ForeignKey(TeamMessage, on_delete=models.CASCADE, related_name="reactions")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="team_message_reactions")
+    emoji = models.CharField(max_length=16)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("message", "user", "emoji")

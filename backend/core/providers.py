@@ -117,19 +117,55 @@ class BaseProvider:
 class OllamaProvider(BaseProvider):
     """A model running locally (or on your EC2) through Ollama."""
     label = "ollama"
+    _EMBED_PREFIXES = (
+        "nomic-embed",
+        "mxbai-embed",
+        "snowflake-arctic-embed",
+        "all-minilm",
+        "bge-",
+    )
 
     def __init__(self, base_url, chat_model, embed_model):
         self.base = (base_url or "http://localhost:11434").rstrip("/")
-        self.chat_model = chat_model or "qwen2.5:1.5b"
+        self.chat_model = chat_model or "qwen2.5:0.5b"
         self.embed_model = embed_model or "nomic-embed-text"
         self.embed_model_name = self.embed_model
 
+    @classmethod
+    def _is_embed_only(cls, entry: dict) -> bool:
+        caps = entry.get("capabilities")
+        if isinstance(caps, list) and caps and all(str(c).lower() == "embedding" for c in caps):
+            return True
+        name = str(entry.get("name") or entry.get("model") or "").strip().lower()
+        return name.startswith(cls._EMBED_PREFIXES)
+
+    def _has_chat_model(self, models: list) -> bool:
+        installed = set()
+        for entry in models:
+            if not isinstance(entry, dict) or self._is_embed_only(entry):
+                continue
+            for key in ("name", "model"):
+                val = str(entry.get(key) or "").strip().lower()
+                if val:
+                    installed.add(val)
+        if not installed:
+            return False
+        target = (self.chat_model or "").strip().lower()
+        if not target:
+            return True
+        if ":" in target:
+            return target in installed
+        return target in installed or f"{target}:latest" in installed
+
     def available(self):
         try:
-            _json(f"{self.base}/api/tags", timeout=2.0)
-            return True
+            data = _json(f"{self.base}/api/tags", timeout=2.0)
         except Exception:
             return False
+        models = (data or {}).get("models")
+        if not isinstance(models, list) or not models:
+            return False
+        return self._has_chat_model(models)
 
     def embed(self, texts):
         if np is None:
@@ -676,7 +712,7 @@ class FakeProvider(BaseProvider):
 
 # ------------------------------------------------------- pick the live provider
 DEFAULT_MODELS = {
-    "ollama": "qwen2.5:1.5b",
+    "ollama": "qwen2.5:0.5b",
     "openai": "gpt-4o-mini",
     "anthropic": "claude-3-5-haiku-latest",
     "gemini": "gemini-2.5-flash",

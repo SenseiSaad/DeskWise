@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Loader2,
   LogOut,
+  MessagesSquare,
   QrCode,
   ScrollText,
   Settings,
@@ -21,13 +22,25 @@ import {
   Users,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
-import { SUPPORTED_LANGUAGES, type UiLanguage } from '@/lib/api'
+import { isUiLanguage, type UiLanguage } from '@/lib/api'
 import { Logo } from '@/components/logo'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { SmoothSelect, type SmoothSelectOption } from '@/components/ui/smooth-select'
 import { adminApi, type AdminCompany } from '@/lib/api'
 import { makeT } from '@/lib/i18n'
 import { WorkspaceStoreProvider } from '@/lib/workspace-store'
 import { WorkspaceBackgroundStatusPill } from '@/components/workspace-bg-status'
+
+const LANGUAGE_OPTIONS: SmoothSelectOption<string>[] = [
+  { value: 'en', label: 'English', description: 'Default workspace UI & answers', badge: 'EN' },
+  { value: 'es', label: 'Spanish', description: 'Español', badge: 'ES' },
+  { value: 'fr', label: 'French', description: 'Français', badge: 'FR' },
+  { value: 'de', label: 'German', description: 'Deutsch', badge: 'DE' },
+  { value: 'ar', label: 'Arabic', description: 'العربية', badge: 'AR' },
+  { value: 'pt', label: 'Portuguese', description: 'Português', badge: 'PT' },
+  { value: 'ur', label: 'Roman Urdu', description: 'Urdu (Latin script)', badge: 'UR' },
+  { value: '__more', label: 'More languages', description: 'Additional locales coming soon', badge: 'Soon', disabled: true },
+]
 
 // Authenticated, tenant-scoped shell for the enterprise workspace. Gates on a
 // signed-in session client-side and redirects guests to the enterprise sign-in.
@@ -57,6 +70,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     const titles: Record<string, string> = {
       '/workspace': 'Overview',
       '/workspace/chat': 'Ask AI',
+      '/workspace/team-chat': 'Team Chat',
       '/workspace/documents': 'Documents',
       '/workspace/shared': 'Shared with me',
       '/workspace/attendance': 'Attendance',
@@ -101,6 +115,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const NAV = [
     { href: '/workspace', label: t('overview'), icon: LayoutDashboard, adminOnly: false, exact: true },
     { href: '/workspace/chat', label: t('askAi'), icon: Sparkles, adminOnly: false, exact: false },
+    { href: '/workspace/team-chat', label: t('teamChat'), icon: MessagesSquare, adminOnly: false, exact: false },
     { href: '/workspace/documents', label: t('documents'), icon: FileText, adminOnly: false, exact: false },
     { href: '/workspace/shared', label: t('shared'), icon: Share2, adminOnly: false, exact: false },
     { href: '/workspace/attendance', label: t('attendance'), icon: QrCode, adminOnly: false, exact: false },
@@ -204,23 +219,18 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                 {user.department_name ? `${user.role} · ${user.department_name}` : user.role}
               </p>
             </div>
-            <div className="relative">
-              <Languages className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <select
+            <div className="w-36 shrink-0">
+              <SmoothSelect
                 value={language}
-                onChange={(e) => setLanguage(e.target.value as UiLanguage)}
-                aria-label="Reply language"
-                className="h-8 appearance-none rounded-lg border border-border bg-surface py-1 pl-7 pr-2 text-[11px] font-medium text-foreground outline-none focus:border-border-strong"
-              >
-                {SUPPORTED_LANGUAGES.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.label}
-                  </option>
-                ))}
-                <option value="" disabled>
-                  More languages coming soon…
-                </option>
-              </select>
+                onChange={(val) => {
+                  if (isUiLanguage(val)) setLanguage(val)
+                }}
+                options={LANGUAGE_OPTIONS}
+                size="pill"
+                align="right"
+                leadingIcon={<Languages className="size-3.5" aria-hidden />}
+                ariaLabel="Reply language"
+              />
             </div>
             <ThemeToggle variant="segmented" compact />
             <button
@@ -242,23 +252,17 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
               {/* Preferences: Language + Appearance in one compact row */}
               <div className="mt-2.5 flex items-center gap-2">
-                <div className="relative min-w-0 flex-1">
-                  <Languages className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <select
+                <div className="min-w-0 flex-1">
+                  <SmoothSelect
                     value={language}
-                    onChange={(e) => setLanguage(e.target.value as UiLanguage)}
-                    aria-label="Reply language"
-                    className="w-full appearance-none rounded-lg border border-border bg-surface py-1 pl-6 pr-2 text-[11px] font-medium text-foreground outline-none focus:border-border-strong"
-                  >
-                    {SUPPORTED_LANGUAGES.map((l) => (
-                      <option key={l.code} value={l.code}>
-                        {l.label}
-                      </option>
-                    ))}
-                    <option value="" disabled>
-                      More languages coming soon…
-                    </option>
-                  </select>
+                    onChange={(val) => {
+                      if (isUiLanguage(val)) setLanguage(val)
+                    }}
+                    options={LANGUAGE_OPTIONS}
+                    size="pill"
+                    leadingIcon={<Languages className="size-3.5" aria-hidden />}
+                    ariaLabel="Reply language"
+                  />
                 </div>
                 <ThemeToggle variant="segmented" compact />
               </div>

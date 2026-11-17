@@ -526,7 +526,7 @@ def accessible_doc_ids(user) -> set:
 
 
 
-def retrieve(user, question: str, k: int | None = None) -> list[Chunk]:
+def retrieve(user, question: str, k: int | None = None, doc_ids_override: set | None = None) -> list[Chunk]:
     """Return the top-k relevant chunks the user is allowed to see.
 
     Two paths, same isolation boundary (`accessible_doc_ids`):
@@ -546,7 +546,7 @@ def retrieve(user, question: str, k: int | None = None) -> list[Chunk]:
     degrades to BM25 alone.
     """
     k = k or settings.TOP_K
-    ids = accessible_doc_ids(user)
+    ids = set(doc_ids_override) if doc_ids_override is not None else accessible_doc_ids(user)
     if not ids:
         return []
 
@@ -823,7 +823,8 @@ def build_messages(chunks: list[Chunk], question: str, history: list[dict] | Non
 def stream_answer(user, question: str, mode: str | None = None, provider_override: str | None = None,
                   moderation_flags: list[str] | None = None,
                   conversation=None, template_text: str = "",
-                  template_rules: str = ""):
+                  template_rules: str = "", doc_ids_override: set | None = None,
+                  history_override: list[dict] | None = None):
     """Yield NDJSON lines: sources first, an optional policy flag, then token
     deltas, then any detected workflow result, then done.
 
@@ -840,7 +841,7 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
     from .models import AskLog, ChatMessage
     started = time.time()
     # A template request reads the whole template rather than scoring chunks.
-    chunks = [] if template_text else retrieve(user, question)
+    chunks = [] if template_text else retrieve(user, question, doc_ids_override=doc_ids_override)
     sources = sorted({c.document.filename for c in chunks})
     yield json.dumps({"type": "sources", "sources": sources}) + "\n"
 
@@ -849,8 +850,8 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
                                        company=getattr(user, "company", None))
     provider_used = chat.label
 
-    history = []
-    if conversation is not None:
+    history = list(history_override or [])
+    if not history and conversation is not None:
         history = list(conversation.messages.values("role", "content"))
 
     messages = build_messages(chunks, question, history=history,
@@ -884,8 +885,8 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
             )
         elif mode == "local" or chat.label == "ollama":
             msg = (
-                "The configured Ollama server is not reachable from the API. "
-                "Check its endpoint, or switch to another model."
+                "No local chat model is available in Ollama. Switch to AWS Bedrock "
+                "or pull the configured local model first."
             )
         else:
             msg = f"The '{chat.label}' model is not reachable. Check your API settings."

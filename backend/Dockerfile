@@ -47,4 +47,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 # Migrations do NOT run at container start: they are a deliberate deploy step
 # (the `migrate` one-shot service in docker-compose.prod.yml). Scaling to >1
 # api replica is then safe.
-CMD ["sh", "-c", "exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${GUNICORN_WORKERS:-2} --threads ${GUNICORN_THREADS:-4} --timeout 300 --access-logfile - --error-logfile -"]
+# Serve ASGI (HTTP + WebSockets). Without Redis, cap workers to 1 so the
+# in-memory channel layer delivers broadcasts across all connected sockets.
+CMD ["sh", "-c", "case \"${CACHE_URL:-}\" in redis*) W=\"${GUNICORN_WORKERS:-2}\";; *) W=1;; esac; exec gunicorn config.asgi:application -k uvicorn_worker.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --workers \"$W\" --timeout 300 --access-logfile - --error-logfile -"]

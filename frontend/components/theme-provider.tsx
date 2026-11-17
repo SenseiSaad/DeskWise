@@ -2,7 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
-export type Theme = 'light' | 'dark' | 'system'
+export type Theme = 'light' | 'dark'
 
 interface ThemeProviderState {
   theme: Theme
@@ -11,36 +11,30 @@ interface ThemeProviderState {
 }
 
 const ThemeProviderContext = createContext<ThemeProviderState>({
-  theme: 'system',
+  theme: 'light',
   resolvedTheme: 'light',
   setTheme: () => null,
 })
 
 const STORAGE_KEY = 'theme'
 
-function systemTheme(): 'light' | 'dark' {
-  if (typeof window === 'undefined') return 'light'
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
 function applyTheme(theme: Theme) {
   const root = document.documentElement
-  const resolved = theme === 'system' ? systemTheme() : theme
 
   root.classList.add('theme-transition')
-  root.classList.toggle('dark', resolved === 'dark')
-  root.classList.toggle('light', resolved === 'light')
-  root.dataset.theme = resolved
-  root.style.colorScheme = resolved
+  root.classList.toggle('dark', theme === 'dark')
+  root.classList.toggle('light', theme === 'light')
+  root.dataset.theme = theme
+  root.style.colorScheme = theme
 
   // Let CSS settle before enabling hover transitions again.
   window.setTimeout(() => root.classList.remove('theme-transition'), 300)
-  return resolved
+  return theme
 }
 
 export function ThemeProvider({
   children,
-  defaultTheme = 'system',
+  defaultTheme = 'light',
 }: {
   children: React.ReactNode
   attribute?: string
@@ -48,37 +42,31 @@ export function ThemeProvider({
   enableSystem?: boolean
 }) {
   const [theme, setThemeState] = useState<Theme>(defaultTheme)
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light')
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(defaultTheme)
 
   // Read the persisted preference on mount. The inline head script has already
   // painted the right class, so this only synchronises React state.
   useEffect(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY) as Theme | null
-    const next = saved === 'light' || saved === 'dark' || saved === 'system' ? saved : defaultTheme
+    const saved = window.localStorage.getItem(STORAGE_KEY)
+    const next: Theme = saved === 'light' || saved === 'dark' ? saved : defaultTheme
+    if (saved && saved !== 'light' && saved !== 'dark') {
+      window.localStorage.setItem(STORAGE_KEY, next)
+    }
     setThemeState(next)
-    setResolvedTheme(next === 'system' ? systemTheme() : next)
+    setResolvedTheme(next)
   }, [defaultTheme])
 
   useEffect(() => {
     const resolved = applyTheme(theme)
     setResolvedTheme(resolved)
-
-    if (theme !== 'system') return
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => {
-      const next = applyTheme('system')
-      setResolvedTheme(next)
-    }
-    media.addEventListener('change', onChange)
-    return () => media.removeEventListener('change', onChange)
   }, [theme])
 
   // Follow changes made in another tab.
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY) return
-      const next = event.newValue as Theme | null
-      if (next === 'light' || next === 'dark' || next === 'system') setThemeState(next)
+      const next = event.newValue
+      if (next === 'light' || next === 'dark') setThemeState(next)
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)

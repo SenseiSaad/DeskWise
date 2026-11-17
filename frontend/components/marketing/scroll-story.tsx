@@ -115,22 +115,51 @@ export function ScrollStory() {
                   </motion.span>
                 </AnimatePresence>
               </div>
-              <div className="mt-6 flex gap-2">
-                {CHAPTERS.map((c, i) => (
-                  <motion.button
-                    key={c.num}
-                    type="button"
-                    onClick={() => itemRefs.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
-                    animate={{
-                      width: i === active ? 40 : 16,
-                      backgroundColor: i === active ? 'var(--accent)' : 'var(--border-strong)',
-                    }}
-                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-                    className="h-1.5 rounded-full cursor-pointer focus:outline-none"
-                    aria-label={`Jump to chapter ${c.num}`}
-                  />
-                ))}
-              </div>
+              <nav aria-label="Story steps" className="mt-6 grid max-w-sm grid-cols-1 gap-2">
+                {CHAPTERS.map((c, i) => {
+                  const isCurrent = i === active
+                  return (
+                    <button
+                      key={c.num}
+                      type="button"
+                      onClick={() => {
+                        setActive(i)
+                        itemRefs.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      }}
+                      aria-current={isCurrent ? 'step' : undefined}
+                      className={`group flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
+                        isCurrent
+                          ? 'border-accent/60 bg-surface-elevated text-foreground shadow-sm'
+                          : 'border-border bg-surface-elevated/45 text-muted-foreground hover:border-border-strong hover:bg-surface-elevated hover:text-foreground'
+                      }`}
+                    >
+                      <span
+                        className={`grid size-8 shrink-0 place-items-center rounded-lg font-mono text-xs font-semibold transition-colors ${
+                          isCurrent
+                            ? 'bg-accent text-accent-foreground'
+                            : 'bg-surface-2 text-muted-foreground group-hover:text-foreground'
+                        }`}
+                      >
+                        {c.num}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-semibold leading-tight tracking-tight">
+                          {c.title}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                          {c.label}
+                        </span>
+                      </span>
+                      <span
+                        aria-hidden
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
+                          isCurrent ? 'bg-accent' : 'bg-border-strong group-hover:bg-muted-foreground'
+                        }`}
+                      />
+                    </button>
+                  )
+                })}
+              </nav>
             </div>
           </div>
 

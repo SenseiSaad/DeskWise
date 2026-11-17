@@ -37,9 +37,9 @@ import { useWorkspaceStore } from '@/lib/workspace-store'
 type CreatableRole = Exclude<Role, 'public'>
 
 const ROLE_BADGE: Record<Role, { label: string; cls: string; Icon: LucideIcon }> = {
-  admin: { label: 'Admin', cls: 'border-[#e7ddfb] bg-[#f5f0ff] text-[#6b46c1]', Icon: Shield },
-  employee: { label: 'Employee', cls: 'border-[#cfdbf1] bg-[#dfe7f7] text-[#37589c]', Icon: Briefcase },
-  viewer: { label: 'Viewer', cls: 'border-[#e2e3e5] bg-[#eef0f2] text-[#6b6a64]', Icon: Eye },
+  admin: { label: 'Admin', cls: 'border-accent/25 bg-accent-soft text-accent', Icon: Shield },
+  employee: { label: 'Employee', cls: 'border-info/25 bg-info-soft text-info', Icon: Briefcase },
+  viewer: { label: 'Viewer', cls: 'border-border bg-surface-2 text-muted-foreground', Icon: Eye },
 }
 
 const ROLE_OPTIONS: { value: CreatableRole; label: string; desc: string; Icon: LucideIcon }[] = [
@@ -49,12 +49,12 @@ const ROLE_OPTIONS: { value: CreatableRole; label: string; desc: string; Icon: L
 ]
 
 const inputClass =
-  'h-11 w-full rounded-xl border border-[#d8d5cc] bg-white px-3.5 text-xs text-[#1d1d1b] outline-none transition-colors placeholder:text-[#6b6862] focus:border-[#1d1d1b] focus:ring-2 focus:ring-[#1d1d1b]/10'
-const labelClass = 'mb-1.5 block text-xs font-medium text-[#1d1d1b]'
+  'h-11 w-full rounded-xl border border-border-strong bg-surface-elevated px-3.5 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground focus:ring-2 focus:ring-foreground/10'
+const labelClass = 'mb-1.5 block text-xs font-medium text-foreground'
 const focusRing =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1d1d1b]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f7f6f2]'
-const ghostBtn = `inline-flex items-center gap-1.5 rounded-full border border-[#e6e3dc] bg-white px-3 py-1.5 text-xs font-medium text-[#1d1d1b] transition hover:border-[#1d1d1b] disabled:opacity-50 ${focusRing}`
-const primaryBtn = `inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[#1d1d1b] px-5 text-xs font-medium text-white transition hover:bg-[#3c3b37] disabled:opacity-50 ${focusRing}`
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/30 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+const ghostBtn = `inline-flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-foreground disabled:opacity-50 ${focusRing}`
+const primaryBtn = `inline-flex h-11 items-center justify-center gap-2 rounded-full bg-primary px-5 text-xs font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50 ${focusRing}`
 
 function RoleBadge({ role }: { role: Role }) {
   const meta = ROLE_BADGE[role] ?? ROLE_BADGE.viewer
@@ -76,17 +76,17 @@ export default function MembersPage() {
   if (user.role !== 'admin') {
     return (
       <div className="mx-auto max-w-lg py-10">
-        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-8 text-center sm:p-10">
-          <span className="mx-auto grid size-12 place-items-center rounded-full bg-[#f1eee7] text-[#6b6862]">
+        <div className="rounded-2xl border border-border bg-surface p-8 text-center sm:p-10">
+          <span className="mx-auto grid size-12 place-items-center rounded-full bg-surface-2 text-muted-foreground">
             <Lock className="size-5" aria-hidden />
           </span>
           <h1 className="mt-5 text-2xl font-semibold tracking-[-0.03em]">Admins only</h1>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#6b6862]">
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
             Managing team membership is limited to administrators.
           </p>
           <Link
             href="/workspace"
-            className={`mt-6 inline-flex items-center gap-2 rounded-full bg-[#1d1d1b] px-5 py-2.5 text-xs font-medium text-white transition-colors hover:bg-[#3c3b37] ${focusRing}`}
+            className={`mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90 ${focusRing}`}
           >
             <ArrowLeft className="size-4" aria-hidden /> Back to workspace
           </Link>
@@ -200,21 +200,21 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
 
   const stats = [
     { label: 'Total members', value: counts.total, Icon: Users, dot: '' },
-    { label: 'Admins', value: counts.admin, Icon: Shield, dot: 'bg-[#6b46c1]' },
-    { label: 'Employees', value: counts.employee, Icon: Briefcase, dot: 'bg-[#37589c]' },
-    { label: 'Viewers', value: counts.viewer, Icon: Eye, dot: 'bg-[#6b6862]' },
+    { label: 'Admins', value: counts.admin, Icon: Shield, dot: 'bg-accent' },
+    { label: 'Employees', value: counts.employee, Icon: Briefcase, dot: 'bg-info' },
+    { label: 'Viewers', value: counts.viewer, Icon: Eye, dot: 'bg-muted-foreground' },
   ]
 
   return (
     <div className="space-y-8 pb-8">
       <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6b6862]">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Member management
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">
           Manage your team&rsquo;s <span className="font-serif font-normal italic">access.</span>
         </h1>
-        <p className="mt-2 max-w-xl text-xs leading-relaxed text-[#6b6862] sm:text-sm">
+        <p className="mt-2 max-w-xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
           Invite teammates, assign departments and roles, and adjust permissions at any time.
         </p>
       </header>
@@ -230,15 +230,15 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
             {stats.map((s) => {
               const Icon = s.Icon
               return (
-                <div key={s.label} className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4">
-                  <div className="flex items-center justify-between text-[#6b6862]">
+                <div key={s.label} className="rounded-2xl border border-border bg-surface p-4">
+                  <div className="flex items-center justify-between text-muted-foreground">
                     <span className="flex items-center gap-1.5 text-xs font-medium">
                       {s.dot ? <span className={`size-1.5 rounded-full ${s.dot}`} aria-hidden /> : null}
                       {s.label}
                     </span>
-                    <Icon className="size-4 text-[#b1b0ac]" aria-hidden />
+                    <Icon className="size-4 text-muted-foreground" aria-hidden />
                   </div>
-                  <p className="mt-2 text-2xl font-semibold tracking-[-0.02em] text-[#1d1d1b]">
+                  <p className="mt-2 text-2xl font-semibold tracking-[-0.02em] text-foreground">
                     {s.value}
                   </p>
                 </div>
@@ -247,14 +247,14 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
           </section>
 
           {/* Invite panel */}
-          <section className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-5 sm:p-7">
+          <section className="rounded-2xl border border-border bg-surface p-5 sm:p-7">
             <div className="flex items-start gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#f1eee7] text-[#1d1d1b]">
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-2 text-foreground">
                 <UserPlus className="size-4" aria-hidden />
               </span>
               <div>
                 <h2 className="text-base font-semibold tracking-[-0.02em]">Invite a member</h2>
-                <p className="text-xs text-[#6b6862]">
+                <p className="text-xs text-muted-foreground">
                   Create an account for a teammate. They sign in with their work email.
                 </p>
               </div>
@@ -264,7 +264,7 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label htmlFor="m-name" className={labelClass}>
-                    Full name <span className="font-normal text-[#6b6862]">(optional)</span>
+                    Full name <span className="font-normal text-muted-foreground">(optional)</span>
                   </label>
                   <input
                     id="m-name"
@@ -296,7 +296,7 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label htmlFor="m-title" className={labelClass}>
-                    Job title <span className="font-normal text-[#6b6862]">(optional)</span>
+                    Job title <span className="font-normal text-muted-foreground">(optional)</span>
                   </label>
                   <select
                     id="m-title"
@@ -315,7 +315,7 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
                 </div>
                 <div>
                   <label htmlFor="m-dept" className={labelClass}>
-                    Department <span className="font-normal text-[#6b6862]">(optional)</span>
+                    Department <span className="font-normal text-muted-foreground">(optional)</span>
                   </label>
                   <select
                     id="m-dept"
@@ -362,8 +362,8 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
                         key={opt.value}
                         className={`flex cursor-pointer flex-col gap-1 rounded-xl border p-3.5 transition ${
                           active
-                            ? 'border-[#1d1d1b] bg-white ring-2 ring-[#1d1d1b]/10'
-                            : 'border-[#dcdad3] bg-white hover:border-[#b9b6ad]'
+                            ? 'border-foreground bg-surface-elevated ring-2 ring-foreground/10'
+                            : 'border-border-strong bg-surface hover:border-foreground/50'
                         }`}
                       >
                         <span className="flex items-center gap-2">
@@ -375,13 +375,13 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
                             onChange={() => setRole(opt.value)}
                             className="sr-only"
                           />
-                          <Icon className="size-3.5 text-[#1d1d1b]" aria-hidden />
-                          <span className="text-xs font-medium text-[#1d1d1b]">{opt.label}</span>
+                          <Icon className="size-3.5 text-foreground" aria-hidden />
+                          <span className="text-xs font-medium text-foreground">{opt.label}</span>
                           {active ? (
-                            <CheckCircle2 className="ml-auto size-3.5 text-[#1d1d1b]" aria-hidden />
+                            <CheckCircle2 className="ml-auto size-3.5 text-foreground" aria-hidden />
                           ) : null}
                         </span>
-                        <span className="text-[11px] leading-relaxed text-[#6b6862]">{opt.desc}</span>
+                        <span className="text-[11px] leading-relaxed text-muted-foreground">{opt.desc}</span>
                       </label>
                     )
                   })}
@@ -391,7 +391,7 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
               {formError ? (
                 <p
                   role="alert"
-                  className="flex items-start gap-2 rounded-xl bg-[#fbe4e0] px-3.5 py-2.5 text-xs text-[#9a3b2c]"
+                  className="flex items-start gap-2 rounded-xl bg-danger-soft px-3.5 py-2.5 text-xs text-danger"
                 >
                   <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden /> {formError}
                 </p>
@@ -399,7 +399,7 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
               {formSuccess ? (
                 <p
                   role="status"
-                  className="flex items-start gap-2 rounded-xl bg-[#e7f0e6] px-3.5 py-2.5 text-xs text-[#3f6b45]"
+                  className="flex items-start gap-2 rounded-xl bg-ok-soft px-3.5 py-2.5 text-xs text-ok"
                 >
                   <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" aria-hidden /> {formSuccess}
                 </p>
@@ -425,20 +425,20 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
           {/* Members list */}
           <section className="space-y-4">
             <h2 className="text-base font-semibold tracking-[-0.02em]">
-              Members <span className="text-xs font-normal text-[#6b6862]">({counts.total})</span>
+              Members <span className="text-xs font-normal text-muted-foreground">({counts.total})</span>
             </h2>
 
             {counts.total === 0 ? (
-              <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-10 text-center">
-                <p className="font-serif text-lg italic text-[#1d1d1b]">No members yet.</p>
+              <div className="rounded-2xl border border-border bg-surface p-10 text-center">
+                <p className="font-serif text-lg italic text-foreground">No members yet.</p>
               </div>
             ) : (
               <>
                 {/* Desktop table */}
-                <div className="hidden overflow-hidden rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] md:block">
+                <div className="hidden overflow-hidden rounded-2xl border border-border bg-surface md:block">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-[#eae7df] text-left uppercase tracking-[0.08em] text-[#6b6862]">
+                      <tr className="border-b border-border text-left uppercase tracking-[0.08em] text-muted-foreground">
                         <th scope="col" className="px-5 py-3 font-semibold">Name</th>
                         <th scope="col" className="px-5 py-3 font-semibold">Email</th>
                         <th scope="col" className="px-5 py-3 font-semibold">Department</th>
@@ -451,24 +451,24 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
                       {users.map((u) => {
                         const isSelf = u.id === currentUserId
                         return (
-                          <tr key={u.id} className="border-b border-[#f0ede6] last:border-0 hover:bg-[#faf9f5]">
+                          <tr key={u.id} className="border-b border-border last:border-0 hover:bg-surface-2">
                             <td className="px-5 py-3.5">
-                              <span className="flex items-center gap-1.5 font-medium text-[#1d1d1b]">
+                              <span className="flex items-center gap-1.5 font-medium text-foreground">
                                 {u.full_name || u.email}
                                 {isSelf ? (
-                                  <span className="rounded-full bg-[#f1eee7] px-2 py-0.5 text-[10px] font-medium text-[#6b6862]">
+                                  <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                                     You
                                   </span>
                                 ) : null}
                               </span>
                               {u.title ? (
-                                <span className="block text-[11px] text-[#6b6862]">{u.title}</span>
+                                <span className="block text-[11px] text-muted-foreground">{u.title}</span>
                               ) : null}
                             </td>
-                            <td className="px-5 py-3.5 text-[#6b6862]">{u.email}</td>
-                            <td className="px-5 py-3.5 text-[#6b6862]">
+                            <td className="px-5 py-3.5 text-muted-foreground">{u.email}</td>
+                            <td className="px-5 py-3.5 text-muted-foreground">
                               {u.department_name ? (
-                                <span className="inline-flex items-center gap-1 rounded bg-[#f4f2ec] px-2 py-0.5 text-[11px] text-[#4a4944]">
+                                <span className="inline-flex items-center gap-1 rounded bg-surface-2 px-2 py-0.5 text-[11px] text-muted-foreground">
                                   <Building2 className="size-2.5" />
                                   {u.department_name}
                                 </span>
@@ -481,18 +481,18 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
                             </td>
                             <td className="px-5 py-3.5">
                               {u.is_active === false ? (
-                                <span className="rounded-full bg-[#fbe4e0] px-2 py-0.5 text-[10px] font-medium text-[#9a3b2c]">
+                                <span className="rounded-full bg-danger-soft px-2 py-0.5 text-[10px] font-medium text-danger">
                                   Deactivated
                                 </span>
                               ) : (
-                                <span className="rounded-full bg-[#e6f1e4] px-2 py-0.5 text-[10px] font-medium text-[#4a7a5a]">
+                                <span className="rounded-full bg-ok-soft px-2 py-0.5 text-[10px] font-medium text-ok">
                                   Active
                                 </span>
                               )}
                             </td>
                             <td className="px-5 py-3.5 text-right">
                               {isSelf ? (
-                                <span className="text-xs text-[#b1b0ac]">—</span>
+                                <span className="text-xs text-muted-foreground">—</span>
                               ) : (
                                 <div className="inline-flex items-center gap-1.5">
                                   <button
@@ -507,7 +507,7 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
                                     type="button"
                                     onClick={() => setConfirmUser(u)}
                                     disabled={removingId === u.id}
-                                    className="inline-flex items-center gap-1 rounded-full border border-[#e6e3dc] px-2.5 py-1.5 text-xs text-[#9a3b2c] transition hover:bg-[#fbe4e0] disabled:opacity-50"
+                                    className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1.5 text-xs text-danger transition hover:bg-danger-soft disabled:opacity-50"
                                     title="Remove member"
                                   >
                                     {removingId === u.id ? (
@@ -531,21 +531,21 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
                   {users.map((u) => {
                     const isSelf = u.id === currentUserId
                     return (
-                      <li key={u.id} className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-4 text-xs">
+                      <li key={u.id} className="rounded-2xl border border-border bg-surface p-4 text-xs">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <p className="font-semibold text-[#1d1d1b]">
+                            <p className="font-semibold text-foreground">
                               {u.full_name || u.email}
                               {isSelf && (
-                                <span className="ml-1.5 rounded-full bg-[#f1eee7] px-2 py-0.5 text-[10px] text-[#6b6862]">
+                                <span className="ml-1.5 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] text-muted-foreground">
                                   You
                                 </span>
                               )}
                             </p>
-                            {u.title && <p className="text-[11px] text-[#6b6862]">{u.title}</p>}
-                            <p className="mt-1 text-[#6b6862]">{u.email}</p>
+                            {u.title && <p className="text-[11px] text-muted-foreground">{u.title}</p>}
+                            <p className="mt-1 text-muted-foreground">{u.email}</p>
                             {u.department_name && (
-                              <p className="mt-1 text-[11px] text-[#6b6862]">
+                              <p className="mt-1 text-[11px] text-muted-foreground">
                                 Department: {u.department_name}
                               </p>
                             )}
@@ -554,7 +554,7 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
                         </div>
 
                         {!isSelf && (
-                          <div className="mt-3 flex items-center justify-end gap-2 border-t border-[#f0ede6] pt-2">
+                          <div className="mt-3 flex items-center justify-end gap-2 border-t border-border pt-2">
                             <button
                               type="button"
                               onClick={() => setEditingUser(u)}
@@ -566,7 +566,7 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
                               type="button"
                               onClick={() => setConfirmUser(u)}
                               disabled={removingId === u.id}
-                              className="rounded-full border border-[#e6e3dc] px-3 py-1 text-xs text-[#9a3b2c] hover:bg-[#fbe4e0]"
+                              className="rounded-full border border-border px-3 py-1 text-xs text-danger hover:bg-danger-soft"
                             >
                               Remove
                             </button>
@@ -660,17 +660,17 @@ function EditMemberModal({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="w-full max-w-md rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-6 shadow-xl"
+        className="w-full max-w-md rounded-3xl border border-border bg-surface p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-[#eae7df] pb-3">
-          <h2 className="text-sm font-semibold text-[#1d1d1b]">
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <h2 className="text-sm font-semibold text-foreground">
             Edit member: {user.full_name || user.email}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-[#6b6862] hover:bg-[#efece4]"
+            className="rounded-lg p-1 text-muted-foreground hover:bg-surface-2"
           >
             <X className="size-4" />
           </button>
@@ -731,7 +731,7 @@ function EditMemberModal({
             </select>
           </div>
 
-          <label className="flex items-center gap-2 pt-1 text-xs text-[#1d1d1b]">
+          <label className="flex items-center gap-2 pt-1 text-xs text-foreground">
             <input
               type="checkbox"
               checked={isActive}
@@ -741,7 +741,7 @@ function EditMemberModal({
             <span>Account is active (uncheck to deactivate access)</span>
           </label>
 
-          {error && <p className="text-xs text-[#9a3b2c]">{error}</p>}
+          {error && <p className="text-xs text-danger">{error}</p>}
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className={ghostBtn}>
@@ -766,27 +766,27 @@ function LoadingState() {
     <div className="space-y-6" aria-hidden>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-20 animate-pulse rounded-2xl border border-[#e6e3dc] bg-[#f1efe8]" />
+          <div key={i} className="h-20 animate-pulse rounded-2xl border border-border bg-surface-2" />
         ))}
       </div>
-      <div className="h-72 animate-pulse rounded-2xl border border-[#e6e3dc] bg-[#f1efe8]" />
-      <div className="h-40 animate-pulse rounded-2xl border border-[#e6e3dc] bg-[#f1efe8]" />
+      <div className="h-72 animate-pulse rounded-2xl border border-border bg-surface-2" />
+      <div className="h-40 animate-pulse rounded-2xl border border-border bg-surface-2" />
     </div>
   )
 }
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-10 text-center">
-      <span className="mx-auto grid size-11 place-items-center rounded-full bg-[#fbe4e0] text-[#9a3b2c]">
+    <div className="rounded-2xl border border-border bg-surface p-10 text-center">
+      <span className="mx-auto grid size-11 place-items-center rounded-full bg-danger-soft text-danger">
         <AlertCircle className="size-5" aria-hidden />
       </span>
-      <p className="mt-4 text-sm font-medium text-[#1d1d1b]">We couldn&rsquo;t load your members.</p>
-      <p className="mx-auto mt-1 max-w-sm text-sm text-[#6b6862]">{message}</p>
+      <p className="mt-4 text-sm font-medium text-foreground">We couldn&rsquo;t load your members.</p>
+      <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">{message}</p>
       <button
         type="button"
         onClick={onRetry}
-        className={`mt-5 inline-flex items-center gap-2 rounded-full bg-[#1d1d1b] px-5 py-2.5 text-xs font-medium text-white transition-colors hover:bg-[#3c3b37] ${focusRing}`}
+        className={`mt-5 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90 ${focusRing}`}
       >
         Try again
       </button>

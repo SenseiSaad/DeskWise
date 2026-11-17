@@ -76,27 +76,27 @@ export default function WorkspaceUsagePage() {
   if (user && !isAdmin)
     return (
       <div className="mx-auto max-w-lg py-10">
-        <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-8 text-center sm:p-10">
-          <span className="mx-auto grid size-12 place-items-center rounded-full bg-[#f1eee7] text-[#6b6862]">
+        <div className="rounded-2xl border border-border bg-surface p-8 text-center sm:p-10">
+          <span className="mx-auto grid size-12 place-items-center rounded-full bg-surface-2 text-muted-foreground">
             <Lock className="size-5" aria-hidden />
           </span>
           <h1 className="mt-5 text-2xl font-semibold tracking-[-0.03em]">Admins only</h1>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#6b6862]">
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
             Plan and usage details are limited to organization administrators.
           </p>
           <Link
             href="/workspace"
-            className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#1d1d1b] px-5 py-2.5 text-xs font-medium text-white transition-colors hover:bg-[#3c3b37]"
+            className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90"
           >
             <ArrowLeft className="size-4" aria-hidden /> Back to workspace
           </Link>
         </div>
       </div>
     )
-  if (loading) return <main className="text-[#6b6862]"><Loader2 className="size-4 animate-spin" /></main>
+  if (loading) return <main className="text-muted-foreground"><Loader2 className="size-4 animate-spin" /></main>
   if (error)
     return (
-      <main className="mx-auto max-w-5xl pb-10 text-sm text-[#9a3b2c]">
+      <main className="mx-auto max-w-5xl pb-10 text-sm text-danger">
         <p className="font-medium">Couldn&apos;t load your usage.</p>
         <p className="mt-1 opacity-80">{error}</p>
       </main>
@@ -113,12 +113,12 @@ export default function WorkspaceUsagePage() {
   return (
     <div className="mx-auto max-w-5xl pb-10">
       <header className="flex flex-col gap-1">
-        <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#6b6862]">Usage &amp; plan</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[#1d1d1b] sm:text-4xl">
+        <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Usage &amp; plan</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground sm:text-4xl">
           Current plan{' '}
           <span className="font-serif font-normal italic">{plan.name}</span>
         </h1>
-        <p className="mt-2 max-w-xl text-xs leading-relaxed text-[#6b6862]">
+        <p className="mt-2 max-w-xl text-xs leading-relaxed text-muted-foreground">
           {formatUSD(plan.price_usd)}/{plan.billing_period}. Meters reset on the 1st of each month.
         </p>
       </header>
@@ -159,25 +159,25 @@ export default function WorkspaceUsagePage() {
 
       {/* Plan features + upgrade */}
       <section className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div className="rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-6 shadow-sm">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6862]">What this plan includes</h2>
-          <ul className="mt-4 space-y-2.5 text-sm text-[#4f4d47]">
+        <div className="rounded-3xl border border-border bg-surface p-6 shadow-sm">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">What this plan includes</h2>
+          <ul className="mt-4 space-y-2.5 text-sm text-muted-foreground">
             <PlanFeature enabled={plan.allow_departments} label="Departments" />
             <PlanFeature enabled={plan.allow_versions} label="Document versioning" />
             <PlanFeature enabled={plan.allow_custom_llm} label="Bring-your-own AI key" />
           </ul>
-          {plan.allow_departments && <p className="mt-3 text-xs text-[#6b6862]">{usage.departments.used} department(s) created.</p>}
+          {plan.allow_departments && <p className="mt-3 text-xs text-muted-foreground">{usage.departments.used} department(s) created.</p>}
         </div>
 
-        <div className="rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-6 shadow-sm">
+        <div className="rounded-3xl border border-border bg-surface p-6 shadow-sm">
           <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6b6862]">Subscription &amp; Upgrade</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Subscription &amp; Upgrade</h2>
             {billing?.is_subscribed && (
               <button
                 type="button"
                 onClick={handlePortal}
                 disabled={portalLoading}
-                className="inline-flex items-center gap-1 rounded-full border border-[#1d1d1b] px-3 py-1 text-xs font-medium text-[#1d1d1b] hover:bg-[#1d1d1b] hover:text-white disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-full border border-border-strong px-3 py-1 text-xs font-medium text-foreground hover:border-foreground hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
               >
                 {portalLoading ? <Loader2 className="size-3 animate-spin" /> : <CreditCard className="size-3" />}
                 Manage billing portal
@@ -187,16 +187,16 @@ export default function WorkspaceUsagePage() {
           {upgrades.length ? (
             <ul className="mt-4 space-y-3">
               {upgrades.map((u) => (
-                <li key={u.id} className="flex items-center justify-between gap-3 rounded-2xl border border-[#eae7df] bg-[#faf8f3] px-4 py-3">
+                <li key={u.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-2 px-4 py-3">
                   <div>
-                    <p className="text-sm font-semibold text-[#1d1d1b]">{u.name}</p>
-                    <p className="text-xs text-[#74726c]">{PLAN_COPY[u.name]?.blurb ?? 'More capacity.'}</p>
+                    <p className="text-sm font-semibold text-foreground">{u.name}</p>
+                    <p className="text-xs text-muted-foreground">{PLAN_COPY[u.name]?.blurb ?? 'More capacity.'}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => handleUpgrade(u.id, u.name)}
                     disabled={upgradingId === u.id}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-[#1d1d1b] px-4 py-2 text-xs font-medium text-white hover:bg-[#3c3b37] disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
                   >
                     {upgradingId === u.id ? (
                       <>
@@ -214,21 +214,21 @@ export default function WorkspaceUsagePage() {
               ))}
             </ul>
           ) : (
-            <p className="mt-4 text-sm leading-relaxed text-[#6b6862]">
+            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               You&apos;re on our top tier. For custom capacity, write to{' '}
-              <a className="text-[#37589c] underline" href="mailto:hello@deskwise.site">hello@deskwise.site</a>.
+              <a className="text-info underline" href="mailto:hello@deskwise.site">hello@deskwise.site</a>.
             </p>
           )}
-          <p className="mt-4 border-t border-[#f0ede6] pt-3 text-xs leading-relaxed text-[#8c8a83]">
+          <p className="mt-4 border-t border-border pt-3 text-xs leading-relaxed text-muted-foreground">
             {billing?.has_stripe ? (
               <>
                 Self-serve cards processed securely via Stripe Sandbox / Live. Offline bank transfer, JazzCash, and Easypaisa manual activation also supported. See full breakdown on the{' '}
-                <Link href="/pricing" className="text-[#37589c] underline">pricing page</Link>.
+                <Link href="/pricing" className="text-info underline">pricing page</Link>.
               </>
             ) : (
               <>
                 Upgrades are activated manually after payment via bank transfer, JazzCash, or Easypaisa — your limits go up the same business day. Connect Stripe keys to enable instant card checkout. See full breakdown on the{' '}
-                <Link href="/pricing" className="text-[#37589c] underline">pricing page</Link>.
+                <Link href="/pricing" className="text-info underline">pricing page</Link>.
               </>
             )}
           </p>
@@ -239,13 +239,13 @@ export default function WorkspaceUsagePage() {
 }
 
 function MeterCard({ icon, title, subtitle, pct, used, tone = 'normal' }: { icon: React.ReactNode; title: string; subtitle: string; pct: number; used: string; tone?: 'normal' | 'warning' | 'danger' }) {
-  const barColor = tone === 'danger' ? 'bg-[#c0563f]' : tone === 'warning' ? 'bg-[#d6a545]' : 'bg-[#1d1d1b]'
-  const dotColor = tone === 'danger' ? 'text-[#c0563f]' : tone === 'warning' ? 'text-[#d6a545]' : 'text-[#4a8a5c]'
+  const barColor = tone === 'danger' ? 'bg-danger' : tone === 'warning' ? 'bg-warn' : 'bg-primary'
+  const dotColor = tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-warn' : 'text-ok'
   return (
-    <div className="rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-6 shadow-sm">
+    <div className="rounded-3xl border border-border bg-surface p-6 shadow-sm">
       <div className="flex items-center gap-2.5">
-        <span className="grid size-9 place-items-center rounded-xl bg-[#f4f2ec] text-[#20211f]">{icon}</span>
-        <p className="text-sm font-semibold text-[#1d1d1b]">{title}</p>
+        <span className="grid size-9 place-items-center rounded-xl bg-surface-2 text-foreground">{icon}</span>
+        <p className="text-sm font-semibold text-foreground">{title}</p>
       </div>
       <p className={`mt-4 flex items-center gap-1.5 text-xs ${dotColor}`}>
         {tone === 'danger' && <AlertTriangle className="size-3.5" />}
@@ -253,10 +253,10 @@ function MeterCard({ icon, title, subtitle, pct, used, tone = 'normal' }: { icon
         {tone === 'normal' && <Check className="size-3.5" />}
         {subtitle}
       </p>
-      <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-[#efece6]">
+      <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-surface-2">
         <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
       </div>
-      <p className="mt-2 text-[11px] text-[#8c8a83]">{used}</p>
+      <p className="mt-2 text-[11px] text-muted-foreground">{used}</p>
     </div>
   )
 }
@@ -265,7 +265,7 @@ function PlanFeature({ enabled, label }: { enabled: boolean; label: string }) {
   return (
     <li className="flex items-center gap-2.5">
       {enabled ? (
-        <span className="grid size-5 place-items-center rounded-full bg-[#e8f2e8] text-[#3f6b45]"><Check className="size-3" /></span>
+        <span className="grid size-5 place-items-center rounded-full bg-ok-soft text-ok"><Check className="size-3" /></span>
       ) : (
         <span className="grid size-5 place-items-center rounded-full bg-surface-2 text-muted-foreground"><span className="size-1 rounded-full" /></span>
       )}

@@ -14,10 +14,10 @@ import {
 import { attendanceApi, type AttendanceMe, type AttendanceQr } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 
-const eyebrow = 'text-xs font-semibold uppercase tracking-[0.16em] text-[#6b6862]'
-const card = 'rounded-3xl border border-[#e6e3dc] bg-[#fffdfa] p-6'
+const eyebrow = 'text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground'
+const card = 'rounded-3xl border border-border bg-surface p-6'
 const ghostBtn =
-  'inline-flex items-center justify-center gap-2 rounded-full border border-[#dcdad3] bg-[#fffdfa] px-4 py-2 text-sm text-[#1d1d1b] transition-colors hover:border-[#1d1d1b] disabled:cursor-not-allowed disabled:opacity-60'
+  'inline-flex items-center justify-center gap-2 rounded-full border border-border-strong bg-surface-elevated px-4 py-2 text-sm text-foreground transition-colors hover:border-foreground disabled:cursor-not-allowed disabled:opacity-60'
 
 function fmtDate(iso: string) {
   // iso is YYYY-MM-DD (local date from the server)
@@ -121,31 +121,31 @@ export default function AttendancePage() {
 
   return (
     <div className="pb-6">
-      <header className="border-b border-[#e6e3dc] pb-8">
+      <header className="border-b border-border pb-8">
         <p className={eyebrow}>Workplace attendance</p>
         <h1 className="mt-3 text-3xl font-semibold tracking-[-0.05em] sm:text-4xl sm:tracking-[-0.06em]">
           Scan in <span className="font-serif font-normal italic">for the day.</span>
         </h1>
-        <p className="mt-3 max-w-xl text-sm leading-relaxed text-[#6b6862]">
+        <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
           Mark your daily attendance by scanning the workplace QR code, or tap the button below. Your
           monthly absences and discipline strikes are shown so there are no surprises.
         </p>
       </header>
 
       {loading ? (
-        <span className="mt-8 flex items-center gap-2 text-sm text-[#6b6862]">
+        <span className="mt-8 flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" aria-hidden /> Loading attendance…
         </span>
       ) : loadError ? (
-        <div role="alert" className="mt-8 rounded-3xl border border-[#e6c9c1] bg-[#fbe4e0] p-10 text-center">
-          <AlertCircle className="mx-auto size-6 text-[#9a3b2c]" aria-hidden />
-          <p className="mt-3 text-sm font-medium text-[#9a3b2c]">{loadError}</p>
+        <div role="alert" className="mt-8 rounded-3xl border border-danger/30 bg-danger-soft p-10 text-center">
+          <AlertCircle className="mx-auto size-6 text-danger" aria-hidden />
+          <p className="mt-3 text-sm font-medium text-danger">{loadError}</p>
           <button type="button" onClick={load} className={`mt-5 ${ghostBtn}`}>Try again</button>
         </div>
       ) : (
         <div className="mt-8 space-y-6">
           {frozen && (
-            <div role="alert" className="flex items-start gap-3 rounded-3xl border border-[#e6c9c1] bg-[#fbe4e0] p-5 text-[#9a3b2c]">
+            <div role="alert" className="flex items-start gap-3 rounded-3xl border border-danger/30 bg-danger-soft p-5 text-danger">
               <Snowflake className="mt-0.5 size-5 shrink-0" aria-hidden />
               <div>
                 <p className="text-sm font-semibold">Your account is frozen.</p>
@@ -161,14 +161,14 @@ export default function AttendancePage() {
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className={eyebrow}>Today</p>
-                <p className="mt-2 text-xl font-semibold text-[#1d1d1b]">{data ? fmtDate(data.today) : ''}</p>
+                <p className="mt-2 text-xl font-semibold text-foreground">{data ? fmtDate(data.today) : ''}</p>
                 <div className="mt-2">
                   {markedToday ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e4f0e4] px-3 py-1 text-xs font-medium text-[#2f5b36]">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-soft px-3 py-1 text-xs font-medium text-ok">
                       <CheckCircle2 className="size-3.5" aria-hidden /> Present — you&apos;re all set
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f2efe8] px-3 py-1 text-xs font-medium text-[#6b6862]">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-muted-foreground">
                       <Clock className="size-3.5" aria-hidden /> Not marked yet
                     </span>
                   )}
@@ -178,19 +178,19 @@ export default function AttendancePage() {
                 type="button"
                 onClick={markPresent}
                 disabled={scanning || markedToday || frozen}
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-[#1d1d1b] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#3c3b37] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {scanning ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <CalendarCheck className="size-4" aria-hidden />}
                 {markedToday ? 'Already marked' : scanning ? 'Marking…' : 'Mark me present'}
               </button>
             </div>
             {scanMsg && (
-              <p className="mt-4 flex items-center gap-1.5 text-sm text-[#2f5b36]">
+              <p className="mt-4 flex items-center gap-1.5 text-sm text-ok">
                 <CheckCircle2 className="size-4" aria-hidden /> {scanMsg}
               </p>
             )}
             {scanError && (
-              <p className="mt-4 flex items-center gap-1.5 text-sm text-[#9a3b2c]">
+              <p className="mt-4 flex items-center gap-1.5 text-sm text-danger">
                 <AlertCircle className="size-4" aria-hidden /> {scanError}
               </p>
             )}
@@ -203,7 +203,7 @@ export default function AttendancePage() {
             <StatCard label="Account status" value={frozen ? 'Frozen' : 'Active'} tone={frozen ? 'bad' : 'good'} />
           </section>
 
-          <p className="flex items-start gap-2 text-xs leading-relaxed text-[#6b6862]">
+          <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
             <ShieldAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             Three or more absences in a month add one strike. Reaching three strikes freezes the account until an administrator restores it.
           </p>
@@ -212,13 +212,13 @@ export default function AttendancePage() {
           <div className="grid gap-6 lg:grid-cols-2">
             <section className={card}>
               <div className="flex items-center gap-2">
-                <QrCode className="size-4 text-[#1d1d1b]" aria-hidden />
-                <h2 className="text-sm font-semibold text-[#1d1d1b]">Workplace QR code</h2>
+                <QrCode className="size-4 text-foreground" aria-hidden />
+                <h2 className="text-sm font-semibold text-foreground">Workplace QR code</h2>
               </div>
-              <p className="mt-2 text-xs leading-relaxed text-[#6b6862]">
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                 Print or display this at the entrance. Scanning it opens this page and marks the signed-in employee present.
               </p>
-              <div className="mt-4 grid place-items-center rounded-2xl border border-[#e6e3dc] bg-white p-5">
+              <div className={`mt-4 grid place-items-center rounded-2xl border border-border p-5 ${qr?.qr_available && qr.svg ? "bg-white text-[#14161a]" : "bg-surface-2"}`}>
                 {qr?.qr_available && qr.svg ? (
                   <div
                     className="h-44 w-44 [&>svg]:h-full [&>svg]:w-full"
@@ -226,29 +226,29 @@ export default function AttendancePage() {
                   />
                 ) : (
                   <div className="text-center">
-                    <QrCode className="mx-auto size-10 text-[#b9b6ae]" aria-hidden />
-                    <p className="mt-2 text-xs text-[#6b6862]">QR image unavailable. Use the link below.</p>
+                    <QrCode className="mx-auto size-10 text-muted-foreground" aria-hidden />
+                    <p className="mt-2 text-xs text-muted-foreground">QR image unavailable. Use the link below.</p>
                   </div>
                 )}
               </div>
               {qr?.target && (
-                <a href={qr.target} className="mt-3 block truncate text-center text-xs text-[#3c5a8a] underline" title={qr.target}>
+                <a href={qr.target} className="mt-3 block truncate text-center text-xs text-info underline" title={qr.target}>
                   {qr.target}
                 </a>
               )}
             </section>
 
             <section className={card}>
-              <h2 className="text-sm font-semibold text-[#1d1d1b]">Recent attendance</h2>
+              <h2 className="text-sm font-semibold text-foreground">Recent attendance</h2>
               {data && data.records.length > 0 ? (
                 <ul className="mt-4 space-y-2">
                   {data.records.slice(0, 12).map((r) => (
-                    <li key={r.id} className="flex items-center justify-between rounded-xl bg-[#f7f6f2] px-3 py-2 text-sm">
-                      <span className="flex items-center gap-2 text-[#1d1d1b]">
-                        <CheckCircle2 className="size-3.5 text-[#2f5b36]" aria-hidden />
+                    <li key={r.id} className="flex items-center justify-between rounded-xl bg-surface-2 px-3 py-2 text-sm">
+                      <span className="flex items-center gap-2 text-foreground">
+                        <CheckCircle2 className="size-3.5 text-ok" aria-hidden />
                         {fmtDate(r.date)}
                       </span>
-                      <span className="text-xs text-[#6b6862]">
+                      <span className="text-xs text-muted-foreground">
                         {r.status}
                         {fmtTime(r.scanned_at) ? ` · ${fmtTime(r.scanned_at)}` : ''}
                       </span>
@@ -256,7 +256,7 @@ export default function AttendancePage() {
                   ))}
                 </ul>
               ) : (
-                <p className="mt-4 text-sm text-[#6b6862]">No attendance recorded yet. Mark your first day above.</p>
+                <p className="mt-4 text-sm text-muted-foreground">No attendance recorded yet. Mark your first day above.</p>
               )}
             </section>
           </div>
@@ -277,15 +277,15 @@ function StatCard({
 }) {
   const toneCls =
     tone === 'good'
-      ? 'text-[#2f5b36]'
+      ? 'text-ok'
       : tone === 'warn'
-      ? 'text-[#8a6516]'
+      ? 'text-warn'
       : tone === 'bad'
-      ? 'text-[#9a3b2c]'
-      : 'text-[#1d1d1b]'
+      ? 'text-danger'
+      : 'text-foreground'
   return (
-    <div className="rounded-2xl border border-[#e6e3dc] bg-[#fffdfa] p-5">
-      <p className="text-xs font-medium uppercase tracking-wide text-[#6b6862]">{label}</p>
+    <div className="rounded-2xl border border-border bg-surface p-5">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className={`mt-2 text-2xl font-semibold ${toneCls}`}>{value}</p>
     </div>
   )

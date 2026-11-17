@@ -124,6 +124,46 @@ def test_ollama_stream_yields_message_content(monkeypatch):
     assert "".join(prov.stream_chat([{"role": "user", "content": "hi"}])) == "Ola"
 
 
+def test_ollama_available_requires_installed_chat_model(monkeypatch):
+    prov = providers.OllamaProvider("http://localhost:11434", "qwen2.5:1.5b", "nomic-embed-text")
+
+    monkeypatch.setattr(providers, "_json", lambda *a, **k: {"models": []})
+    assert prov.available() is False
+
+    # Embedding-only models must not enable Local chat mode.
+    monkeypatch.setattr(
+        providers,
+        "_json",
+        lambda *a, **k: {"models": [{"name": "nomic-embed-text:latest", "capabilities": ["embedding"]}]},
+    )
+    assert prov.available() is False
+
+    # A different model without the configured chat model must stay unavailable.
+    monkeypatch.setattr(
+        providers,
+        "_json",
+        lambda *a, **k: {"models": [{"name": "llama3.2:3b"}]},
+    )
+    assert prov.available() is False
+
+    # Matching configured chat model makes Ollama available.
+    monkeypatch.setattr(
+        providers,
+        "_json",
+        lambda *a, **k: {"models": [{"name": "nomic-embed-text:latest"}, {"name": "qwen2.5:1.5b"}]},
+    )
+    assert prov.available() is True
+
+    # Tagless model name matches ':latest'.
+    latest_prov = providers.OllamaProvider("http://localhost:11434", "qwen2.5", "nomic-embed-text")
+    monkeypatch.setattr(
+        providers,
+        "_json",
+        lambda *a, **k: {"models": [{"name": "qwen2.5:latest"}]},
+    )
+    assert latest_prov.available() is True
+
+
 # ------------------------------------------------------------ gemini merge
 def _gemini_sse(obj) -> bytes:
     return ("data: " + json.dumps(obj) + "\n").encode()

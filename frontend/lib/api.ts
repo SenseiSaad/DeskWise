@@ -852,6 +852,168 @@ export interface Announcement {
   created_at: string
 }
 
+// ---- Employee Team Chatroom -----------------------------------------------
+export type TeamRoomScope = 'company' | 'department' | 'private'
+
+export interface TeamRoom {
+  id: number
+  name: string
+  slug: string
+  description: string
+  scope: TeamRoomScope
+  department_id: number | null
+  department_name: string | null
+  is_default: boolean
+  member_count: number
+  member_ids: number[]
+  unread_count: number
+  pinned_count: number
+  created_at: string
+}
+
+export interface TeamChatMember {
+  id: number
+  full_name: string
+  email: string
+  title: string
+  role: Role
+  department_id: number | null
+  department_name: string | null
+  is_online?: boolean
+}
+
+export interface TeamMessageReaction {
+  emoji: string
+  count: number
+  user_ids: number[]
+}
+
+export interface TeamMessageSource {
+  filename: string
+  document_id?: number | null
+}
+
+export interface TeamMessage {
+  id: number
+  room_id: number
+  sender_type: 'user' | 'deskwise'
+  sender_id: number | null
+  sender: {
+    id: number
+    full_name: string
+    email: string
+    title: string
+    role: Role
+    department_name: string | null
+  } | null
+  content: string
+  reply_to_id: number | null
+  reply_to: {
+    id: number
+    sender_type: 'user' | 'deskwise'
+    sender_id: number | null
+    sender_name: string
+    content: string
+  } | null
+  referenced_document: {
+    id: number
+    filename: string
+    category: string
+    access_scope: string
+  } | null
+  sources: TeamMessageSource[]
+  metadata: Record<string, unknown>
+  flag?: { message: string; categories: string[] } | null
+  reactions: TeamMessageReaction[]
+  is_pinned: boolean
+  pinned_by_id: number | null
+  pinned_by_name: string | null
+  pinned_at: string | null
+  is_edited: boolean
+  edited_at: string | null
+  edit_expires_at: string | null
+  created_at: string
+  client_nonce?: string
+  replaces_stream_id?: string
+}
+
+export interface TeamChatRoomsResponse {
+  rooms: TeamRoom[]
+  members: TeamChatMember[]
+  departments: { id: number; name: string }[]
+  online_user_ids: number[]
+  edit_window_seconds: number
+  allowed_emojis: string[]
+}
+
+export interface TeamChatMessagesResponse {
+  room: TeamRoom
+  results: TeamMessage[]
+  pinned: TeamMessage[]
+  has_more: boolean
+  edit_window_seconds: number
+}
+
+export function teamChatWsUrl(): string {
+  const wsBase = API_BASE.replace(/^http/i, 'ws')
+  return `${wsBase}/ws/team-chat/`
+}
+
+export const teamChatApi = {
+  rooms: (): Promise<TeamChatRoomsResponse> => api.get('/team-chat/rooms'),
+  createRoom: (p: {
+    name: string
+    description?: string
+    scope?: TeamRoomScope
+    department_id?: number | null
+    member_ids?: number[]
+  }): Promise<TeamRoom> => api.post('/team-chat/rooms', p),
+  updateRoom: (
+    roomId: number,
+    p: {
+      name?: string
+      description?: string
+      scope?: TeamRoomScope
+      department_id?: number | null
+      member_ids?: number[]
+    },
+  ): Promise<TeamRoom> => api.patch(`/team-chat/rooms/${roomId}`, p),
+  deleteRoom: (roomId: number): Promise<{ ok: boolean; deleted_id: number }> =>
+    api.del(`/team-chat/rooms/${roomId}`),
+  messages: (
+    roomId: number,
+    opts?: { beforeId?: number; q?: string; limit?: number; markRead?: boolean },
+  ): Promise<TeamChatMessagesResponse> => {
+    const params = new URLSearchParams()
+    if (opts?.beforeId) params.set('before_id', String(opts.beforeId))
+    if (opts?.q) params.set('q', opts.q)
+    if (opts?.limit) params.set('limit', String(opts.limit))
+    if (opts?.markRead === false) params.set('mark_read', 'false')
+    const qs = params.toString()
+    return api.get(`/team-chat/rooms/${roomId}/messages${qs ? `?${qs}` : ''}`)
+  },
+  sendMessage: (
+    roomId: number,
+    p: {
+      content: string
+      reply_to_id?: number | null
+      referenced_document_id?: number | null
+      client_nonce?: string
+    },
+  ): Promise<{ message: TeamMessage; deskwise_triggered: boolean; stream_id: string | null }> =>
+    api.post(`/team-chat/rooms/${roomId}/messages`, p),
+  markRead: (roomId: number, lastMessageId?: number): Promise<{ ok: boolean; last_read_message_id: number }> =>
+    api.post(`/team-chat/rooms/${roomId}/read`, lastMessageId ? { last_message_id: lastMessageId } : {}),
+  editMessage: (msgId: number, content: string): Promise<{ message: TeamMessage }> =>
+    api.patch(`/team-chat/messages/${msgId}`, { content }),
+  deleteMessage: (msgId: number): Promise<{ ok: boolean; room_id: number; deleted_id: number }> =>
+    api.del(`/team-chat/messages/${msgId}`),
+  pinMessage: (msgId: number, pinned?: boolean): Promise<{ message: TeamMessage }> =>
+    api.post(`/team-chat/messages/${msgId}/pin`, pinned === undefined ? {} : { pinned }),
+  reactMessage: (msgId: number, emoji: string): Promise<{ message: TeamMessage }> =>
+    api.post(`/team-chat/messages/${msgId}/react`, { emoji }),
+}
+
 // Authenticated download of a permitted enterprise document.
 export async function downloadOwnDocument(id: number, filename: string) {
   const res = await fetchWithRefresh(() =>
