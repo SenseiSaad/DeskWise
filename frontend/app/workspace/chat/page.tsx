@@ -38,6 +38,15 @@ import {
   X,
 } from 'lucide-react'
 import { SmoothSelect } from '@/components/ui/smooth-select'
+import { InfoPopover } from '@/components/ui/info-popover'
+import {
+  BETA_LOCKED_MODE,
+  BETA_NOTICE,
+  BEDROCK_DISABLED_NOTE,
+  LOCAL_DISABLED_NOTE,
+  SELFHOSTED_DISABLED_NOTE,
+  GEMINI_DATA_NOTICE,
+} from '@/lib/beta'
 import { useAuth } from '@/lib/auth'
 import {
   artifactDownloadUrl,
@@ -417,23 +426,60 @@ function ChatHeader({
   const geminiReady = !!llm?.gemini?.online
   const selfhostedReady = !!llm?.selfhosted?.online
 
-  const options: { id: ChatMode; label: string; ready: boolean; icon: typeof Laptop; model?: string }[] = [
+  // Beta lockdown: only the locked provider is selectable. The rest stay in the
+  // list, disabled, with a reason — so the roadmap is visible but unusable.
+  const locked = BETA_LOCKED_MODE !== null
+  const enable = (m: ChatMode, real: boolean) => (locked ? m === BETA_LOCKED_MODE : real)
+
+  const options: {
+    id: ChatMode
+    label: string
+    ready: boolean
+    icon: typeof Laptop
+    model?: string
+    note?: string
+  }[] = [
     {
       id: 'local',
       label: 'Local (Ollama)',
-      ready: localOnline,
+      ready: enable('local', localOnline),
       icon: Laptop,
       model: localOnline
         ? llm?.local?.model
         : llm?.local?.model
         ? `${llm.local.model} (not installed)`
         : 'Requires a local model',
+      note: locked && BETA_LOCKED_MODE !== 'local' ? LOCAL_DISABLED_NOTE : undefined,
     },
-    { id: 'online', label: 'Bedrock (AWS)', ready: onlineReady, icon: Globe, model: llm?.online_api?.model },
-    { id: 'gemini', label: 'Gemini', ready: geminiReady, icon: Sparkles, model: llm?.gemini?.model },
-    { id: 'selfhosted', label: 'Self-Hosted EC2', ready: selfhostedReady, icon: Server, model: llm?.selfhosted?.model },
+    {
+      id: 'online',
+      label: 'Bedrock (AWS)',
+      ready: enable('online', onlineReady),
+      icon: Globe,
+      model: llm?.online_api?.model,
+      note: locked && BETA_LOCKED_MODE !== 'online' ? BEDROCK_DISABLED_NOTE : undefined,
+    },
+    {
+      id: 'gemini',
+      label: 'Gemini',
+      ready: enable('gemini', geminiReady),
+      icon: Sparkles,
+      model: llm?.gemini?.model,
+      note: locked && BETA_LOCKED_MODE !== 'gemini' ? GEMINI_DATA_NOTICE : undefined,
+    },
+    {
+      id: 'selfhosted',
+      label: 'Self-Hosted EC2',
+      ready: enable('selfhosted', selfhostedReady),
+      icon: Server,
+      model: llm?.selfhosted?.model,
+      note: locked && BETA_LOCKED_MODE !== 'selfhosted' ? SELFHOSTED_DISABLED_NOTE : undefined,
+    },
   ]
-  const currentOpt = options.find((o) => o.id === mode) || options[1]
+  const currentOpt =
+    options.find((o) => o.id === mode) ||
+    options.find((o) => o.id === BETA_LOCKED_MODE) ||
+    options[1]
   const CurrentIcon = currentOpt.icon
 
   return (
@@ -481,13 +527,20 @@ function ChatHeader({
             options={options.map((opt) => ({
               value: opt.id,
               label: opt.label,
-              description: opt.model || undefined,
-              badge: opt.ready ? 'Ready' : 'Offline',
-              dot: opt.ready ? 'online' : 'offline',
+              description: opt.note || opt.model || undefined,
+              badge: opt.ready ? 'Ready' : locked ? 'Beta — locked' : 'Offline',
+              dot: opt.ready ? 'online' : locked ? 'muted' : 'offline',
               disabled: !opt.ready,
             }))}
           />
         </div>
+        {locked && (
+          <InfoPopover label="About AI providers during the beta">
+            <p className="font-semibold text-foreground">Beta: Gemini only</p>
+            <p className="mt-1">{BETA_NOTICE}</p>
+            <p className="mt-2">{GEMINI_DATA_NOTICE}</p>
+          </InfoPopover>
+        )}
       </div>
     </header>
   )
@@ -522,6 +575,14 @@ function EmptyState({
             ? `Answers use ${modeLabel(mode)} and cite your files. Documents use your profile and details in the request; missing fields are asked.`
             : `${modeLabel(mode)} is not configured or reachable right now.`}
         </p>
+
+        {isAvailable && mode === 'gemini' && (
+          <div className="mx-auto mt-4 max-w-lg rounded-2xl border border-border-strong bg-surface-2 px-3.5 py-3 text-left text-[11px] leading-relaxed text-muted-foreground">
+            <p className="font-semibold text-foreground">Beta: Gemini only</p>
+            <p className="mt-1">{BETA_NOTICE}</p>
+            <p className="mt-1.5">{GEMINI_DATA_NOTICE}</p>
+          </div>
+        )}
 
         <div className="mt-6 text-left">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">

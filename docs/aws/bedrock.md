@@ -24,7 +24,7 @@ them in IAM immediately. Do not reuse or commit them.
 ```env
 LLM_PROVIDER=bedrock
 BEDROCK_REGION=ap-south-1
-BEDROCK_MODEL=in.anthropic.claude-haiku-4-5-20251001-v1:0
+BEDROCK_MODEL=in.anthropic.claude-3-5-haiku-20241022-v1:0
 BEDROCK_EMBED_MODEL=amazon.titan-embed-text-v2:0
 EMBED_PROVIDER=bedrock
 BEDROCK_API_KEY=
@@ -104,7 +104,7 @@ provide them; avoid collecting long-lived AWS keys.
 ## Configure through the workspace
 
 1. Set the platform provider to **Bedrock** in workspace Settings.
-2. Use model ID `in.anthropic.claude-haiku-4-5-20251001-v1:0`.
+2. Use model ID `in.anthropic.claude-3-5-haiku-20241022-v1:0`.
 3. Set the base URL/region to `ap-south-1`.
 4. Leave the key blank when the backend has an ECS/EC2 role; otherwise paste a
    Bedrock API key or a tenant access-key pair.

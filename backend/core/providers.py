@@ -799,10 +799,10 @@ def _resolve(company=None):
 
     Precedence:
       1. A company's explicit override row (per-tenant BYO key).
-      2. For the platform default, the Render environment's Bedrock key/model
-         wins over a stale platform LLMConfig row. This is what makes every
-         ordinary signed-in user share the same Bedrock key and Claude 4.5
-         default without needing to paste a key.
+      2. For the platform default, a Bedrock key set in the deployment
+         environment wins over a stale platform LLMConfig row. This is what
+         makes every ordinary signed-in user share the same platform key and
+         model without needing to paste a key.
       3. The platform row, then .env.
     """
     from .models import LLMConfig

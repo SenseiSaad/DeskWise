@@ -1824,7 +1824,7 @@ def llm_config(request):
         data = LLMConfigSerializer(cfg).data
         if not is_override:
             # Surface the EFFECTIVE platform defaults. A stale platform row must
-            # not hide the shared Render Bedrock key / Claude 4.5 model.
+            # not hide the shared platform Bedrock key / model.
             effective = providers._resolve(request.user.company)
             data.update({
                 "provider": effective["provider"],

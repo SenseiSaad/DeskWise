@@ -29,8 +29,10 @@ import {
 } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { authApi } from '@/lib/api'
+import { BETA_LOCKED_MODE, BETA_NOTICE, GEMINI_DATA_NOTICE } from '@/lib/beta'
 import { toast } from '@/components/toaster'
 import { SmoothSelect } from '@/components/ui/smooth-select'
+import { InfoPopover } from '@/components/ui/info-popover'
 import { useWorkspaceStore } from '@/lib/workspace-store'
 
 const focusRing =
@@ -48,7 +50,24 @@ const BEDROCK_DEFAULT_MODEL = 'us.amazon.nova-lite-v1:0'
 const BEDROCK_DEFAULT_REGION = 'us-east-1'
 const OLLAMA_DEFAULT_MODEL = 'qwen2.5:0.5b'
 const OLLAMA_DEFAULT_URL = 'http://localhost:11434'
-type ActiveLlmProvider = Extract<LlmProvider, 'bedrock' | 'ollama'>
+const GEMINI_DEFAULT_MODEL = 'gemini-2.5-flash'
+type ActiveLlmProvider = Extract<LlmProvider, 'bedrock' | 'ollama' | 'gemini'>
+
+// Beta lockdown: Gemini is the only selectable provider. The others are listed
+// but disabled, so an admin can see the roadmap without switching to a provider
+// that is not finished being tested.
+const providerLocked = (value: ActiveLlmProvider) =>
+  BETA_LOCKED_MODE !== null && value !== BETA_LOCKED_MODE
+
+// Chat mode -> config provider, for defaulting the form to the beta provider.
+const BETA_PROVIDER: ActiveLlmProvider | null =
+  BETA_LOCKED_MODE === 'gemini'
+    ? 'gemini'
+    : BETA_LOCKED_MODE === 'online'
+    ? 'bedrock'
+    : BETA_LOCKED_MODE === 'local'
+    ? 'ollama'
+    : null
 
 const PROVIDERS: {
   value: ActiveLlmProvider
@@ -60,10 +79,19 @@ const PROVIDERS: {
   usesBaseUrl?: boolean
 }[] = [
   {
+    value: 'gemini',
+    label: 'Google Gemini',
+    blurb: 'Cloud answers from Google Gemini. Only permission-approved passages are sent to the model.',
+    badge: BETA_LOCKED_MODE === 'gemini' ? 'Active' : undefined,
+    keyLabel: 'Gemini API key',
+    modelHint: GEMINI_DEFAULT_MODEL,
+    usesBaseUrl: false,
+  },
+  {
     value: 'bedrock',
     label: 'AWS Bedrock',
-    blurb: 'Cloud answers via your configured AWS account. Only permission-approved passages are sent to Bedrock.',
-    badge: 'Fast & low cost',
+    blurb: 'Cloud answers via your own AWS Bedrock account (billed to the account owner). Best answer quality and fastest responses over your documents.',
+    badge: providerLocked('bedrock') ? 'Disabled in beta' : 'Fast & low cost',
     keyLabel: 'Bedrock API key or ACCESS_KEY_ID:SECRET_ACCESS_KEY',
     modelHint: BEDROCK_DEFAULT_MODEL,
     usesBaseUrl: true,
@@ -72,7 +100,7 @@ const PROVIDERS: {
     value: 'ollama',
     label: 'Local model (Ollama)',
     blurb: 'Uses an Ollama server reachable by the API for chat generation; embeddings remain on the configured platform provider.',
-    badge: 'Local & free',
+    badge: providerLocked('ollama') ? 'Disabled in beta' : 'Local & free',
     modelHint: OLLAMA_DEFAULT_MODEL,
     usesBaseUrl: true,
   },
@@ -119,7 +147,7 @@ export default function SettingsPage() {
   // AI config
   const [cfg, setCfg] = useState<LlmConfig | null>(null)
   const [aiLoading, setAiLoading] = useState(true)
-  const [provider, setProvider] = useState<ActiveLlmProvider>('bedrock')
+  const [provider, setProvider] = useState<ActiveLlmProvider>(BETA_PROVIDER ?? 'bedrock')
   const [chatModel, setChatModel] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -132,23 +160,25 @@ export default function SettingsPage() {
 
   const hydrateAi = useCallback((c: LlmConfig) => {
     setCfg(c)
-    const supportedProvider: ActiveLlmProvider = c.provider === 'ollama' ? 'ollama' : 'bedrock'
-    const isLegacyProvider = c.provider !== 'bedrock' && c.provider !== 'ollama'
+    const supportedProvider: ActiveLlmProvider =
+      c.provider === 'ollama' ? 'ollama' : c.provider === 'gemini' ? 'gemini' : 'bedrock'
+    const isLegacyProvider =
+      c.provider !== 'bedrock' && c.provider !== 'ollama' && c.provider !== 'gemini'
     setProvider(supportedProvider)
-    setChatModel(
-      isLegacyProvider || !c.chat_model
-        ? supportedProvider === 'bedrock'
-          ? BEDROCK_DEFAULT_MODEL
-          : OLLAMA_DEFAULT_MODEL
-        : c.chat_model,
-    )
-    setBaseUrl(
-      isLegacyProvider || !c.base_url
-        ? supportedProvider === 'bedrock'
-          ? BEDROCK_DEFAULT_REGION
-          : OLLAMA_DEFAULT_URL
-        : c.base_url,
-    )
+    const defaultModel =
+      supportedProvider === 'bedrock'
+        ? BEDROCK_DEFAULT_MODEL
+        : supportedProvider === 'gemini'
+        ? GEMINI_DEFAULT_MODEL
+        : OLLAMA_DEFAULT_MODEL
+    const defaultBase =
+      supportedProvider === 'bedrock'
+        ? BEDROCK_DEFAULT_REGION
+        : supportedProvider === 'gemini'
+        ? ''
+        : OLLAMA_DEFAULT_URL
+    setChatModel(isLegacyProvider || !c.chat_model ? defaultModel : c.chat_model)
+    setBaseUrl(isLegacyProvider || !c.base_url ? defaultBase : c.base_url)
     setTemperature(String(c.temperature))
     setMaxTokens(String(c.max_tokens))
     setApiKey('')
@@ -339,7 +369,8 @@ export default function SettingsPage() {
   if (!user) return null
 
   const activeProvider = PROVIDERS.find((p) => p.value === provider) ?? PROVIDERS[0]
-  const hasLegacyProviderConfig = !!cfg && cfg.provider !== 'bedrock' && cfg.provider !== 'ollama'
+  const hasLegacyProviderConfig =
+    !!cfg && cfg.provider !== 'bedrock' && cfg.provider !== 'ollama' && cfg.provider !== 'gemini'
   const currentPlan = profile?.plan
 
   async function onSaveProfile(e: FormEvent) {
@@ -837,18 +868,42 @@ export default function SettingsPage() {
                       label: p.label,
                       description: p.modelHint,
                       badge: p.badge,
+                      dot: providerLocked(p.value) ? 'muted' : 'online',
+                      disabled: providerLocked(p.value),
                     }))}
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     {activeProvider.blurb}
                     {activeProvider.badge && (
-                      <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-ok-soft px-2 py-0.5 text-[10px] font-semibold text-ok">
-                        <Check className="size-3" aria-hidden />
+                      <span
+                        className={`ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          providerLocked(activeProvider.value)
+                            ? 'bg-surface-2 text-muted-foreground'
+                            : 'bg-ok-soft text-ok'
+                        }`}
+                      >
+                        {!providerLocked(activeProvider.value) && (
+                          <Check className="size-3" aria-hidden />
+                        )}
                         {activeProvider.badge}
                       </span>
                     )}
                   </p>
                 </div>
+
+                {BETA_LOCKED_MODE !== null && (
+                  <div className="flex items-start gap-2 rounded-2xl border border-border-strong bg-surface-2 px-3.5 py-3 text-[11px] leading-relaxed text-muted-foreground">
+                    <InfoPopover label="About AI providers during the beta">
+                      <p className="font-semibold text-foreground">Beta: Gemini only</p>
+                      <p className="mt-1">{BETA_NOTICE}</p>
+                      <p className="mt-2">{GEMINI_DATA_NOTICE}</p>
+                    </InfoPopover>
+                    <p>
+                      <span className="font-semibold text-foreground">Beta: Gemini only.</span>{' '}
+                      {BETA_NOTICE} {GEMINI_DATA_NOTICE}
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label htmlFor="chat-model" className={label}>Model Name</label>
@@ -907,6 +962,8 @@ export default function SettingsPage() {
                               ? '•••••••• (stored, type to replace)'
                               : provider === 'bedrock'
                                 ? 'Paste Bedrock key (or leave blank to use configured AWS CLI / IAM credentials)'
+                                : provider === 'gemini'
+                                ? 'Paste your Google AI Studio (Gemini) API key'
                                 : 'Ollama does not require an API key'
                         }
                         className={`${inputClass} pl-10`}

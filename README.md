@@ -90,6 +90,10 @@ $EDITOR .env.production
 
 See [`docs/DEPLOY.md`](docs/DEPLOY.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for full runbooks and infrastructure specs.
 
+> **Low-cost live beta instead of the full AWS stack?** See
+> [`docs/DEPLOY_AWS_SIMPLE.md`](docs/DEPLOY_AWS_SIMPLE.md) — AWS Amplify + App
+> Runner + RDS + S3 + Gemini, roughly $20–30/month.
+
 ---
 
 ## Table of Contents
@@ -174,14 +178,14 @@ Deskwise includes production-grade feature flags and legal compliance guards des
 
 ## Subscription Plans & Commercial Pricing
 
-Deskwise enforces plan quotas on member seats, document counts, storage capacity, and monthly AI queries at the API layer:
+Deskwise enforces plan quotas on member seats, document counts, storage capacity, and monthly AI queries at the API layer. These are the tiers seeded by `seed_plans` and shown on the pricing page:
 
 | Tier | Price (USD) | Member Seats | Documents | Storage | Monthly Asks | Included Features |
 |---|---|---|---|---|---|---|
 | **Free** | \$0 / mo | 3 | 20 | 512 MB | 50 | Hybrid RAG, Audit log, QR Attendance |
-| **Starter** | \$29 / mo | 15 | 200 | 5 GB | 1,500 | + File versioning, DocGen exports |
-| **Business** | \$99 / mo | 50 | 1,000 | 25 GB | 6,000 | + Departments, BYO AI keys, Priority search |
-| **Enterprise** | \$299+ / mo | Unlimited | Unlimited | Unlimited | Unlimited | Dedicated ECS instance, On-Prem AI, Custom SLA |
+| **Go** | \$19 / mo | 15 | 200 | 5 GB | 1,500 | + File versioning |
+| **Plus** | \$49 / mo | 50 | 1,000 | 25 GB | 6,000 | + Departments, BYO AI keys |
+| **Max** | \$129 / mo | Unlimited | Unlimited | Unlimited | 25,000 | Dedicated resources & SLA, On-Prem AI option |
 
 Seed or refresh plans in the database:
 ```bash
@@ -228,7 +232,7 @@ python backend/manage.py create_platform_admin admin@deskwise.site
 ## Running Tests & Quality Assurance
 
 ```bash
-# Backend pytest suite (220+ tests: isolation, tenancy, guards, RAG, auth):
+# Backend pytest suite (293 tests: isolation, tenancy, guards, RAG, auth):
 backend/.venv/bin/pytest backend/tests/
 
 # Frontend test suite (Vitest):

@@ -13,6 +13,7 @@ import {
   type SetStateAction,
 } from 'react'
 import { useAuth } from '@/lib/auth'
+import { BETA_LOCKED_MODE } from '@/lib/beta'
 import {
   askStream,
   chatApi,
@@ -253,6 +254,8 @@ function isModeOnline(mode: ChatMode, status: LlmStatus): boolean {
 }
 
 function pickInitialMode(status: LlmStatus): ChatMode {
+  // Beta lockdown: start on the only selectable provider.
+  if (BETA_LOCKED_MODE) return BETA_LOCKED_MODE
   if (status.provider === 'bedrock' && status.online_api?.online) return 'online'
   if (status.provider === 'gemini' && status.gemini?.online) return 'gemini'
   if (status.provider === 'selfhosted' && status.selfhosted?.online) return 'selfhosted'
@@ -300,7 +303,7 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [llm, setLlm] = useState<LlmStatus | null>(null)
-  const [mode, setMode] = useState<ChatMode>('online')
+  const [mode, setMode] = useState<ChatMode>(BETA_LOCKED_MODE ?? 'online')
   const [modeInit, setModeInit] = useState(false)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(null)
@@ -337,7 +340,7 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
       setMessages([])
       setInput('')
       setCurrentConversationId(null)
-      setMode('online')
+      setMode(BETA_LOCKED_MODE ?? 'online')
       setModeInit(false)
       setSidebarOpen(true)
       return
@@ -354,14 +357,14 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
       setMessages(Array.isArray(snap.chat.messages) ? snap.chat.messages : [])
       setInput(snap.chat.input || '')
       setCurrentConversationId(snap.chat.currentConversationId ?? null)
-      setMode(snap.chat.mode || 'online')
+      setMode(BETA_LOCKED_MODE ?? snap.chat.mode ?? 'online')
       setModeInit(Boolean(snap.chat.modeInit))
       setSidebarOpen(snap.chat.sidebarOpen !== false)
     } else {
       setMessages([])
       setInput('')
       setCurrentConversationId(null)
-      setMode('online')
+      setMode(BETA_LOCKED_MODE ?? 'online')
       setModeInit(false)
       setSidebarOpen(true)
     }

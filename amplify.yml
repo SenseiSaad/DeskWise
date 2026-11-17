@@ -1,0 +1,32 @@
+# AWS Amplify Hosting build spec for the Deskwise frontend.
+#
+# next.config.mjs already selects `output: 'export'` for Amplify (a static
+# export to out/), and pnpm-workspace.yaml sets nodeLinker: hoisted because
+# Amplify's dependency tracer does not follow pnpm's symlinked layout.
+#
+# Set these in the Amplify console (App settings -> Environment variables):
+#   NEXT_PUBLIC_API_URL   = https://<your-app-runner-service-url>
+#   NEXT_PUBLIC_BETA_PROVIDER = gemini   (omit or set to "off" to re-enable all providers)
+#
+# Use Node 22 (App settings -> Build image settings -> Node.js version).
+version: 1
+applications:
+  - appRoot: frontend
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm install -g pnpm@12.3.4
+            - pnpm install --frozen-lockfile
+        build:
+          commands:
+            # Bake NEXT_PUBLIC_* into the static export at build time.
+            - env | grep -E '^NEXT_PUBLIC_' >> .env.production || true
+            - pnpm run build
+      artifacts:
+        baseDirectory: out
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*

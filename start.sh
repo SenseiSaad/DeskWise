@@ -110,6 +110,31 @@ env_val() {
   echo "${v:-$3}"
 }
 
+# Local runs must never point at production infrastructure. Refuse to start if
+# the env file looks like a live/prod config, so a local boot cannot write to the
+# production database or S3 bucket.
+assert_local_only() {
+  local f="$1" dburl envv bucket bad=""
+  [[ -f "$f" ]] || return 0
+  dburl="$(env_val "$f" DATABASE_URL "")"
+  envv="$(env_val "$f" ENVIRONMENT "")"
+  bucket="$(env_val "$f" AWS_STORAGE_BUCKET_NAME "")"
+  if [[ -n "$dburl" && ! "$dburl" =~ (localhost|127\.0\.0\.1|@db:|host\.docker\.internal|sqlite) ]]; then
+    bad="DATABASE_URL points at a remote database"
+  elif [[ "$envv" =~ ^(production|prod)$ ]]; then
+    bad="ENVIRONMENT=$envv"
+  elif [[ -n "$bucket" ]]; then
+    bad="AWS_STORAGE_BUCKET_NAME is set (would write to real S3)"
+  fi
+  if [[ -n "$bad" ]]; then
+    echo "[deskwise] REFUSING to start: $f looks like a PRODUCTION config ($bad)." >&2
+    echo "[deskwise] Local runs must use a local database and local disk storage." >&2
+    echo "[deskwise] Fix those values in $f, or set ENVIRONMENT=development and" >&2
+    echo "[deskwise] leave DATABASE_URL / AWS_STORAGE_BUCKET_NAME unset locally." >&2
+    exit 1
+  fi
+}
+
 _read_aws_cred_file() {
   local cred_file="$1" section="$2" key="$3"
   [[ -f "$cred_file" ]] || return 1
@@ -352,6 +377,7 @@ if [[ "$MODE" == "docker" ]]; then
   }
 
   ensure_env "$ROOT/.env" "$ROOT/.env.example"
+  assert_local_only "$ROOT/.env"
 
   API_PORT="$(env_val "$ROOT/.env" API_PORT 8000)"
   WEB_PORT="$(env_val "$ROOT/.env" WEB_PORT 3000)"
@@ -495,6 +521,7 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required for nat
 command -v node >/dev/null 2>&1 || { echo "ERROR: node is required for native mode." >&2; exit 1; }
 
 ensure_env "$BACKEND_DIR/.env" "$BACKEND_DIR/.env.example"
+assert_local_only "$BACKEND_DIR/.env"
 mkdir -p "$LOG_DIR"
 
 API_PORT="$(env_val "$BACKEND_DIR/.env" API_PORT 8000)"
@@ -504,6 +531,7 @@ DB_URL="$(env_val "$BACKEND_DIR/.env" DATABASE_URL "")"
 if [[ "$USE_PG" == "1" ]] || [[ "$DB_URL" == postgres* ]]; then
   docker_available || { echo "ERROR: PostgreSQL requested but Docker is unavailable." >&2; exit 1; }
   ensure_env "$ROOT/.env" "$ROOT/.env.example"
+  assert_local_only "$ROOT/.env"
   echo "[deskwise] Starting PostgreSQL database container ..."
   docker compose --profile pg up -d --wait db
 fi

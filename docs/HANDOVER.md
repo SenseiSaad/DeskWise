@@ -155,14 +155,14 @@ For enterprise acquirers requiring autoscaling and multi-AZ resilience:
 
 | Subsystem / Capability | Verification Status | Exact Evidence & Details |
 |---|:---:|---|
-| **Unit & Regression Tests** | **VERIFIED (PASS)** | 279 automated backend tests passing (`pytest`); 12 frontend tests passing (`vitest`). |
+| **Unit & Regression Tests** | **VERIFIED (PASS)** | 293 automated backend tests passing (`pytest`, 14 skipped); 20 frontend tests passing (`vitest`). |
 | **Tenant Isolation Matrix** | **VERIFIED (PASS)** | 18-case pytest matrix testing IDOR, cross-tenant chunk leakage, rating isolation, and path traversal (`test_tenant_isolation_matrix.py`). |
 | **Browser E2E Verification** | **VERIFIED (PASS)** | Automated Playwright suite testing ~50 user actions across Overview, Members, Documents, Chat, Attendance, Shared, Audit, Usage, and Settings. |
 | **Local Docker Stack** | **VERIFIED (PASS)** | `docker-compose.yml` builds cleanly; web (port 3000) and api (port 8000) containers healthy. |
 | **Single-Host Prod Docker** | **VERIFIED (PASS)** | `docker-compose.prod.yml` configured with Postgres 16, pgvector, Redis, and Caddy TLS. |
 | **Vector Search (pgvector)** | **VERIFIED (PASS)** | HNSW index migration and KNN query paths verified (`test_pgvector.py`); SQLite fallback verified. |
 | **Code Authorship** | **VERIFIED (PASS)** | 100% of Git commits authored by Saad Waseem (`obsks23@gmail.com`). 0 co-authors. Clean title. |
-| **Secrets in Git History** | **VERIFIED (PASS)** | History scrubbed (Option A: 89 commits). Gitleaks scan reports 0 leaks across full history. |
+| **Secrets in Git History** | **VERIFIED (PASS)** | History scrubbed (Option A: 95 commits). Gitleaks scan reports 0 leaks across full history. |
 | **Dependency Licenses** | **VERIFIED (PASS)** | 0 GPL, 0 AGPL, 0 SSPL in production dependencies. 2 weak-copyleft LGPL packages documented. |
 | **AWS Terraform Deployment** | **UNVERIFIED (CONFIG ONLY)** | Terraform validates (`terraform validate` PASS) and Checkov passes, but has **never been applied to live AWS**. Buyer must provision AWS account. |
 | **Live AWS Bedrock / SES** | **UNVERIFIED (CONFIG ONLY)** | Bedrock ARNs and SES SMTP configs are implemented with graceful fallbacks (local Ollama and console email), but have not been tested against a live AWS bill. |

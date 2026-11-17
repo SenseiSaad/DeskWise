@@ -126,7 +126,7 @@ move the backend into the Amplify build.
 7. Configure SES SMTP credentials if SES is ready for production sending.
    Email verification is enabled, so configure and test email before public
    registration. For the present launch, the Blueprint selects Bedrock chat
-   with `in.anthropic.claude-haiku-4-5-20251001-v1:0` and Titan embeddings with
+   with `in.anthropic.claude-3-5-haiku-20241022-v1:0` and Titan embeddings with
    `amazon.titan-embed-text-v2:0`.
 
 ### Render environment values

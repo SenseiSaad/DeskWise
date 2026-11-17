@@ -71,10 +71,10 @@ Unlike public chatbots that mix organizational data or stream internal files to 
 
 ## 4. Test Suite & Verification Results
 
-* **Total Automated Tests:** **242 passing tests** (0 failures, 0 errors).
-  - **224 Unit & Regression Tests:** Authentication, rate limiting, document parsing, BM25 retrieval, DocGen templates, audit logging, plan enforcement.
+* **Total Automated Tests:** **293 passing tests** (0 failures, 0 errors; 14 skipped).
+  - **275 Unit & Regression Tests:** Authentication, rate limiting, document parsing, BM25 retrieval, DocGen templates, audit logging, plan enforcement.
   - **18 Tenant-Isolation Matrix Tests:** Direct IDOR probes across all document endpoints, cross-tenant chunk leakage tests, message rating isolation, and upload path-traversal defenses.
-* **Frontend Tests:** 12/12 passing (`vitest`). Next.js 16 Turbopack production build succeeds with all 22 static routes prerendered.
+* **Frontend Tests:** 20/20 passing (`vitest`). Next.js 16 Turbopack production build succeeds with all 22 static routes prerendered.
 * **Static Analysis & Security:** Bandit scanned 10,189 LOC with **0 High / 0 Medium** issues. `python manage.py check --deploy` passed with **0 warnings**.
 * **Vulnerability Audit:** **0 High / 0 Critical CVEs** across production dependencies (npm and PyPI).
 
@@ -82,7 +82,7 @@ Unlike public chatbots that mix organizational data or stream internal files to 
 
 ## 5. Intellectual Property & Ownership Status
 
-* **Git Commit Authorship:** 100% of all 89 Git commits are authored solely by Saad Waseem (`obsks23@gmail.com`). Zero third-party committers and zero co-author trailers.
+* **Git Commit Authorship:** 100% of all 95 Git commits are authored solely by Saad Waseem (`obsks23@gmail.com`). Zero third-party committers and zero co-author trailers.
 * **Repository License:** Proprietary and Confidential (All Rights Reserved). Never released under open-source licenses (GPL, MIT, or Apache).
 * **Third-Party Dependency Licenses:** 100% compliant. Zero GPL, zero AGPL, zero SSPL in production dependencies.
 * **Ownership Status:** Solely owned and developed by Saad Waseem. Zero third-party, institutional, or co-author claims.
