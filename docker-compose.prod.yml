@@ -145,6 +145,8 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: https://${DOMAIN}
+        # Production stays locked to Gemini unless explicitly overridden.
+        NEXT_PUBLIC_BETA_PROVIDER: ${NEXT_PUBLIC_BETA_PROVIDER:-gemini}
     restart: always
     logging: *default-logging
     depends_on:

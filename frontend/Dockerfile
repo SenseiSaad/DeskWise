@@ -13,7 +13,11 @@ RUN npm install -g pnpm@12.3.4
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ .
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+# Beta provider lock, inlined at build time. Defaults to gemini (fail-closed);
+# Compose passes "off" for local dev so every provider stays testable locally.
+ARG NEXT_PUBLIC_BETA_PROVIDER=gemini
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_BETA_PROVIDER=$NEXT_PUBLIC_BETA_PROVIDER \
     DOCKER_STANDALONE=true \
     NEXT_TELEMETRY_DISABLED=1
 RUN --mount=type=cache,id=next-swc,target=/root/.cache/next-swc pnpm run build
