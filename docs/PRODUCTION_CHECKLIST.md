@@ -47,5 +47,3 @@ checklist is superseded for the `infra/` stack; the live site is unchanged.
       `runbooks/restore.md`.
 - [ ] Every alarm tested once; external uptime/TLS checks configured.
 - [ ] Bedrock token/cost alarms tested with a synthetic low threshold.
-- [ ] Rotate/revoke the historical `backend/.env` secret found in old commits;
-      decide whether to purge history before selling/making public again.
