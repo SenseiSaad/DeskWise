@@ -1,0 +1,358 @@
+================================================================================
+CLAUDEINFO — DESKWISE (fka OPENVAULT) — COMPLETE PROJECT DOSSIER
+Last updated: 2026-11-18
+================================================================================
+
+This file is a complete information dump about this project: what it is, how it
+works, how to run and deploy it, its security and monitoring systems, its known
+gaps, and its business/sale status. Written so that any person (or AI assistant)
+can pick up the project without reading the whole repo.
+
+Plain text / Markdown. Rename to claudeinfo.md if you want it rendered.
+
+--------------------------------------------------------------------------------
+1. IDENTITY
+--------------------------------------------------------------------------------
+- Product name: Deskwise (the repo/folder is still called OpenVault — history).
+- What it is: a multi-tenant, permission-aware RAG workspace ("ask our company
+  documents") with DocGen, team chat, QR attendance, audit log, plans/billing.
+- Owner/author: Saad Waseem (100% of 95 Git commits, author obsks23@gmail.com).
+- License: proprietary, all rights reserved (see LICENSE). Never open-sourced.
+- Repo: github.com/SenseiSaad/openvault — keep PRIVATE. Both AWS Amplify and
+  AWS App Runner can build from a PRIVATE GitHub repo (no need to make public).
+- Explicitly NOT deployed yet via the new AWS stack; an older live site is
+  referenced in docs/FINAL_REPORT.md as https://openvault.saadops.site
+  (decide: replace it or run alongside).
+- Business status: pre-revenue, zero paying customers, being prepared for sale
+  (SideProjectors + Indiemaker listings).
+
+--------------------------------------------------------------------------------
+2. ARCHITECTURE & STACK
+--------------------------------------------------------------------------------
+- Backend: Django 5 + Django REST Framework + Django Channels (ASGI).
+  Served by gunicorn with a uvicorn worker (config.asgi:application), so one
+  container serves HTTP + WebSockets.
+- Frontend: Next.js 16 (Turbopack). Three build modes (frontend/next.config.mjs):
+    * default             -> static export (output: 'export') to out/  (Amplify)
+    * DOCKER_STANDALONE=1 -> standalone server (.next/standalone)       (Docker)
+    * VERCEL=1            -> standard Next build
+- Database: PostgreSQL + pgvector (embedding vectors + HNSW index); SQLite
+  fallback for local/dev. Vector column width comes from EMBED_DIM at migration
+  time and MUST match the embedding model.
+- Cache / rate limiting: Django cache (LocMem by default, Redis via CACHE_URL).
+- Channel layer (team chat WebSockets): InMemoryChannelLayer by default,
+  channels-redis when CACHE_URL is set. In-memory works ONLY with 1 instance.
+- Background work: Celery when CELERY_BROKER_URL is set; otherwise indexing
+  falls back to a daemon thread in the web process (SYNC_INDEXING=true forces
+  inline). Celery beat schedule: requeue_stuck_documents every 15 min,
+  prune_asklogs daily 03:15. Prod compose runs api + worker + beat + web + db
+  + redis (worker --concurrency=2).
+- Infra-as-code: infra/ Terraform (ECS Fargate, RDS Postgres, Redis, ALB+ACM,
+  SES, ECR, S3, IAM OIDC for CI, observability module). NEVER APPLIED — design
+  only. validated + Checkov-passing.
+- CI (.github/workflows): backend tests + coverage, frontend tests/build,
+  Docker build + Trivy scan, bandit, pip-audit, gitleaks, terraform validate +
+  tflint + checkov. deploy.yml builds/pushes ECR images with GitHub OIDC.
+
+--------------------------------------------------------------------------------
+3. FEATURE INVENTORY
+--------------------------------------------------------------------------------
+AI / RAG
+- Ask questions over company documents with citations; permission-aware
+  retrieval (per-document ACLs; only approved passages reach the model).
+- Hybrid retrieval: pgvector ANN + BM25 keyword search. Streaming answers.
+- Conversation history, message rating (thumbs up/down), AskLog with retention.
+- Providers: Local (Ollama), Google Gemini, AWS Bedrock, Self-hosted —
+  currently beta-locked to Gemini in the UI (see §5).
+
+Documents & DocGen
+- Upload queue (client-side, 3 concurrent workers), presigned direct-to-S3
+  uploads, preview, download, versioning, per-user sharing, reindex, departments.
+- DocGen: generated forms/letters/emails from templates; artifact export
+  (PDF/DOCX).
+
+Team chat (WebSocket, real-time)
+- Rooms, messages, read receipts, pins, reactions, presence, and @DeskWise bot
+  answering from the company's documents (uses the same platform provider).
+
+Attendance
+- Rotating, signed, short-lived (~10 min), company-bound QR tokens
+  (anti-relay), records, holidays, exemptions, optional auto-freeze (off default).
+
+Admin & platform
+- Members/seats, departments, announcements, company profile/tone/signature,
+  audit log, per-company analytics, usage. Platform admin: cross-company
+  reports, set a company's plan, switch/detach company.
+
+Auth & security features
+- JWT (15-min access, 7-day rotating+blacklisted refresh), TOTP MFA, email
+  verification gate, password reset, per-IP/user rate limiting.
+
+Other
+- Multi-language UI, dark/light theme, 22 static routes.
+
+--------------------------------------------------------------------------------
+4. BACKGROUND WORK / MULTITASKING (how the app stays responsive)
+--------------------------------------------------------------------------------
+- Frontend upload queue: 3 concurrent workers; uploads continue while the user
+  navigates/chats; per-file status queued -> uploading -> indexing -> done;
+  queue lives in the shared workspace store so it survives navigation.
+- Backend indexing: off the request path (Celery task / daemon thread / inline
+  for serverless), bounded concurrency at stage 2.
+- Real-time: Django Channels WebSockets for team chat (no polling).
+- Streaming: chat replies stream line-by-line (fetch reader).
+- Rate limiting per endpoint/user/IP protects shared capacity.
+
+--------------------------------------------------------------------------------
+5. AI PROVIDERS — GEMINI BETA CONFIGURATION
+--------------------------------------------------------------------------------
+UI (implemented 2026-11-18):
+- Chat page lists Local / Bedrock / Gemini / Self-Hosted; only Gemini
+  selectable during beta; others show "Beta — locked" with reasons.
+- Small info popover + empty-state notice: "Beta: Gemini only" + Gemini
+  data-usage disclosure.
+- Admin Settings -> AI Engine shows Google Gemini (active), Bedrock and
+  Ollama disabled in beta, with the same notices.
+- Controlled by ONE build-time flag: NEXT_PUBLIC_BETA_PROVIDER
+    gemini = locked to Gemini (what production uses; fail-closed)
+    off    = all providers selectable
+  Defaults to 'gemini' in code and in the frontend Dockerfile.
+  Local Docker Compose overrides the default to 'off' so local is testable.
+  Production (Amplify env var / prod compose / Dockerfile default) = gemini.
+- Bedrock wording (intentional, honest): "Runs on your own AWS Bedrock account
+  (billed to the account owner) for the best answer quality and fastest
+  responses over your documents. Disabled during the beta." Bedrock has never
+  been verified live; do NOT claim otherwise.
+
+Gemini data-usage disclosure (shown in the app):
+"On Google's free tier, Google may use your prompts and uploaded document
+ content to improve its products, and human reviewers may see it. On the paid
+ tier, Google does not use it for improvement. Confirm Google's current Gemini
+ API terms yourself before uploading confidential material."
+- Also disclosed: Stripe is NOT available to sellers resident in Pakistan.
+
+Backend env for Gemini (drives BOTH chat and team chat):
+  LLM_PROVIDER=gemini
+  GEMINI_API_KEY=<Google AI Studio key>
+  EMBED_PROVIDER=gemini
+  EMBED_DIM=3072            <-- CRITICAL, see §9 landmines
+
+Team chat uses the same platform provider (rag.stream_answer with no mode), so
+LLM_PROVIDER=gemini makes @DeskWise reply with Gemini too — no extra code.
+
+--------------------------------------------------------------------------------
+6. PRICING (canonical, aligned everywhere 2026-11-18)
+--------------------------------------------------------------------------------
+Source of truth: backend/core/management/commands/seed_plans.py and
+frontend/lib/pricing.ts (FALLBACK_PLANS). README/FACTS_SHEET/HANDOVER were
+corrected to match. Verified live by a seed run.
+
+  Tier   Price        Seats   Docs    Storage   Monthly asks
+  Free   $0 / mo      3       20      512 MB    50
+  Go     $19 / mo     15      200     5 GB      1,500
+  Plus   $49 / mo     50      1,000   25 GB     6,000
+  Max    $129 / mo    unlim.  unlim.  unlimited 25,000
+
+Plans are enforced at the API layer (seats, docs, storage, asks).
+
+--------------------------------------------------------------------------------
+7. RUNNING LOCALLY
+--------------------------------------------------------------------------------
+One-file launcher:
+  ./start.sh                 Docker mode (recommended; auto-detects Docker)
+  ./start.sh --native        Bare-metal mode (uses backend/.venv + node_modules)
+  ./stop.sh                  Stop everything
+  ./scripts/start_local.sh   Alternative launcher (docker/--native/--stop)
+Web:     http://localhost:3000
+API:     http://localhost:8000  (health: /api/health -> {"status":"ok",...})
+
+Isolation from production (added 2026-11-18):
+- start.sh contains assert_local_only(): REFUSES to start if .env looks like a
+  production config (ENVIRONMENT=production, remote DATABASE_URL, or a real
+  AWS_STORAGE_BUCKET_NAME). Self-tested (blocks prod config, allows dev).
+- Local Docker builds with NEXT_PUBLIC_BETA_PROVIDER=off (unlocked) so all
+  providers are testable; production stays locked to gemini.
+- Local .env / backend/.env are gitignored; production config lives only in AWS
+  console env vars, never in the repo.
+- Local run verified 2026-11-18 via Docker rebuild: containers healthy,
+  /api/health ok, web 200, migrations + seed_plans ran.
+
+Useful commands:
+  backend/.venv/bin/pytest backend/tests/          (suite: 293 passed, 14 skipped)
+  cd frontend && pnpm test                        (vitest: 20 passed)
+  cd frontend && pnpm build                       (static export, 22 routes)
+  backend/.venv/bin/python backend/manage.py check
+  python backend/manage.py reindex_embeddings --all   (after switching embeddings)
+
+--------------------------------------------------------------------------------
+8. DEPLOYMENT PLAN (simplest paid AWS path — chosen 2026-11-18)
+--------------------------------------------------------------------------------
+Full step-by-step: docs/DEPLOY_AWS_SIMPLE.md. Build spec: amplify.yml (root).
+
+Shape:  Amplify Hosting (frontend) + AWS App Runner (backend, container from
+        ECR) + Amazon RDS PostgreSQL 16 (db.t4g.micro, pgvector) + Amazon S3
+        (documents; App Runner disk is ephemeral) + Google Gemini (AI).
+
+Cost:   ~$20–30/month total (~$40–60 for two months) before AI tokens.
+        Amplify ~$1–3, App Runner ~$5–10, RDS ~$13–15, S3 ~$1.
+
+Key decisions / answers:
+- PRIVATE GitHub repo is fine for both Amplify and App Runner.
+- Elastic Beanstalk IS possible but is more wiring (no push-to-deploy for a
+  private repo without CodePipeline; RDS/S3 still separate) — App Runner chosen.
+- App Runner SOURCE deploys do NOT work for this backend (managed runtime lacks
+  tesseract/poppler/libpq) — build the image and deploy from ECR.
+- Backend container: 0.25 vCPU / 0.5 GB, port 8000, health check HTTP
+  /api/health (exempt from the HTTPS redirect). ASGI serves HTTP+WS.
+- VPC connector on DEFAULT (public) subnets: reaches private RDS AND the
+  internet for Gemini without a ~$32/mo NAT gateway.
+- Instance role for S3 (no static AWS keys anywhere).
+- Keep App Runner at 1 instance until Redis is added (WebSockets + rate limits
+  are per-instance).
+
+Critical backend env vars (App Runner):
+  ENVIRONMENT=production, DEBUG=false, SECRET_KEY=<random>,
+  LLM_KEY_ENCRYPTION_KEY=<random, back it up>,
+  ALLOWED_HOSTS=<apprunner host>, CORS_ALLOWED_ORIGINS / CSRF_TRUSTED_ORIGINS /
+  PUBLIC_BASE_URL = https://<amplify-domain>,
+  DATABASE_URL=postgresql://...?sslmode=require,
+  AWS_STORAGE_BUCKET_NAME=<bucket>, AWS_S3_REGION_NAME=<region>,
+  LLM_PROVIDER=gemini, GEMINI_API_KEY=<key>,
+  EMBED_PROVIDER=gemini, EMBED_DIM=3072,
+  AUTO_MIGRATE=true (default; entrypoint migrates + seeds plans),
+  SENTRY_DSN=<set before launch>.
+Frontend (Amplify env vars): NEXT_PUBLIC_API_URL=https://<apprunner-url>,
+  NEXT_PUBLIC_BETA_PROVIDER=gemini (or omit). Node 22.
+
+Cheapest alternative if budget tightens: one small EC2/Lightsail running the
+shipped docker-compose.prod.yml (Postgres+Redis+API+Caddy TLS, persistent disk)
+for ~$12–15/mo — that is docs/DEPLOY.md's path.
+
+--------------------------------------------------------------------------------
+9. SECURITY, SAFEGUARDS & KNOWN LANDMINES
+--------------------------------------------------------------------------------
+Safeguards integrated (all real code):
+- Tenant isolation: company-scoped querysets everywhere + an 18-case isolation
+  matrix test (IDOR probes, cross-tenant chunk leaks, path traversal).
+- Auth: JWT 15-min access / 7-day rotating+blacklisted refresh; TOTP MFA;
+  email verification gate; password reset.
+- Hardening (settings.py): HSTS 1y+subdomains+preload, SSL redirect (health
+  exempt), X-Frame-Options DENY, nosniff, SameSite=Lax HttpOnly cookies,
+  production boot guard refusing ALLOWED_HOSTS=*.
+- OriginCheckMiddleware (CSRF defence-in-depth for the cookie-JWT auth path).
+- Ratelimit: atomic cache-backed counters; trusting only TRUSTED_PROXY_COUNT
+  X-Forwarded-For entries.
+- netguard.py: SSRF defence for tenant-supplied base_url (public IPs only,
+  metadata range blocked).
+- crypto.py: Fernet encryption at rest for BYO provider keys (rotation caveats
+  documented; docs/SECURITY.md has a zero-downtime rotation runbook).
+- moderation.py: policy-violation scanner (docs say honestly: regex is NOT a
+  prompt-injection barrier) + structural defences (permission filtering, no
+  tools, citation-grounded answers).
+- qr_tokens.py: signed, short-lived, company-bound QR attendance tokens.
+- Supply chain: bandit, pip-audit, Trivy, gitleaks in CI; zero GPL/AGPL deps;
+  GitHub OIDC in CI (no long-lived AWS keys); secrets via SSM in the ECS path.
+
+LANDMINES / TODOs (money- or launch-critical):
+1. EMBED_DIM must be 3072 for gemini-embedding-001, set BEFORE the first
+   migration on a fresh DB (vector column width is fixed at migration time).
+2. NOTHING IS COMMITTED — commit + push before any GitHub-imported deploy.
+3. Historical secret in old Git commits: rotate/revoke it; consider purging
+   history before selling (docs/PRODUCTION_CHECKLIST.md).
+4. SENTRY_DSN unset → no error tracking is live; add it before the beta.
+5. Scheduled jobs (requeue_stuck_documents, prune_asklogs) do NOT run on App
+   Runner — use EventBridge Scheduler -> one-off ECS task, or add a worker.
+6. Per-instance state: WebSockets (in-memory channel layer) and rate limits
+   break with >1 instance until Redis is added. Keep min=max=1 instance.
+7. Frontend has NO error tracking and NO analytics (nothing installed).
+8. No uptime/TLS synthetic checks; no WAF; no dashboards (alarms only);
+   observability module exists ONLY in the never-applied ECS Terraform.
+9. Stripe does not support Pakistan residents → billing endpoints work only
+   for a buyer/entity in a supported country; quotas work regardless.
+
+--------------------------------------------------------------------------------
+10. OBSERVABILITY & MONITORING (full detail)
+--------------------------------------------------------------------------------
+App-level (works today):
+- Structured JSON logs; request_id on every line; X-Request-ID response header
+  (join key between a user report, Sentry and raw logs).
+- LLM telemetry: llm_usage (token counts) and llm_error JSON log events;
+  NO prompt/document content is ever logged (tested).
+- /api/health (db+storage), AuditLog + AskLog, per-company analytics, platform
+  cross-company reports.
+- Sentry (backend only) — errors + tracing at SENTRY_TRACES_RATE (default 0.1),
+  inactive until SENTRY_DSN is set; documented in .env.production.example.
+
+Terraform observability module (infra/modules/observability — NEVER APPLIED):
+- SNS alerts topic + email subscription.
+- CloudWatch alarms: ALB 5xx, unhealthy targets, ECS below-desired, RDS
+  CPU/storage/connections, LLM errors, daily LLM token budget.
+- CloudWatch metric filters on LLM tokens (namespace OpenVault/App).
+- AWS Budgets with absolute thresholds ($20/$35/$50/$100).
+- Container Insights (off by default), log groups with retention, nightly
+  logical DB backup -> S3 (CloudWatch Events -> ECS task), CPU autoscaling.
+- 11 ops runbooks in docs/runbooks/ (restore, db down, disk full, rollback,
+  cost alarm, ses bounce, alerts, ...).
+
+Missing entirely: frontend error/analytics, uptime/TLS checks, dashboards,
+tracing/APM, WAF/GuardDuty/Security Hub, and ANY of the above on the chosen
+App Runner path.
+
+--------------------------------------------------------------------------------
+11. TESTS & VERIFICATION STATUS (measured 2026-11-18)
+--------------------------------------------------------------------------------
+- Backend: 307 collected, 293 passed, 14 skipped, 0 failures (pytest exit 0).
+- Frontend: 20 vitest tests passing; pnpm build static export clean
+  (22 static routes prerendered); tsc clean.
+- manage.py check: 0 issues. Local Docker run verified healthy end-to-end.
+- Docs corrected to match reality: tests 293/14, frontend 20, commits 95,
+  pricing $0/$19/$49/$129, valid Bedrock model ARNs
+  (in.anthropic.claude-3-5-haiku-20241022-v1:0), stale Render/Claude-4.5
+  comments removed.
+- Playwright browser E2E suite exists (docs/evidence has screenshots);
+  ~50 user actions across major screens; runbooks + loadtest results in docs/.
+
+--------------------------------------------------------------------------------
+12. BUSINESS / SALE FACTS
+--------------------------------------------------------------------------------
+- Pre-revenue, zero customers → sale value is the IP/codebase, not ARR.
+- Realistic price: $500–$1,500 as-is; $1,500–$3,000 with a live demo
+  (pre-revenue comps close at $500–$4,500; technical buyers pay $1,000–$5,000
+  for a clean codebase WITH a live product).
+- Channels already chosen: SideProjectors (pre-revenue friendly) and Indiemaker
+  ($1K–$500K, reviewed listings, escrow until handoff, ~70% of listings have no
+  revenue). Also useful: direct outreach to AI/RAG builders, r/SaaS /
+  r/indiehackers, Flippa, ExitBid (5-day auction), Microns. Acquire.com is slow
+  for pre-revenue — skip for an ASAP sale.
+- Payments from Pakistan: Stripe NOT available. For receiving sale proceeds,
+  Payoneer + bank account + marketplace escrow works (Indiemaker: escrow until
+  handoff). If charging customers in future, use a merchant of record that
+  accepts Pakistan: Paddle, Lemon Squeezy, Polar, Creem, Gumroad, Whop
+  (Lemon Squeezy/Gumroad pay out to Pakistani banks). US-LLC-for-Stripe route
+  is expensive (~$500 Atlas) and Mercury does not onboard Pakistan residents.
+- Sale documentation pack already in repo: FACTS_SHEET.md, DATA_ROOM_CHECKLIST.md,
+  IP_INVENTORY.md, docs/HANDOVER.md, docs/SECURITY.md + audit evidence.
+- Do NOT ship local files to a buyer: .env, backend/.env, backend/db.sqlite3,
+  .dev-logs/ (all gitignored — give the buyer fresh keys and rotate all real
+  credentials).
+
+--------------------------------------------------------------------------------
+13. CHANGES MADE IN THE 2026-11-18 SESSION (for the record)
+--------------------------------------------------------------------------------
+New files:  amplify.yml, docs/DEPLOY_AWS_SIMPLE.md, frontend/lib/beta.ts,
+            frontend/components/ui/info-popover.tsx, readme(new).md, claudeinfo
+Modified:   frontend/app/workspace/chat/page.tsx (provider gating, beta
+            popover, Gemini data notice), frontend/app/workspace/settings/
+            page.tsx (Gemini first/active, others disabled-in-beta, notices),
+            frontend/lib/workspace-store.tsx (default mode follows the beta
+            lock), frontend/Dockerfile + docker-compose.yml +
+            docker-compose.prod.yml (NEXT_PUBLIC_BETA_PROVIDER build arg:
+            local off / prod gemini), .env.example + backend/.env.example
+            (EMBED_DIM notes, valid model IDs), start.sh (assert_local_only
+            production-config guard), README.md / FACTS_SHEET.md /
+            docs/HANDOVER.md (pricing, test/commit counts, deploy doc link),
+            backend/core/providers.py + views.py (stale comment fixes),
+            docs/aws/bedrock.md + docs/deployment/amplify-render-cloudflare.md
+            (valid Bedrock model ARNs).
+ALL OF IT IS UNCOMMITTED — commit (ideally on a branch) and push before
+deploying from GitHub.
