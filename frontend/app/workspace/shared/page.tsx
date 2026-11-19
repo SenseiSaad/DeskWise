@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { downloadOwnDocument, workApi, type SharedDoc } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { formatDate } from '@/lib/utils'
 import { SmoothDialogFrame } from '@/components/ui/smooth-select'
 
 const focusRing =
@@ -231,6 +232,7 @@ export default function SharedWithMePage() {
                         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span className="rounded-full bg-surface-2 px-2.5 py-0.5 font-medium text-foreground/85">{doc.category || 'General'}</span>
                           {doc.shared_by && <span>Shared by {doc.shared_by}</span>}
+                          {doc.expires_at && <span className="text-warn">Expires {formatDate(doc.expires_at)}</span>}
                         </div>
                       </div>
                     </div>

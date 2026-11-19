@@ -4,7 +4,6 @@ djangorestframework-simplejwt==5.5.1
 PyJWT==2.15.1
 cryptography==50.0.2
 django-cors-headers==4.6.0
-numpy==2.2.1
 pypdf==6.21.4
 python-pptx==1.0.2
 python-docx==1.1.2
@@ -26,19 +25,12 @@ sentry-sdk==2.73.0
 celery==5.5.3
 stripe==16.0.0  # imported at top level by core/billing.py
 
-# Optional / lazily-imported integrations. The code degrades gracefully when
-# these are absent (calendar sync is simulated, QR falls back to a plain URL,
-# OCR is skipped), so they are safe to omit in a minimal install.
-google-api-python-client==2.149.0
-google-auth==2.35.0
+# Optional / lazily-imported integrations. Heavier optional packages (numpy,
+# Google Calendar SDK, OCR) live in requirements-optional.txt (installed by
+# backend/Dockerfile) so serverless builds stay under Vercel's 250 MB limit.
 qrcode==7.4.2
 
 # ── Production / staging database + cache ──
 # Installed above: psycopg2-binary (PostgreSQL), dj-database-url (DATABASE_URL),
 # redis (shared rate-limit cache).
-
-# ── Optional OCR for scanned PDFs/images (needs system tesseract + poppler,
-#    installed in backend/Dockerfile) ──
-pytesseract==0.3.13
-pdf2image==1.17.0
 Pillow==13.0.0

@@ -52,7 +52,7 @@ import { RoomModal } from '@/components/team-chat/room-modal'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { toast } from '@/components/toaster'
 
-type WsStatus = 'connecting' | 'live' | 'reconnecting'
+type WsStatus = 'connecting' | 'live' | 'reconnecting' | 'http_sync'
 
 export default function TeamChatPage() {
   const { user } = useAuth()
@@ -80,6 +80,8 @@ export default function TeamChatPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [pinnedOpen, setPinnedOpen] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
+  const [summarizing, setSummarizing] = useState(false)
+  const [summaryPanel, setSummaryPanel] = useState<Awaited<ReturnType<typeof teamChatApi.summarizeRoom>> | null>(null)
 
   // Live WebSocket & @DeskWise stream state
   const [wsStatus, setWsStatus] = useState<WsStatus>('connecting')
@@ -219,6 +221,7 @@ export default function TeamChatPage() {
   useEffect(() => {
     if (!user?.company_id) return
     let stopped = false
+    let openedOnce = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let pingTimer: ReturnType<typeof setInterval> | null = null
     let attempt = 0
@@ -230,6 +233,7 @@ export default function TeamChatPage() {
       wsRef.current = ws
 
       ws.onopen = () => {
+        openedOnce = true
         attempt = 0
         setWsStatus('live')
         if (activeRoomRef.current) {
@@ -401,6 +405,12 @@ export default function TeamChatPage() {
           await authApi.me().catch(() => null)
         }
         attempt += 1
+        // Serverless backends (e.g. Vercel) do not support persistent WebSockets;
+        // fall back cleanly to HTTP polling after two initial handshake failures.
+        if (!openedOnce && attempt >= 2) {
+          setWsStatus('http_sync')
+          return
+        }
         setWsStatus('reconnecting')
         const delay = Math.min(8000, 800 * Math.pow(1.6, Math.min(attempt, 5)))
         reconnectTimer = setTimeout(connect, delay)
@@ -416,6 +426,26 @@ export default function TeamChatPage() {
       wsRef.current = null
     }
   }, [user?.company_id, user?.id, scrollToBottom])
+
+  // HTTP sync polling fallback when running against a serverless backend without WebSockets
+  useEffect(() => {
+    if (wsStatus !== 'http_sync' || !activeRoomId || searchQuery.trim()) return
+    const timer = setInterval(async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      try {
+        const res = await teamChatApi.messages(activeRoomId, { limit: 50, markRead: false })
+        setMessages((prev) => {
+          let next = prev
+          for (const m of res.results) next = upsertTeamMessage(next, m)
+          return next
+        })
+        setPinned(res.pinned)
+      } catch {
+        /* ignore transient poll error */
+      }
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [wsStatus, activeRoomId, searchQuery])
 
   // Load workspace documents on demand for attaching inside chat
   useEffect(() => {
@@ -491,7 +521,11 @@ export default function TeamChatPage() {
           reply_to_id: replyId,
           referenced_document_id: docId,
         })
-        setMessages((prev) => upsertTeamMessage(prev, res.message))
+        setMessages((prev) => {
+          let next = upsertTeamMessage(prev, res.message)
+          if (res.deskwise_message) next = upsertTeamMessage(next, res.deskwise_message)
+          return next
+        })
         setTimeout(() => scrollToBottom(true), 20)
       }
     } catch (err) {
@@ -698,15 +732,21 @@ export default function TeamChatPage() {
                   </span>
                 )}
                 <span
-                  title={`WebSocket: ${wsStatus}`}
+                  title={wsStatus === 'http_sync' ? 'HTTP auto-sync (4s)' : `WebSocket: ${wsStatus}`}
                   className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                     wsStatus === 'live'
                       ? 'bg-ok-soft text-ok'
-                      : 'bg-warn-soft text-warn'
+                      : wsStatus === 'http_sync'
+                        ? 'bg-info-soft text-info'
+                        : 'bg-warn-soft text-warn'
                   }`}
                 >
-                  {wsStatus === 'live' ? <Wifi className="size-2.5" /> : <WifiOff className="size-2.5" />}
-                  {wsStatus === 'live' ? 'Live' : 'Reconnecting'}
+                  {wsStatus === 'live' || wsStatus === 'http_sync' ? (
+                    <Wifi className="size-2.5" />
+                  ) : (
+                    <WifiOff className="size-2.5" />
+                  )}
+                  {wsStatus === 'live' ? 'Live' : wsStatus === 'http_sync' ? 'Synced' : 'Reconnecting'}
                 </span>
               </div>
               <p className="truncate text-xs text-muted-foreground">
@@ -756,6 +796,29 @@ export default function TeamChatPage() {
               <span className="size-2 rounded-full bg-ok" />
               <span>{onlineUserIds.length || 1} online</span>
             </button>
+
+            {activeRoom && (
+              <button
+                type="button"
+                disabled={summarizing}
+                onClick={async () => {
+                  setSummarizing(true)
+                  try {
+                    const res = await teamChatApi.summarizeRoom(activeRoom.id)
+                    setSummaryPanel(res)
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : 'Could not summarize room.')
+                  } finally {
+                    setSummarizing(false)
+                  }
+                }}
+                title="AI Catch-Up Summary"
+                className="inline-flex items-center gap-1 rounded-xl border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-2 disabled:opacity-50"
+              >
+                {summarizing ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                <span>Summarize</span>
+              </button>
+            )}
 
             {isAdmin && (
               <>
@@ -818,6 +881,50 @@ export default function TeamChatPage() {
                 </button>
               )
             })}
+          </div>
+        )}
+
+        {summaryPanel && summaryPanel.room_id === activeRoom?.id && (
+          <div className="mt-2.5 rounded-2xl border border-info/30 bg-info-soft p-3.5 text-xs">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                <Sparkles className="size-3.5 text-info" />
+                <span>Room Catch-Up Summary ({summaryPanel.message_count} messages · {summaryPanel.mode})</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSummaryPanel(null)}
+                className="rounded p-0.5 text-muted-foreground hover:bg-surface hover:text-foreground"
+                aria-label="Close summary"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+            <p className="mt-1.5 whitespace-pre-wrap leading-relaxed text-foreground/90">{summaryPanel.summary}</p>
+            {(summaryPanel.action_items.length > 0 || summaryPanel.open_questions.length > 0) && (
+              <div className="mt-2.5 grid gap-2 border-t border-info/20 pt-2 sm:grid-cols-2">
+                {summaryPanel.action_items.length > 0 && (
+                  <div>
+                    <p className="font-semibold text-foreground">Action items</p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted-foreground">
+                      {summaryPanel.action_items.map((item, i) => (
+                        <li key={i}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {summaryPanel.open_questions.length > 0 && (
+                  <div>
+                    <p className="font-semibold text-foreground">Open questions</p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted-foreground">
+                      {summaryPanel.open_questions.map((q, i) => (
+                        <li key={i}>{q}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

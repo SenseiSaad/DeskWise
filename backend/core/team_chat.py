@@ -23,7 +23,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from . import docgen, moderation, rag
+from . import docgen, moderation, providers, rag
 from .models import (
     AskLog, AuditLog, Department, Document, Plan, TeamMessage,
     TeamMessageReaction, TeamRoom, TeamRoomMember, TeamRoomReadState, User,
@@ -582,7 +582,7 @@ def create_user_message(
     payload = serialize_message(loaded)
     if client_nonce:
         payload["client_nonce"] = client_nonce
-    return loaded, payload, has_deskwise_mention(text)
+    return loaded, payload, (has_deskwise_mention(text) and getattr(room.company, "enable_ai_chat", True))
 
 
 def edit_user_message(user: User, msg: TeamMessage, content: str, ip: str = "") -> tuple[TeamMessage, dict]:
@@ -740,18 +740,19 @@ def extract_deskwise_question(text: str) -> str:
 def room_allowed_doc_ids(room: TeamRoom) -> set[int]:
     """Document IDs safe to cite in a shared room without leaking private files.
 
-    * `company` / default room: ONLY `access_scope='company'` documents.
-    * `department` room: `company` + that department's documents.
+    * `company` / default room: ONLY approved, `standard`-sensitivity `access_scope='company'` docs.
+    * `department` room: approved `standard` company docs + approved `standard`/`internal` department docs.
     * `private` room: intersection of all explicit room members' accessible docs.
     """
-    base = Document.objects.filter(company_id=room.company_id)
+    base = Document.objects.filter(company_id=room.company_id, status="approved")
     if room.is_default or room.scope == "company":
-        return set(base.filter(access_scope="company").values_list("id", flat=True))
+        return set(base.filter(access_scope="company", sensitivity="standard").values_list("id", flat=True))
     if room.scope == "department" and room.department_id:
         return set(
             base.filter(
-                Q(access_scope="company")
-                | Q(access_scope="department", department_id=room.department_id)
+                Q(access_scope="company", sensitivity="standard")
+                | Q(access_scope="department", department_id=room.department_id,
+                    sensitivity__in=("standard", "internal"))
             ).values_list("id", flat=True)
         )
     if room.scope == "private":
@@ -759,7 +760,7 @@ def room_allowed_doc_ids(room: TeamRoom) -> set[int]:
             TeamRoomMember.objects.filter(room=room, user__is_active=True).select_related("user")
         )
         if not members:
-            return set(base.filter(access_scope="company").values_list("id", flat=True))
+            return set(base.filter(access_scope="company", sensitivity="standard").values_list("id", flat=True))
         company_ids = set(base.values_list("id", flat=True))
         shared_ids: set[int] | None = None
         for m in members:
@@ -840,6 +841,15 @@ def generate_deskwise_reply(
         user = User.objects.select_related("company", "department").filter(pk=user_id).first()
         if room is None or trigger_msg is None or user is None:
             return None
+        if not getattr(room.company, "enable_ai_chat", True):
+            return _save_and_broadcast_bot_message(
+                room,
+                trigger_msg,
+                "AI assistant is disabled for this workspace.",
+                meta={"disabled": True},
+                stream_id=sid,
+                broadcast=broadcast,
+            )
 
         question = extract_deskwise_question(trigger_msg.content)
         if not question:
@@ -983,9 +993,13 @@ def generate_deskwise_reply(
 
 
 def spawn_deskwise_reply(room_id: int, trigger_message_id: int, user_id: int, stream_id: str | None = None) -> str:
-    """Launch @DeskWise reply asynchronously (unless eager mode is configured)."""
+    """Launch @DeskWise reply asynchronously (inline on serverless / eager mode)."""
     sid = stream_id or uuid.uuid4().hex[:12]
-    if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+    if (
+        getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False)
+        or getattr(settings, "SYNC_INDEXING", False)
+        or getattr(settings, "IS_VERCEL", False)
+    ):
         generate_deskwise_reply(room_id, trigger_message_id, user_id, broadcast=True, stream_id=sid, close_db=False)
         return sid
     t = threading.Thread(
@@ -1002,3 +1016,81 @@ def spawn_deskwise_reply(room_id: int, trigger_message_id: int, user_id: int, st
     )
     t.start()
     return sid
+
+
+def summarize_room_messages(room: TeamRoom, limit: int = 50) -> dict:
+    """Summarize recent room discussion into pinned highlights, open questions, and action items."""
+    rows = list(
+        TeamMessage.objects.filter(room=room)
+        .select_related("sender")
+        .order_by("-id")[:max(1, min(100, limit))]
+    )
+    rows.reverse()
+    if not rows:
+        return {
+            "room_id": room.id,
+            "message_count": 0,
+            "summary": "No messages in this room yet.",
+            "action_items": [],
+            "open_questions": [],
+            "pinned": [],
+            "mode": "deterministic",
+        }
+
+    transcript_lines = []
+    action_items = []
+    open_questions = []
+    pinned = []
+    redact = getattr(room.company, "redact_pii_for_llm", True)
+    for m in rows:
+        who = "DeskWise" if m.sender_type == "deskwise" else (
+            m.sender.full_name or m.sender.email.split("@")[0] if m.sender else "Teammate"
+        )
+        content = m.content.strip()
+        if redact:
+            content, _ = moderation.redact_pii(content)
+        transcript_lines.append(f"{who}: {content[:400]}")
+        if m.is_pinned:
+            pinned.append(f"{who}: {content[:200]}")
+        if m.sender_type == "user":
+            if "?" in content:
+                open_questions.append(f"{who}: {content[:200]}")
+            if re.search(r"\b(todo|action|please|will|need to|assign|deadline|by Friday|by Monday)\b", content, re.I):
+                action_items.append(f"{who}: {content[:200]}")
+
+    chat = providers.get_chat_provider(company=room.company)
+    if chat.available():
+        prompt = [
+            {
+                "role": "system",
+                "content": (
+                    "Summarize this team chat concisely in plain text with 3 short bullets: "
+                    "Key Decisions, Action Items, and Open Questions. Stay strictly grounded in the transcript."
+                ),
+            },
+            {"role": "user", "content": "\n".join(transcript_lines[-40:])},
+        ]
+        try:
+            ai_text = "".join(t for t in chat.stream_chat(prompt, 0.2, 400) if t).strip()
+            if ai_text:
+                return {
+                    "room_id": room.id,
+                    "message_count": len(rows),
+                    "summary": ai_text,
+                    "action_items": action_items[:10],
+                    "open_questions": open_questions[:10],
+                    "pinned": pinned[:10],
+                    "mode": chat.label,
+                }
+        except Exception:
+            pass
+
+    return {
+        "room_id": room.id,
+        "message_count": len(rows),
+        "summary": f"{len(rows)} message(s) reviewed: {len(pinned)} pinned, {len(action_items)} potential action item(s), {len(open_questions)} question(s).",
+        "action_items": action_items[:10],
+        "open_questions": open_questions[:10],
+        "pinned": pinned[:10],
+        "mode": "deterministic",
+    }

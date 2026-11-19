@@ -3,8 +3,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from .models import (
-    Announcement, AskLog, AuditLog, ChatConversation, ChatMessage, Company, Department,
-    Document, DocumentAccess, DocumentShare, DocumentVersion, LLMConfig, Plan,
+    Announcement, AnnouncementAck, AskLog, AuditLog, ChatConversation, ChatMessage, Company,
+    Department, Document, DocumentAccess, DocumentShare, DocumentVersion, LLMConfig, Plan,
     AttendanceRecord, UserStrike, User,
 )
 
@@ -73,6 +73,8 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
             "id", "name", "slug", "access_code", "website", "contact_email", "phone",
             "max_employees", "plan", "hr_email", "signature", "tone", "industry",
             "enable_attendance", "attendance_auto_freeze", "enable_docgen",
+            "enable_ai_chat", "enable_team_chat", "enable_external_sharing",
+            "require_doc_approval", "redact_pii_for_llm", "doc_retention_days",
         ]
 
 
@@ -89,7 +91,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "email", "username", "full_name", "title", "role",
+        fields = ["id", "email", "username", "full_name", "title", "role", "is_dept_admin",
                   "company_id", "company", "department_id", "department_name",
                   "manager", "employee_id", "join_date", "email_verified",
                   "language", "is_active", "is_platform_admin", "is_superuser"]
@@ -117,8 +119,9 @@ class DocumentSerializer(serializers.ModelSerializer):
         model = Document
         fields = [
             "id", "filename", "content_type", "size", "category", "description",
-            "downloads", "is_okf", "num_chunks", "access_scope", "department",
-            "department_name", "tags", "indexing_status", "index_error",
+            "downloads", "is_okf", "num_chunks", "access_scope", "sensitivity",
+            "status", "reviewed_at", "review_note", "contains_pii", "legal_hold",
+            "department", "department_name", "tags", "indexing_status", "index_error",
             "version", "created_at", "updated_at", "company_name",
             "is_template", "template_type", "embed_model", "reindex_required",
         ]
@@ -147,7 +150,7 @@ class AuditSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AuditLog
-        fields = ["id", "user_id", "action", "detail", "ip", "created_at"]
+        fields = ["id", "user_id", "action", "detail", "ip", "prev_hash", "entry_hash", "created_at"]
 
 
 class RegisterCompanySerializer(serializers.Serializer):
@@ -182,6 +185,7 @@ class UserCreateSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(min_length=8)
     role = serializers.ChoiceField(choices=["admin", "employee", "viewer"], default="employee")
+    is_dept_admin = serializers.BooleanField(required=False, default=False)
 
     def validate_password(self, value):
         try:
@@ -226,10 +230,13 @@ class DocumentShareSerializer(serializers.ModelSerializer):
         source="shared_with_user.company.access_code", read_only=True, default=None
     )
 
+    is_expired = serializers.BooleanField(read_only=True)
+
     class Meta:
         model = DocumentShare
         fields = ["id", "user_id", "email", "full_name", "title", "role",
-                  "company_name", "access_code", "can_download", "created_at"]
+                  "company_name", "access_code", "can_download", "expires_at",
+                  "is_expired", "created_at"]
 
 
 class LLMConfigSerializer(serializers.ModelSerializer):
@@ -339,10 +346,25 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 
 class AnnouncementSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source="created_by.full_name", read_only=True, default=None)
+    ack_count = serializers.SerializerMethodField()
+    acknowledged_by_me = serializers.SerializerMethodField()
 
     class Meta:
         model = Announcement
-        fields = ["id", "title", "body", "created_by_name", "created_at"]
+        fields = [
+            "id", "title", "body", "require_ack", "ack_count",
+            "acknowledged_by_me", "created_by_name", "created_at",
+        ]
+
+    def get_ack_count(self, obj):
+        return obj.acks.count()
+
+    def get_acknowledged_by_me(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        return obj.acks.filter(user=user).exists()
 
 
 class AskLogSerializer(serializers.ModelSerializer):

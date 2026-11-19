@@ -8,10 +8,12 @@ import {
   CreditCard,
   KeyRound,
   Loader2,
+  LogOut,
   MessageSquare,
   PlugZap,
   RotateCcw,
   Save,
+  Shield,
   Users,
 } from 'lucide-react'
 import {
@@ -109,7 +111,7 @@ const PROVIDERS: {
 type Tab = 'company' | 'plan' | 'ai'
 
 export default function SettingsPage() {
-  const { user, isPlatformAdmin } = useAuth()
+  const { user, isPlatformAdmin, refreshUser, logout } = useAuth()
   // Company profile / plan / AI engine are admin-only (the API enforces it);
   // everyone else just gets "My Profile".
   const isAdmin = user?.role === 'admin' || isPlatformAdmin
@@ -128,7 +130,16 @@ export default function SettingsPage() {
   const [compHrEmail, setCompHrEmail] = useState('')
   const [compSignature, setCompSignature] = useState('')
   const [compTone, setCompTone] = useState('')
+  const [enableAiChat, setEnableAiChat] = useState(true)
+  const [enableTeamChat, setEnableTeamChat] = useState(true)
+  const [enableExternalSharing, setEnableExternalSharing] = useState(true)
+  const [enableAttendance, setEnableAttendance] = useState(true)
+  const [enableDocgen, setEnableDocgen] = useState(true)
+  const [requireDocApproval, setRequireDocApproval] = useState(false)
+  const [redactPiiForLlm, setRedactPiiForLlm] = useState(true)
+  const [docRetentionDays, setDocRetentionDays] = useState<string>('')
   const [savingComp, setSavingComp] = useState(false)
+  const [loggingOutAll, setLoggingOutAll] = useState(false)
 
   // My profile (template filling uses only non-empty fields)
   const [myName, setMyName] = useState('')
@@ -199,6 +210,14 @@ export default function SettingsPage() {
         setCompHrEmail(res.hr_email || '')
         setCompSignature(res.signature || '')
         setCompTone(res.tone || '')
+        setEnableAiChat(res.enable_ai_chat !== false)
+        setEnableTeamChat(res.enable_team_chat !== false)
+        setEnableExternalSharing(res.enable_external_sharing !== false)
+        setEnableAttendance(res.enable_attendance !== false)
+        setEnableDocgen(res.enable_docgen !== false)
+        setRequireDocApproval(Boolean(res.require_doc_approval))
+        setRedactPiiForLlm(res.redact_pii_for_llm !== false)
+        setDocRetentionDays(res.doc_retention_days != null ? String(res.doc_retention_days) : '')
       })
       .catch(() => setProfile(null))
       .finally(() => setCompLoading(false))
@@ -260,8 +279,17 @@ export default function SettingsPage() {
         hr_email: compHrEmail.trim(),
         signature: compSignature.trim(),
         tone: compTone.trim(),
+        enable_ai_chat: enableAiChat,
+        enable_team_chat: enableTeamChat,
+        enable_external_sharing: enableExternalSharing,
+        enable_attendance: enableAttendance,
+        enable_docgen: enableDocgen,
+        require_doc_approval: requireDocApproval,
+        redact_pii_for_llm: redactPiiForLlm,
+        doc_retention_days: docRetentionDays ? Number(docRetentionDays) : null,
       })
       setProfile(updated)
+      await refreshUser().catch(() => undefined)
       toast.success('Company settings saved.')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not save company settings.')
@@ -554,6 +582,57 @@ export default function SettingsPage() {
                 />
               </div>
 
+              {/* Universal Feature Switches & Security Governance */}
+              <div className="rounded-2xl border border-border bg-surface p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Shield className="size-4 text-foreground" />
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Workspace Feature Switches &amp; Security</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Tailor this workspace for your organization. Disabled features are blocked at the API level.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {[
+                    { label: 'AI Knowledge Chat', desc: 'Allow /ask & AI threads', val: enableAiChat, set: setEnableAiChat },
+                    { label: 'Employee Team Chat', desc: 'Real-time rooms & @DeskWise', val: enableTeamChat, set: setEnableTeamChat },
+                    { label: 'External Sharing', desc: 'Cross-company partner grants', val: enableExternalSharing, set: setEnableExternalSharing },
+                    { label: 'QR Attendance', desc: 'Daily check-in & strike rules', val: enableAttendance, set: setEnableAttendance },
+                    { label: 'Document Generation', desc: 'Template & form auto-fill', val: enableDocgen, set: setEnableDocgen },
+                    { label: 'Require Doc Approval', desc: 'Non-admin uploads enter review', val: requireDocApproval, set: setRequireDocApproval },
+                    { label: 'PII Redaction Gate', desc: 'Mask SSN/CNIC/keys before LLM', val: redactPiiForLlm, set: setRedactPiiForLlm },
+                  ].map((item) => (
+                    <label
+                      key={item.label}
+                      className="flex cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2 text-xs"
+                    >
+                      <span className="min-w-0">
+                        <span className="block font-medium text-foreground">{item.label}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground">{item.desc}</span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={item.val}
+                        onChange={(e) => item.set(e.target.checked)}
+                        className="size-4 shrink-0 rounded accent-primary"
+                      />
+                    </label>
+                  ))}
+                </div>
+                <div>
+                  <label className={label}>Stale / Retention Alert Window (days)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={docRetentionDays}
+                    onChange={(e) => setDocRetentionDays(e.target.value)}
+                    placeholder="180 (default)"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
               <div className="pt-2">
                 <button type="submit" disabled={savingComp} className={primaryBtn}>
                   {savingComp ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
@@ -597,10 +676,32 @@ export default function SettingsPage() {
                 <input type="date" value={myJoinDate} onChange={(e) => setMyJoinDate(e.target.value)} className={inputClass} />
               </div>
             </div>
-            <button type="submit" disabled={savingMe} className={primaryBtn}>
-              {savingMe ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-              Save My Profile
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="submit" disabled={savingMe} className={primaryBtn}>
+                {savingMe ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+                Save My Profile
+              </button>
+              <button
+                type="button"
+                disabled={loggingOutAll}
+                onClick={async () => {
+                  setLoggingOutAll(true)
+                  try {
+                    await authApi.logoutAll()
+                    toast.success('All active sessions revoked.')
+                    await logout()
+                  } catch {
+                    toast.error('Could not revoke sessions.')
+                  } finally {
+                    setLoggingOutAll(false)
+                  }
+                }}
+                className={ghostBtn}
+              >
+                {loggingOutAll ? <Loader2 className="size-3.5 animate-spin" /> : <LogOut className="size-3.5" />}
+                Sign out all devices
+              </button>
+            </div>
           </form>
         </section>
       )}

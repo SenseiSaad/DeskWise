@@ -205,11 +205,19 @@ export const artifactsApi = {
   get: (id: number): Promise<Artifact> => api.get(`/artifacts/${id}`),
 }
 
+export interface AskCitation {
+  document_id: number
+  filename: string
+  chunk_ord: number
+  snippet: string
+}
+
 export type AskEvent =
-  | { type: 'sources'; sources: string[] }
+  | { type: 'sources'; sources: string[]; citations?: AskCitation[] }
   | { type: 'conversation'; conversation_id: number }
   | { type: 'saved'; message_id: number }
   | { type: 'flag'; message: string; categories: string[] }
+  | { type: 'redaction'; message: string; categories: string[] }
   | { type: 'token'; token: string }
   | { type: 'intent'; intent: string; data: Record<string, unknown> }
   | { type: 'artifact'; artifact: Artifact }
@@ -357,6 +365,16 @@ export interface CompanyProfile {
   hr_email?: string
   signature?: string
   tone?: string
+  industry?: string
+  enable_attendance?: boolean
+  attendance_auto_freeze?: boolean
+  enable_docgen?: boolean
+  enable_ai_chat?: boolean
+  enable_team_chat?: boolean
+  enable_external_sharing?: boolean
+  require_doc_approval?: boolean
+  redact_pii_for_llm?: boolean
+  doc_retention_days?: number | null
 }
 
 export interface User {
@@ -366,6 +384,7 @@ export interface User {
   full_name: string
   title: string // display job title (CEO/CTO/HR/...), not a permission
   role: Role
+  is_dept_admin?: boolean
   company_id: number | null
   company: CompanyProfile | null
   department_id: number | null
@@ -427,6 +446,7 @@ export const authApi = {
     password: string
   }): Promise<AuthResponse> => api.post('/auth/register', p),
   logout: (): Promise<{ ok: boolean }> => api.post('/auth/logout'),
+  logoutAll: (): Promise<{ ok: boolean }> => api.post('/auth/logout-all'),
   updateMe: (p: { full_name?: string; title?: string; language?: UiLanguage;
                    current_password?: string; new_password?: string;
                    manager?: string; employee_id?: string; join_date?: string }): Promise<User> =>
@@ -476,6 +496,12 @@ export interface EnterpriseDoc {
   downloads: number
   is_okf: boolean
   access_scope: 'company' | 'restricted' | 'department'
+  sensitivity?: 'standard' | 'internal' | 'confidential'
+  status?: 'draft' | 'in_review' | 'approved' | 'archived'
+  reviewed_at?: string | null
+  review_note?: string
+  contains_pii?: boolean
+  legal_hold?: boolean
   department: number | null
   department_name: string | null
   tags: string[]
@@ -503,6 +529,8 @@ export interface AuditRow {
   action: string
   detail: string
   ip: string
+  prev_hash?: string
+  entry_hash?: string
   created_at: string
 }
 
@@ -541,6 +569,7 @@ export interface LlmStatus {
 export interface SharedDoc extends EnterpriseDoc {
   shared_by: string | null
   can_download: boolean
+  expires_at?: string | null
 }
 
 // One grantee on a document the caller's company owns.
@@ -554,6 +583,8 @@ export interface DocumentShareRow {
   company_name: string | null
   access_code: string | null
   can_download: boolean
+  expires_at?: string | null
+  is_expired?: boolean
   created_at: string
 }
 
@@ -599,6 +630,7 @@ export interface NewUser {
   email: string
   password: string
   role: Role
+  is_dept_admin?: boolean
 }
 
 // Company documents. Access is filtered server-side; upload/delete/share
@@ -633,6 +665,7 @@ export const workApi = {
               tags: form.get('tags') ?? '',
               is_okf: form.get('is_okf') ?? 'false',
               access_scope: form.get('access_scope') ?? 'company',
+              sensitivity: form.get('sensitivity') ?? 'standard',
               department_id: form.get('department_id') ?? null,
             })
           }
@@ -647,6 +680,10 @@ export const workApi = {
   docDetail: (id: number): Promise<EnterpriseDoc> => api.get(`/documents/${id}`),
   updateDoc: (id: number, p: Partial<EnterpriseDoc>): Promise<EnterpriseDoc> =>
     api.patch(`/documents/${id}`, p),
+  reviewDoc: (
+    id: number,
+    p: { action: 'submit' | 'approve' | 'reject' | 'archive'; note?: string },
+  ): Promise<EnterpriseDoc> => api.post(`/documents/${id}/review`, p),
   remove: (id: number): Promise<null> => api.del(`/documents/${id}`),
   reindex: (id: number): Promise<EnterpriseDoc> => api.post(`/documents/${id}/reindex`),
   preview: (id: number): Promise<{ id: number; filename: string; text: string; truncated: boolean; num_chunks: number }> =>
@@ -658,30 +695,68 @@ export const workApi = {
   llmStatus: (): Promise<LlmStatus> => api.get('/llm-status'),
   // Documents other companies shared directly with me (cross-company collab).
   sharedWithMe: (): Promise<SharedDoc[]> => api.get('/shared-with-me'),
+  search: (q: string): Promise<{
+    query: string
+    documents: EnterpriseDoc[]
+    team_messages: { id: number; room_id: number; room_name: string; sender: string; content: string; created_at: string }[]
+    artifacts: Artifact[]
+  }> => api.get(`/search?q=${encodeURIComponent(q)}`),
 }
 
 // Granular cross-company sharing. Editors of the OWNING company manage who,
 // outside their company, can access one specific document.
 export const shareApi = {
   list: (docId: number): Promise<DocumentShareRow[]> => api.get(`/documents/${docId}/shares`),
-  add: (docId: number, payload: { access_code: string; user_id: number; can_download?: boolean }): Promise<DocumentShareRow> =>
-    api.post(`/documents/${docId}/shares`, payload),
+  add: (
+    docId: number,
+    payload: { access_code: string; user_id: number; can_download?: boolean; expires_in_days?: number; allow_pii?: boolean },
+  ): Promise<DocumentShareRow> => api.post(`/documents/${docId}/shares`, payload),
   remove: (docId: number, userId: number): Promise<null> =>
     api.del(`/documents/${docId}/shares/${userId}`),
 }
 
-// Company settings (admin): profile + seat cap.
+// Company settings (admin): profile + seat cap + feature switches.
 export const companyApi2 = {
   settings: (): Promise<CompanyProfile> => api.get('/admin/company'),
-  updateSettings: (p: Partial<Pick<CompanyProfile, 'name' | 'website' | 'contact_email' | 'phone' | 'max_employees' | 'hr_email' | 'signature' | 'tone'>>): Promise<CompanyProfile> =>
-    api.patch('/admin/company', p),
+  updateSettings: (
+    p: Partial<
+      Pick<
+        CompanyProfile,
+        | 'name'
+        | 'website'
+        | 'contact_email'
+        | 'phone'
+        | 'max_employees'
+        | 'hr_email'
+        | 'signature'
+        | 'tone'
+        | 'enable_attendance'
+        | 'attendance_auto_freeze'
+        | 'enable_docgen'
+        | 'enable_ai_chat'
+        | 'enable_team_chat'
+        | 'enable_external_sharing'
+        | 'require_doc_approval'
+        | 'redact_pii_for_llm'
+        | 'doc_retention_days'
+      >
+    >,
+  ): Promise<CompanyProfile> => api.patch('/admin/company', p),
   departments: (): Promise<Department[]> => api.get('/admin/departments'),
   addDepartment: (name: string): Promise<Department> => api.post('/admin/departments', { name }),
   removeDepartment: (id: number): Promise<null> => api.del(`/admin/departments/${id}`),
   announcements: (): Promise<Announcement[]> => api.get('/admin/announcements'),
-  addAnnouncement: (p: { title: string; body: string }): Promise<Announcement> =>
+  addAnnouncement: (p: { title: string; body: string; require_ack?: boolean }): Promise<Announcement> =>
     api.post('/admin/announcements', p),
   removeAnnouncement: (id: number): Promise<null> => api.del(`/admin/announcements/${id}`),
+  ackAnnouncement: (id: number): Promise<{ announcement_id: number; acknowledged: boolean; acknowledged_at: string }> =>
+    api.post(`/announcements/${id}/ack`),
+  announcementAcks: (id: number): Promise<{
+    announcement_id: number
+    require_ack: boolean
+    acknowledged: { user_id: number; email: string; full_name: string; acknowledged_at: string }[]
+    pending: { user_id: number; email: string; full_name: string }[]
+  }> => api.get(`/announcements/${id}/acks`),
 }
 
 // Platform LLM provider settings + connectivity test.
@@ -765,15 +840,36 @@ export interface AdminCompany {
   plan: Plan | null
 }
 
+export interface GovernanceSummary {
+  pending_review_count: number
+  pending_reviews: EnterpriseDoc[]
+  pii_document_count: number
+  pii_documents: EnterpriseDoc[]
+  legal_hold_count: number
+  legal_hold_documents: EnterpriseDoc[]
+  stale_threshold_days: number
+  stale_document_count: number
+  stale_documents: EnterpriseDoc[]
+  expiring_shares: DocumentShareRow[]
+  expired_share_count: number
+  mandatory_announcements: { id: number; title: string; acknowledged_count: number; pending_count: number }[]
+  audit_integrity: { valid: boolean; checked: number; broken_id: number | null }
+}
+
 // Company administration: requires admin/platform authority.
 export const adminApi = {
   users: (): Promise<User[]> => api.get('/admin/users'),
   createUser: (p: NewUser): Promise<User> => api.post('/admin/users', p),
-  updateUser: (id: number, p: { role?: Role; department_id?: number | null; full_name?: string; title?: string; is_active?: boolean }): Promise<User> =>
-    api.patch(`/admin/users/${id}`, p),
+  updateUser: (
+    id: number,
+    p: { role?: Role; is_dept_admin?: boolean; department_id?: number | null; full_name?: string; title?: string; is_active?: boolean },
+  ): Promise<User> => api.patch(`/admin/users/${id}`, p),
   removeUser: (id: number): Promise<null> => api.del(`/admin/users/${id}`),
   audit: (page = 1, pageSize = 200): Promise<Paged<AuditRow>> =>
     api.get(`/admin/audit?page=${page}&page_size=${pageSize}`),
+  verifyAudit: (): Promise<{ valid: boolean; checked: number; broken_id: number | null }> =>
+    api.get('/admin/audit/verify'),
+  governance: (): Promise<GovernanceSummary> => api.get('/admin/governance'),
   exportAudit: () => `${API_BASE}/api/admin/audit?export=csv`,
   companies: (): Promise<AdminCompany[]> => api.get('/admin/companies'),
   switchCompany: (company_id: number): Promise<User> => api.post('/admin/switch-company', { company_id }),
@@ -848,6 +944,9 @@ export interface Announcement {
   id: number
   title: string
   body: string
+  require_ack?: boolean
+  ack_count?: number
+  acknowledged_by_me?: boolean
   created_by_name: string | null
   created_at: string
 }
@@ -1000,7 +1099,12 @@ export const teamChatApi = {
       referenced_document_id?: number | null
       client_nonce?: string
     },
-  ): Promise<{ message: TeamMessage; deskwise_triggered: boolean; stream_id: string | null }> =>
+  ): Promise<{
+    message: TeamMessage
+    deskwise_triggered: boolean
+    stream_id: string | null
+    deskwise_message?: TeamMessage | null
+  }> =>
     api.post(`/team-chat/rooms/${roomId}/messages`, p),
   markRead: (roomId: number, lastMessageId?: number): Promise<{ ok: boolean; last_read_message_id: number }> =>
     api.post(`/team-chat/rooms/${roomId}/read`, lastMessageId ? { last_message_id: lastMessageId } : {}),
@@ -1012,6 +1116,15 @@ export const teamChatApi = {
     api.post(`/team-chat/messages/${msgId}/pin`, pinned === undefined ? {} : { pinned }),
   reactMessage: (msgId: number, emoji: string): Promise<{ message: TeamMessage }> =>
     api.post(`/team-chat/messages/${msgId}/react`, { emoji }),
+  summarizeRoom: (roomId: number): Promise<{
+    room_id: number
+    message_count: number
+    summary: string
+    action_items: string[]
+    open_questions: string[]
+    pinned: string[]
+    mode: string
+  }> => api.post(`/team-chat/rooms/${roomId}/summarize`),
 }
 
 // Authenticated download of a permitted enterprise document.

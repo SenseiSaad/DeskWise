@@ -19,6 +19,8 @@ import {
   RefreshCw,
   Search,
   Share2,
+  Shield,
+  ShieldAlert,
   Sparkles,
   Tag,
   Trash2,
@@ -156,6 +158,8 @@ function UploadPanel({
   departments: Department[]
   onUploaded?: (doc: EnterpriseDoc) => void
 }) {
+  const { user } = useAuth()
+  const canSetConfidential = Boolean(user?.role === 'admin' || user?.is_platform_admin || user?.is_dept_admin)
   const {
     stagedFiles: files,
     setStagedFiles: setFiles,
@@ -168,6 +172,7 @@ function UploadPanel({
   const description = draft.description
   const tagsInput = draft.tagsInput
   const scope = draft.accessScope
+  const sensitivity = draft.sensitivity || 'standard'
   const deptId = draft.departmentId
   const isOkf = draft.isOkf
   const setCategory = (v: string) =>
@@ -178,6 +183,8 @@ function UploadPanel({
     setDocsState((s) => ({ ...s, uploadDraft: { ...s.uploadDraft, tagsInput: v } }))
   const setScope = (v: 'company' | 'restricted' | 'department') =>
     setDocsState((s) => ({ ...s, uploadDraft: { ...s.uploadDraft, accessScope: v } }))
+  const setSensitivity = (v: 'standard' | 'internal' | 'confidential') =>
+    setDocsState((s) => ({ ...s, uploadDraft: { ...s.uploadDraft, sensitivity: v } }))
   const setDeptId = (v: number | '') =>
     setDocsState((s) => ({ ...s, uploadDraft: { ...s.uploadDraft, departmentId: v } }))
   const setIsOkf = (v: boolean) =>
@@ -222,6 +229,7 @@ function UploadPanel({
       tags,
       isOkf,
       accessScope: scope,
+      sensitivity,
       departmentId: deptId,
     })
 
@@ -233,6 +241,7 @@ function UploadPanel({
         description: '',
         tagsInput: '',
         accessScope: 'company',
+        sensitivity: 'standard',
         departmentId: '',
         isOkf: false,
       },
@@ -532,6 +541,22 @@ function UploadPanel({
                 />
               </div>
             </SmoothCollapse>
+
+            <div className="mt-3">
+              <label className="mb-1.5 block text-xs font-medium text-foreground">Sensitivity clearance</label>
+              <SmoothSelect<'standard' | 'internal' | 'confidential'>
+                value={sensitivity}
+                onChange={setSensitivity}
+                ariaLabel="Sensitivity clearance"
+                options={[
+                  { value: 'standard', label: 'Standard', description: 'Follows scope (all roles incl. viewers)' },
+                  { value: 'internal', label: 'Internal (Employees+)', description: 'Hidden from read-only viewers' },
+                  ...(canSetConfidential
+                    ? [{ value: 'confidential' as const, label: 'Confidential (Admin Only)', description: 'Locked to admins & explicit grants' }]
+                    : []),
+                ]}
+              />
+            </div>
           </fieldset>
 
           <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3.5 py-2.5 text-xs text-foreground transition-colors hover:bg-surface-2">
@@ -811,10 +836,17 @@ function EditMetadataModal({
   onClose: () => void
   onSaved: (doc: EnterpriseDoc) => void
 }) {
+  const { user } = useAuth()
+  const isCompanyAdmin = Boolean(user?.role === 'admin' || user?.is_platform_admin)
+  const canSetConfidential = Boolean(isCompanyAdmin || (user?.is_dept_admin && doc.department === user.department_id))
   const [description, setDescription] = useState(doc.description || '')
   const [category, setCategory] = useState(doc.category || '')
   const [tagsInput, setTagsInput] = useState((doc.tags || []).join(', '))
   const [scope, setScope] = useState<EnterpriseDoc['access_scope']>(doc.access_scope)
+  const [sensitivity, setSensitivity] = useState<'standard' | 'internal' | 'confidential'>(
+    doc.sensitivity || 'standard',
+  )
+  const [legalHold, setLegalHold] = useState(Boolean(doc.legal_hold))
   const [deptId, setDeptId] = useState<number | ''>(doc.department ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -828,13 +860,16 @@ function EditMetadataModal({
         .split(',')
         .map((t) => t.trim())
         .filter(Boolean)
-      const updated = await workApi.updateDoc(doc.id, {
+      const payload: Partial<EnterpriseDoc> = {
         description: description.trim(),
         category: category.trim(),
         tags,
         access_scope: scope,
+        sensitivity,
         department: scope === 'department' && deptId ? Number(deptId) : null,
-      })
+      }
+      if (isCompanyAdmin) payload.legal_hold = legalHold
+      const updated = await workApi.updateDoc(doc.id, payload)
       toast.success('Document updated.')
       onSaved(updated)
       onClose()
@@ -921,6 +956,34 @@ function EditMetadataModal({
           </div>
         </SmoothCollapse>
 
+        <div>
+          <label className="mb-1 block text-xs font-medium text-foreground">Sensitivity clearance</label>
+          <SmoothSelect<'standard' | 'internal' | 'confidential'>
+            value={sensitivity}
+            onChange={setSensitivity}
+            ariaLabel="Sensitivity clearance"
+            options={[
+              { value: 'standard', label: 'Standard', description: 'All roles matching access scope' },
+              { value: 'internal', label: 'Internal (Employees+)', description: 'Blocks viewer accounts' },
+              ...(canSetConfidential
+                ? [{ value: 'confidential' as const, label: 'Confidential (Admin Only)', description: 'Restricted to admins & explicit grants' }]
+                : []),
+            ]}
+          />
+        </div>
+
+        {isCompanyAdmin && (
+          <label className="flex cursor-pointer items-center justify-between rounded-xl border border-border bg-surface px-3 py-2 text-xs">
+            <span className="font-medium text-foreground">Legal hold (prevent deletion)</span>
+            <input
+              type="checkbox"
+              checked={legalHold}
+              onChange={(e) => setLegalHold(e.target.checked)}
+              className="size-4 rounded accent-primary"
+            />
+          </label>
+        )}
+
         {error && <p className="text-xs text-danger">{error}</p>}
 
         <div className="flex justify-end gap-2 pt-2">
@@ -942,6 +1005,8 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
   const [company, setCompany] = useState<CompanyDirectory | null>(null)
   const [members, setMembers] = useState<MemberDirectory[]>([])
   const [selectedId, setSelectedId] = useState<number | ''>('')
+  const [expiresDays, setExpiresDays] = useState<string>('')
+  const [allowPii, setAllowPii] = useState(false)
   const [loading, setLoading] = useState(true)
   const [searching, setSearching] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -987,6 +1052,8 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
       const row = await shareApi.add(doc.id, {
         access_code: company.access_code,
         user_id: selectedId,
+        ...(expiresDays ? { expires_in_days: Number(expiresDays) } : {}),
+        ...(doc.contains_pii && allowPii ? { allow_pii: true } : {}),
       })
       setShares((prev) => [row, ...prev.filter((x) => x.user_id !== row.user_id)])
       setSelectedId('')
@@ -1104,6 +1171,32 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
                   Share
                 </button>
               </div>
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
+                <label className="flex items-center gap-2 text-muted-foreground">
+                  <span>Expires:</span>
+                  <select
+                    value={expiresDays}
+                    onChange={(e) => setExpiresDays(e.target.value)}
+                    className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-foreground outline-none"
+                  >
+                    <option value="">Never</option>
+                    <option value="1">1 day</option>
+                    <option value="7">7 days</option>
+                    <option value="30">30 days</option>
+                  </select>
+                </label>
+                {doc.contains_pii && (
+                  <label className="flex cursor-pointer items-center gap-1.5 text-warn">
+                    <input
+                      type="checkbox"
+                      checked={allowPii}
+                      onChange={(e) => setAllowPii(e.target.checked)}
+                      className="size-3.5 rounded accent-primary"
+                    />
+                    <span>Admin override: allow sharing PII-flagged file</span>
+                  </label>
+                )}
+              </div>
             </motion.form>
           )}
         </AnimatePresence>
@@ -1134,6 +1227,7 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
                     </p>
                     <p className="truncate text-[11px] text-muted-foreground">
                       {s.email} · {s.company_name || 'Company'}
+                      {s.expires_at ? ` · Expires ${formatDate(s.expires_at)}` : ''}
                     </p>
                   </div>
                   <button
@@ -1328,6 +1422,19 @@ export default function DocumentsPage() {
       }, 2200)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Download failed.')
+    } finally {
+      setBusyFor(doc.id, false)
+    }
+  }
+
+  async function reviewDoc(doc: EnterpriseDoc, action: 'submit' | 'approve' | 'reject' | 'archive') {
+    setBusyFor(doc.id, true)
+    try {
+      const updated = await workApi.reviewDoc(doc.id, { action })
+      setDocs((prev) => prev.map((d) => (d.id === doc.id ? updated : d)))
+      toast.success(`Document ${action === 'approve' ? 'approved' : action === 'reject' ? 'returned to draft' : 'updated'}.`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Review action failed.')
     } finally {
       setBusyFor(doc.id, false)
     }
@@ -1745,6 +1852,33 @@ export default function DocumentsPage() {
                               v{doc.version}
                             </span>
                           )}
+                          {doc.sensitivity && doc.sensitivity !== 'standard' && (
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                doc.sensitivity === 'confidential'
+                                  ? 'bg-danger-soft text-danger'
+                                  : 'bg-warn-soft text-warn'
+                              }`}
+                            >
+                              <Shield className="size-2.5" />
+                              {doc.sensitivity}
+                            </span>
+                          )}
+                          {doc.status && doc.status !== 'approved' && (
+                            <span className="rounded-full bg-info-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-info">
+                              {doc.status.replace('_', ' ')}
+                            </span>
+                          )}
+                          {doc.contains_pii && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[10px] font-semibold text-warn">
+                              <ShieldAlert className="size-2.5" /> PII
+                            </span>
+                          )}
+                          {doc.legal_hold && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-danger-soft px-2 py-0.5 text-[10px] font-semibold text-danger">
+                              <Lock className="size-2.5" /> Legal Hold
+                            </span>
+                          )}
                         </div>
 
                         {doc.description && (
@@ -1853,10 +1987,36 @@ export default function DocumentsPage() {
                           >
                             <Share2 className="size-3.5" /> Share
                           </button>
+                          {doc.status === 'in_review' &&
+                            (user?.role === 'admin' ||
+                              user?.is_platform_admin ||
+                              (user?.is_dept_admin && doc.department === user.department_id)) && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => reviewDoc(doc, 'approve')}
+                                  disabled={isBusy}
+                                  className={ghostBtn}
+                                  title="Approve document"
+                                >
+                                  <Check className="size-3.5 text-ok" /> Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => reviewDoc(doc, 'reject')}
+                                  disabled={isBusy}
+                                  className={ghostBtn}
+                                  title="Return to draft"
+                                >
+                                  <X className="size-3.5 text-danger" /> Reject
+                                </button>
+                              </>
+                            )}
                           <button
                             type="button"
                             onClick={() => setConfirmDoc(doc)}
-                            disabled={isBusy}
+                            disabled={isBusy || Boolean(doc.legal_hold)}
+                            title={doc.legal_hold ? 'Document is under legal hold' : 'Delete document'}
                             className={dangerBtn}
                           >
                             <Trash2 className="size-3.5" /> Delete

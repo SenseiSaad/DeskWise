@@ -15,9 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 postgresql-client awscli curl gosu tesseract-ocr poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt .
+COPY backend/requirements.txt backend/requirements-optional.txt ./
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --retries 8 --timeout 120 -r requirements.txt
+    pip install --retries 8 --timeout 120 -r requirements.txt -r requirements-optional.txt
 
 COPY backend/ .
 COPY demo_docs/ /app/demo_docs/

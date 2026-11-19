@@ -1208,6 +1208,12 @@ function Bubble({
         ) : null}
 
         {msg.flag ? <FlagBanner flag={msg.flag} /> : null}
+        {msg.redacted && msg.redacted.length > 0 ? (
+          <div className="mt-2 flex items-center gap-2 rounded-2xl border border-info/30 bg-info-soft px-3 py-1.5 text-[11px] text-info">
+            <ShieldAlert className="size-3.5 shrink-0" aria-hidden />
+            <span>Sensitive fields masked before AI lookup ({msg.redacted.join(', ')})</span>
+          </div>
+        ) : null}
         {msg.workflow ? <WorkflowCard wf={msg.workflow} /> : null}
         {artifacts.map((a) => (
           <ArtifactCard key={a.id} a={a} />
@@ -1228,14 +1234,19 @@ function Bubble({
               <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
                 {t('sources', lang)}
               </span>
-              {msg.sources.map((s) => (
-                <span
-                  key={s}
-                  className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-foreground/85"
-                >
-                  <FileText className="size-3" aria-hidden /> {s}
-                </span>
-              ))}
+              {msg.sources.map((s) => {
+                const cit = msg.citations?.find((c) => c.filename === s)
+                return (
+                  <span
+                    key={s}
+                    title={cit ? `${cit.filename} · chunk #${cit.chunk_ord}: ${cit.snippet}` : s}
+                    className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-foreground/85"
+                  >
+                    <FileText className="size-3" aria-hidden /> {s}
+                    {cit ? <span className="text-[10px] text-muted-foreground">#{cit.chunk_ord}</span> : null}
+                  </span>
+                )
+              })}
             </div>
           ) : (
             <div />

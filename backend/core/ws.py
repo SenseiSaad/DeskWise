@@ -124,7 +124,11 @@ def _authenticate_scope(scope):
             .filter(pk=user_id, is_active=True)
             .first()
         )
-        return user if user is not None else AnonymousUser()
+        if user is None:
+            return AnonymousUser()
+        if "tv" in validated and int(validated["tv"]) != int(getattr(user, "token_version", 1)):
+            return AnonymousUser()
+        return user
     except Exception:
         return AnonymousUser()
 
@@ -198,6 +202,9 @@ class TeamChatConsumer(AsyncJsonWebsocketConsumer):
         user = self.scope.get("user")
         if not has_company_context(user):
             await self.close(code=4401)
+            return
+        if not getattr(user.company, "enable_team_chat", True):
+            await self.close(code=4403)
             return
 
         self.user = user

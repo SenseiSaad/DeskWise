@@ -1,6 +1,7 @@
 """DRF REST endpoints for the real-time employee Team Chatroom."""
 from __future__ import annotations
 
+from django.conf import settings
 from django.db.models import Q
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -20,12 +21,14 @@ from .team_chat import (
     delete_team_message,
     edit_user_message,
     edit_window_seconds,
+    generate_deskwise_reply,
     mark_room_read,
     pin_team_message,
     room_group_name,
     serialize_message,
     serialize_room,
     spawn_deskwise_reply,
+    summarize_room_messages,
     toggle_reaction,
     update_room,
     user_can_access_room,
@@ -44,6 +47,8 @@ def _require_company(request):
         )
     if not getattr(user, "company_id", None):
         return Response({"detail": "No company workspace attached to this account."}, status=403)
+    if not getattr(user.company, "enable_team_chat", True):
+        return Response({"detail": "Team Chat is disabled for your company."}, status=403)
     return None
 
 
@@ -192,14 +197,23 @@ def _create_team_message_post(request, room):
         {"message": payload},
     )
     stream_id = None
+    deskwise_payload = None
     if trigger_ai:
-        stream_id = spawn_deskwise_reply(room.id, msg.id, request.user.id)
+        if getattr(settings, "SYNC_INDEXING", False) or getattr(settings, "IS_VERCEL", False):
+            ai_msg = generate_deskwise_reply(
+                room.id, msg.id, request.user.id, broadcast=True, close_db=False,
+            )
+            if ai_msg is not None:
+                deskwise_payload = serialize_message(ai_msg)
+        else:
+            stream_id = spawn_deskwise_reply(room.id, msg.id, request.user.id)
 
     return Response(
         {
             "message": payload,
             "deskwise_triggered": trigger_ai,
             "stream_id": stream_id,
+            "deskwise_message": deskwise_payload,
         },
         status=201,
     )
@@ -349,3 +363,18 @@ def team_chat_message_react(request, msg_id: int):
         {"message": payload},
     )
     return Response({"message": payload})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def team_chat_room_summarize(request, room_id: int):
+    """Summarize recent room messages into key highlights, questions, and action items."""
+    guard = _require_company(request)
+    if guard:
+        return guard
+    if not getattr(request.user.company, "enable_ai_chat", True):
+        return Response({"detail": "AI assistant is disabled for your company."}, status=403)
+    room, err = _get_accessible_room_or_error(request.user, room_id)
+    if err:
+        return err
+    return Response(summarize_room_messages(room))

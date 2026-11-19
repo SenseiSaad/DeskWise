@@ -35,6 +35,10 @@ except ImportError:  # numpy only needed for embedding similarity
     np = None
 
 
+def _as_vec(vals):
+    return np.asarray(vals, dtype=np.float32) if np is not None else [float(x) for x in vals]
+
+
 # ---------------------------------------------------------------- http helpers
 def _open(url, payload=None, headers=None, method=None, timeout=30.0):
     """Fire an HTTP request. GET when there's no payload, else POST JSON."""
@@ -178,7 +182,7 @@ class OllamaProvider(BaseProvider):
                       timeout=120.0)
             embs = r.get("embeddings")
             if embs and len(embs) == len(texts):
-                return [np.asarray(e, dtype=np.float32) for e in embs]
+                return [_as_vec(e) for e in embs]
         except Exception:
             pass
         try:  # older Ollama: legacy single-prompt endpoint
@@ -186,7 +190,7 @@ class OllamaProvider(BaseProvider):
             for t in texts:
                 r = _json(f"{self.base}/api/embeddings",
                           {"model": self.embed_model, "prompt": t, "keep_alive": keep})
-                vecs.append(np.asarray(r["embedding"], dtype=np.float32))
+                vecs.append(_as_vec(r["embedding"]))
             return vecs
         except Exception:
             return None
@@ -257,12 +261,10 @@ class OpenAIProvider(BaseProvider):
             return False
 
     def embed(self, texts):
-        if np is None:
-            return None
         try:
             r = _json(f"{self.base}/embeddings",
                       {"model": self.embed_model, "input": texts}, headers=self._headers())
-            return [np.asarray(d["embedding"], dtype=np.float32) for d in r["data"]]
+            return [_as_vec(d["embedding"]) for d in r["data"]]
         except Exception:
             return None
 
@@ -362,12 +364,20 @@ class GeminiProvider(BaseProvider):
             return None
         hdr = {"x-goog-api-key": self.api_key}
         batch_url = f"{self.base}/models/{self.embed_model}:batchEmbedContents"
+        # Match configured EMBED_DIM (default 1024) on gemini-embedding-001 so
+        # vectors stay within pgvector's 2000-dim HNSW limit.
+        target_dim = int(getattr(settings, "EMBED_DIM", 1024))
+        dim_opt = (
+            {"outputDimensionality": target_dim}
+            if self.embed_model == "gemini-embedding-001" and 128 <= target_dim <= 3072
+            else {}
+        )
         # Try batchEmbedContents in API-safe slices of up to 100 chunks.
         try:
             out = []
             for start in range(0, len(texts), 100):
                 chunk = texts[start:start + 100]
-                reqs = [{"model": f"models/{self.embed_model}", "content": {"parts": [{"text": t}]}}
+                reqs = [{"model": f"models/{self.embed_model}", "content": {"parts": [{"text": t}]}, **dim_opt}
                         for t in chunk]
                 res = _json(batch_url, {"requests": reqs}, headers=hdr,
                             timeout=max(20.0, len(chunk) * 0.5))
@@ -375,8 +385,7 @@ class GeminiProvider(BaseProvider):
                 if not embs or len(embs) != len(chunk):
                     raise ValueError("incomplete batchEmbedContents response")
                 for e in embs:
-                    vals = e["values"]
-                    out.append(np.asarray(vals, dtype=np.float32) if np is not None else vals)
+                    out.append(_as_vec(e["values"]))
             return out
         except Exception:
             pass
@@ -385,10 +394,9 @@ class GeminiProvider(BaseProvider):
             single_url = f"{self.base}/models/{self.embed_model}:embedContent"
 
             def _one(t):
-                r = _json(single_url, {"model": f"models/{self.embed_model}", "content": {"parts": [{"text": t}]}},
+                r = _json(single_url, {"model": f"models/{self.embed_model}", "content": {"parts": [{"text": t}]}, **dim_opt},
                           headers=hdr, timeout=15.0)
-                vals = r["embedding"]["values"]
-                return np.asarray(vals, dtype=np.float32) if np is not None else vals
+                return _as_vec(r["embedding"]["values"])
 
             with ThreadPoolExecutor(max_workers=min(8, len(texts))) as pool:
                 return list(pool.map(_one, texts))
@@ -642,7 +650,7 @@ class BedrockProvider(BaseProvider):
                     body["normalize"] = True
                 r = client.invoke_model(modelId=model_id, body=json.dumps(body))
                 data = json.loads(r["body"].read())
-                return np.asarray(data["embedding"], dtype=np.float32)
+                return _as_vec(data["embedding"])
 
             if len(texts) == 1:
                 return [_one(texts[0])]
@@ -1000,6 +1008,10 @@ MODEL_KNOWN_DIMS = {
 def get_expected_dim(provider_name: str, model_name: str = "") -> int:
     """Return the expected vector dimension for a provider/model."""
     from django.conf import settings
+    if provider_name.lower() == "gemini" or model_name == "gemini-embedding-001":
+        target = int(getattr(settings, "EMBED_DIM", 1024))
+        if 128 <= target <= 3072:
+            return target
     if model_name and model_name in MODEL_KNOWN_DIMS:
         return MODEL_KNOWN_DIMS[model_name]
     return PROVIDER_DEFAULT_DIMS.get(

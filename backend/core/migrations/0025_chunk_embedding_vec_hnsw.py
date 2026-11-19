@@ -6,7 +6,7 @@ so the index uses vector_cosine_ops.
 """
 import logging
 
-from django.db import migrations
+from django.db import migrations, transaction
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +35,19 @@ def create_hnsw_index(apps, schema_editor):
                 "skipping HNSW index. Retrieval uses the in-Python scan."
             )
             return
-        cursor.execute(
-            f"CREATE INDEX IF NOT EXISTS {INDEX_NAME} "
-            "ON core_chunk USING hnsw (embedding_vec vector_cosine_ops)"
+    try:
+        with transaction.atomic(using=schema_editor.connection.alias):
+            with schema_editor.connection.cursor() as cursor:
+                cursor.execute(
+                    f"CREATE INDEX IF NOT EXISTS {INDEX_NAME} "
+                    "ON core_chunk USING hnsw (embedding_vec vector_cosine_ops)"
+                )
+    except Exception as exc:
+        logger.warning(
+            "Skipping HNSW index on core_chunk.embedding_vec (%s: %s). "
+            "Exact pgvector / in-Python search will still work.",
+            type(exc).__name__,
+            exc,
         )
 
 

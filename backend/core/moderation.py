@@ -111,3 +111,51 @@ def scan(text: str) -> ModerationResult:
                 break  # one hit per category is enough
     result.flagged = bool(result.categories)
     return result
+
+
+_SECRET_VALUE_PATTERNS = [
+    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"(?i)\b(api[_-]?key|secret[_-]?key|access[_-]?token|password|passwd)\s*[:=]\s*['\"]?([^\s'\"]{6,})['\"]?"),
+]
+
+_EXFIL_PATTERNS = [
+    re.compile(r"\b(dump|print|output|copy|extract|export|reveal)\b.{0,30}\b(entire|whole|full|all|every word of)\b.{0,25}\b(documents?|files?|vault|database|chunks?)\b", re.IGNORECASE),
+    re.compile(r"\b(verbatim|word[- ]for[- ]word)\b.{0,30}\b(entire|whole|all|document|file)\b", re.IGNORECASE),
+]
+
+
+def detect_pii(text: str) -> bool:
+    """True when text contains structured PII (SSN/CNIC/card/IBAN) or embedded secrets."""
+    if not text:
+        return False
+    if any(p.search(text) for p in _COMPILED["pii_exposure"]):
+        return True
+    return any(p.search(text) for p in _SECRET_VALUE_PATTERNS)
+
+
+def redact_pii(text: str) -> tuple[str, list[str]]:
+    """Mask structured PII and secret values before text leaves to an LLM or external share."""
+    if not text:
+        return text, []
+    cleaned = text
+    redacted: list[str] = []
+    for p in _COMPILED["pii_exposure"]:
+        if p.search(cleaned):
+            cleaned = p.sub("[REDACTED:PII]", cleaned)
+            if "pii_exposure" not in redacted:
+                redacted.append("pii_exposure")
+    for p in _SECRET_VALUE_PATTERNS:
+        if p.search(cleaned):
+            cleaned = p.sub("[REDACTED:SECRET]", cleaned)
+            if "secret_exposure" not in redacted:
+                redacted.append("secret_exposure")
+    return cleaned, redacted
+
+
+def is_exfiltration_attempt(text: str) -> bool:
+    """True when a prompt looks like an attempt to dump whole vault files verbatim."""
+    if not text:
+        return False
+    return any(p.search(text) for p in _EXFIL_PATTERNS)

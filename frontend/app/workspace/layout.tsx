@@ -112,19 +112,21 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   }
 
   const isAdmin = user.role === 'admin' || isPlatformAdmin
+  const isDeptAdmin = user.role === 'employee' && Boolean(user.is_dept_admin) && Boolean(user.department_id)
+  const comp = user.company
   const NAV = [
-    { href: '/workspace', label: t('overview'), icon: LayoutDashboard, adminOnly: false, exact: true },
-    { href: '/workspace/chat', label: t('askAi'), icon: Sparkles, adminOnly: false, exact: false },
-    { href: '/workspace/team-chat', label: t('teamChat'), icon: MessagesSquare, adminOnly: false, exact: false },
-    { href: '/workspace/documents', label: t('documents'), icon: FileText, adminOnly: false, exact: false },
-    { href: '/workspace/shared', label: t('shared'), icon: Share2, adminOnly: false, exact: false },
-    { href: '/workspace/attendance', label: t('attendance'), icon: QrCode, adminOnly: false, exact: false },
-    { href: '/workspace/members', label: t('members'), icon: Users, adminOnly: true, exact: false },
-    { href: '/workspace/audit', label: t('audit'), icon: ScrollText, adminOnly: true, exact: false },
-    { href: '/workspace/usage', label: t('usagePlan'), icon: Gauge, adminOnly: true, exact: false },
-    { href: '/workspace/settings', label: t('settings'), icon: Settings, adminOnly: true, exact: false },
+    { href: '/workspace', label: t('overview'), icon: LayoutDashboard, adminOnly: false, deptAdminOk: false, exact: true, enabled: true },
+    { href: '/workspace/chat', label: t('askAi'), icon: Sparkles, adminOnly: false, deptAdminOk: false, exact: false, enabled: comp?.enable_ai_chat !== false },
+    { href: '/workspace/team-chat', label: t('teamChat'), icon: MessagesSquare, adminOnly: false, deptAdminOk: false, exact: false, enabled: comp?.enable_team_chat !== false },
+    { href: '/workspace/documents', label: t('documents'), icon: FileText, adminOnly: false, deptAdminOk: false, exact: false, enabled: true },
+    { href: '/workspace/shared', label: t('shared'), icon: Share2, adminOnly: false, deptAdminOk: false, exact: false, enabled: true },
+    { href: '/workspace/attendance', label: t('attendance'), icon: QrCode, adminOnly: false, deptAdminOk: false, exact: false, enabled: comp?.enable_attendance !== false },
+    { href: '/workspace/members', label: t('members'), icon: Users, adminOnly: true, deptAdminOk: true, exact: false, enabled: true },
+    { href: '/workspace/audit', label: t('audit'), icon: ScrollText, adminOnly: true, deptAdminOk: false, exact: false, enabled: true },
+    { href: '/workspace/usage', label: t('usagePlan'), icon: Gauge, adminOnly: true, deptAdminOk: false, exact: false, enabled: true },
+    { href: '/workspace/settings', label: t('settings'), icon: Settings, adminOnly: true, deptAdminOk: false, exact: false, enabled: true },
   ]
-  const items = NAV.filter((n) => !n.adminOnly || isAdmin)
+  const items = NAV.filter((n) => n.enabled && (!n.adminOnly || isAdmin || (n.deptAdminOk && isDeptAdmin)))
   const active = (n: (typeof NAV)[number]) => (n.exact ? pathname === n.href : pathname === n.href || pathname.startsWith(n.href + '/'))
 
   async function handleSwitchCompany(newCompanyId: number) {

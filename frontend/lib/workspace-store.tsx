@@ -19,6 +19,7 @@ import {
   chatApi,
   workApi,
   type Artifact,
+  type AskCitation,
   type ChatMode,
   type Conversation,
   type EnterpriseDoc,
@@ -35,6 +36,8 @@ export type WorkspaceChatMessage = {
   mode?: ChatMode
   question?: string
   sources?: string[]
+  citations?: AskCitation[]
+  redacted?: string[]
   rating?: number | null
   error?: boolean
   flag?: { message: string; categories: string[] }
@@ -60,6 +63,7 @@ export interface UploadDraft {
   tagsInput: string
   isOkf: boolean
   accessScope: 'company' | 'department' | 'restricted'
+  sensitivity: 'standard' | 'internal' | 'confidential'
   departmentId: number | ''
 }
 
@@ -69,6 +73,7 @@ export interface UploadMeta {
   tags: string[]
   isOkf: boolean
   accessScope: 'company' | 'department' | 'restricted'
+  sensitivity: 'standard' | 'internal' | 'confidential'
   departmentId: number | ''
 }
 
@@ -98,12 +103,14 @@ export interface MembersPageDraft {
   email: string
   password: string
   role: Role
+  isDeptAdmin?: boolean
 }
 
 export interface OverviewPageDraft {
   showAnnounceModal: boolean
   announceTitle: string
   announceBody: string
+  requireAck?: boolean
 }
 
 export type SettingsTab = 'company' | 'plan' | 'ai'
@@ -134,6 +141,7 @@ const DEFAULT_UPLOAD_DRAFT: UploadDraft = {
   tagsInput: '',
   isOkf: false,
   accessScope: 'company',
+  sensitivity: 'standard',
   departmentId: '',
 }
 
@@ -428,6 +436,7 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
       }
       form.append('is_okf', String(task.meta.isOkf))
       form.append('access_scope', task.meta.accessScope)
+      form.append('sensitivity', task.meta.sensitivity || 'standard')
       if (task.meta.accessScope === 'department' && task.meta.departmentId !== '') {
         form.append('department_id', String(task.meta.departmentId))
       }
@@ -714,10 +723,14 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
               const last = next[next.length - 1]
               if (!last || last.role !== 'assistant') return prev
               const updated: WorkspaceChatMessage = { ...last }
-              if (e.type === 'sources') updated.sources = e.sources
-              else if (e.type === 'saved') updated.id = e.message_id
+              if (e.type === 'sources') {
+                updated.sources = e.sources
+                if (e.citations) updated.citations = e.citations
+              } else if (e.type === 'saved') updated.id = e.message_id
               else if (e.type === 'flag') {
                 updated.flag = { message: e.message, categories: e.categories }
+              } else if (e.type === 'redaction') {
+                updated.redacted = e.categories
               } else if (e.type === 'token') updated.content += e.token
               else if (e.type === 'workflow') updated.workflow = e
               else if (e.type === 'artifact') {

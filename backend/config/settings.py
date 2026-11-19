@@ -147,12 +147,23 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# Cookies are HttpOnly + SameSite=Lax; set Secure when serving over HTTPS.
+# Cookies are HttpOnly + SameSite=Lax by default; set COOKIE_SECURE=true over
+# HTTPS. Set COOKIE_SAMESITE=None only if serving frontend/backend across
+# different root domains (e.g., *.vercel.app preview calling a custom API host).
 SESSION_COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
 CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "Lax").strip() or "Lax"
+COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", "").strip() or None
 CSRF_TRUSTED_ORIGINS = [
     o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
 ]
+if IS_VERCEL:
+    for _vercel_var in ("VERCEL_URL", "VERCEL_BRANCH_URL", "VERCEL_PROJECT_PRODUCTION_URL"):
+        _v_host = os.getenv(_vercel_var, "").strip()
+        if _v_host:
+            _v_origin = f"https://{_v_host}"
+            if _v_origin not in CSRF_TRUSTED_ORIGINS:
+                CSRF_TRUSTED_ORIGINS.append(_v_origin)
 
 # Rate limiting counters live in the cache. LocMem is fine for one process;
 # point CACHES at Redis (CACHE_URL) when running multiple workers/gunicorn.
@@ -337,8 +348,10 @@ SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = False  # the frontend reads this only if CSRF headers are added
-SESSION_COOKIE_SAMESITE = "Lax"
-CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SAMESITE = COOKIE_SAMESITE
+CSRF_COOKIE_SAMESITE = COOKIE_SAMESITE
+SESSION_COOKIE_DOMAIN = COOKIE_DOMAIN
+CSRF_COOKIE_DOMAIN = COOKIE_DOMAIN
 
 if SESSION_COOKIE_SECURE:
     SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "true").lower() in ("1", "true", "yes")

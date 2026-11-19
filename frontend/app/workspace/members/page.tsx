@@ -72,8 +72,10 @@ export default function MembersPage() {
   const { user } = useAuth()
 
   if (!user) return null
+  const isCompanyAdmin = user.role === 'admin' || Boolean(user.is_platform_admin)
+  const isDeptAdmin = user.role === 'employee' && Boolean(user.is_dept_admin) && Boolean(user.department_id)
 
-  if (user.role !== 'admin') {
+  if (!isCompanyAdmin && !isDeptAdmin) {
     return (
       <div className="mx-auto max-w-lg py-10">
         <div className="rounded-2xl border border-border bg-surface p-8 text-center sm:p-10">
@@ -95,10 +97,10 @@ export default function MembersPage() {
     )
   }
 
-  return <MembersAdmin currentUserId={user.id} />
+  return <MembersAdmin currentUserId={user.id} isCompanyAdmin={isCompanyAdmin} />
 }
 
-function MembersAdmin({ currentUserId }: { currentUserId: number }) {
+function MembersAdmin({ currentUserId, isCompanyAdmin }: { currentUserId: number; isCompanyAdmin: boolean }) {
   const [users, setUsers] = useState<User[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
@@ -106,13 +108,14 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
 
   // New member form
   const { membersDraft, setMembersDraft } = useWorkspaceStore()
-  const { fullName, title, departmentId, email, password, role } = membersDraft
+  const { fullName, title, departmentId, email, password, role, isDeptAdmin = false } = membersDraft
   const setFullName = (v: string) => setMembersDraft((s) => ({ ...s, fullName: v }))
   const setTitle = (v: string) => setMembersDraft((s) => ({ ...s, title: v }))
   const setDepartmentId = (v: number | '') => setMembersDraft((s) => ({ ...s, departmentId: v }))
   const setEmail = (v: string) => setMembersDraft((s) => ({ ...s, email: v }))
   const setPassword = (v: string) => setMembersDraft((s) => ({ ...s, password: v }))
   const setRole = (v: CreatableRole) => setMembersDraft((s) => ({ ...s, role: v }))
+  const setIsDeptAdmin = (v: boolean) => setMembersDraft((s) => ({ ...s, isDeptAdmin: v }))
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [formSuccess, setFormSuccess] = useState('')
@@ -163,6 +166,7 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
       ...(fullName.trim() ? { full_name: fullName.trim() } : {}),
       ...(title ? { title } : {}),
       ...(departmentId ? { department_id: Number(departmentId) } : {}),
+      ...(isCompanyAdmin && role === 'employee' && departmentId && isDeptAdmin ? { is_dept_admin: true } : {}),
     }
     try {
       const created = await adminApi.createUser(payload)
@@ -173,6 +177,7 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
       setEmail('')
       setPassword('')
       setRole('viewer')
+      setIsDeptAdmin(false)
       setFormSuccess(`${created.full_name || created.email} was added as ${created.role}.`)
       toast.success('Member invited.')
     } catch (err) {
@@ -387,6 +392,18 @@ function MembersAdmin({ currentUserId }: { currentUserId: number }) {
                   })}
                 </div>
               </fieldset>
+
+              {isCompanyAdmin && role === 'employee' && departmentId !== '' && (
+                <label className="flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-3.5 py-2.5 text-xs text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(isDeptAdmin)}
+                    onChange={(e) => setIsDeptAdmin(e.target.checked)}
+                    className="size-4 rounded accent-primary"
+                  />
+                  <span>Make Department Sub-Admin (can manage &amp; approve docs/members in this department)</span>
+                </label>
+              )}
 
               {formError ? (
                 <p
@@ -631,6 +648,7 @@ function EditMemberModal({
   const [role, setRole] = useState<CreatableRole>(
     user.role === 'admin' ? 'admin' : user.role === 'employee' ? 'employee' : 'viewer',
   )
+  const [isDeptAdmin, setIsDeptAdmin] = useState<boolean>(Boolean(user.is_dept_admin))
   const [isActive, setIsActive] = useState<boolean>(user.is_active !== false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -645,6 +663,7 @@ function EditMemberModal({
         title: title || '',
         department_id: departmentId ? Number(departmentId) : null,
         role,
+        is_dept_admin: role === 'employee' && departmentId !== '' ? isDeptAdmin : false,
         is_active: isActive,
       })
       toast.success('Member updated.')
@@ -730,6 +749,18 @@ function EditMemberModal({
               <option value="admin">Admin (Full access)</option>
             </select>
           </div>
+
+          {role === 'employee' && departmentId !== '' && (
+            <label className="flex items-center gap-2 pt-1 text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={isDeptAdmin}
+                onChange={(e) => setIsDeptAdmin(e.target.checked)}
+                className="size-4 rounded"
+              />
+              <span>Department Sub-Admin (manage &amp; approve own department)</span>
+            </label>
+          )}
 
           <label className="flex items-center gap-2 pt-1 text-xs text-foreground">
             <input

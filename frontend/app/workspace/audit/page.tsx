@@ -15,6 +15,8 @@ import {
   ScrollText,
   Search,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   Users,
   X,
 } from 'lucide-react'
@@ -80,6 +82,8 @@ export default function AuditLogPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [chainStatus, setChainStatus] = useState<{ valid: boolean; checked: number; broken_id: number | null } | null>(null)
 
   const { search, actionFilter, actorFilter, page } = auditState
   const pageRef = useRef(page)
@@ -124,9 +128,24 @@ export default function AuditLogPage() {
     }
   }, [setPage])
 
+  const verifyChain = useCallback(async () => {
+    setVerifying(true)
+    try {
+      const res = await adminApi.verifyAudit()
+      setChainStatus(res)
+    } catch {
+      setChainStatus(null)
+    } finally {
+      setVerifying(false)
+    }
+  }, [])
+
   useEffect(() => {
-    if (isAdmin) load('initial', pageRef.current)
-  }, [isAdmin, load])
+    if (isAdmin) {
+      load('initial', pageRef.current)
+      void verifyChain()
+    }
+  }, [isAdmin, load, verifyChain])
 
   // Overview metrics describe the full loaded record (up to 200 rows).
   const summary = useMemo(() => {
@@ -223,7 +242,22 @@ export default function AuditLogPage() {
               logins, member changes, and visibility toggles, newest first.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={verifyChain}
+              disabled={verifying}
+              className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-border-strong bg-surface-elevated px-4 text-sm font-medium text-foreground transition-colors hover:border-foreground disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
+            >
+              {verifying ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : chainStatus?.valid === false ? (
+                <ShieldAlert className="size-4 text-danger" aria-hidden />
+              ) : (
+                <ShieldCheck className="size-4 text-ok" aria-hidden />
+              )}
+              Verify Chain
+            </button>
             <a
               href={adminApi.exportAudit()}
               download
@@ -236,7 +270,10 @@ export default function AuditLogPage() {
             </a>
             <button
               type="button"
-              onClick={() => load('refresh', page)}
+              onClick={() => {
+                load('refresh', page)
+                void verifyChain()
+              }}
               disabled={loading || refreshing}
               aria-label="Refresh audit log"
               className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-border-strong bg-surface-elevated px-4 text-sm font-medium text-foreground transition-colors hover:border-foreground disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
@@ -246,10 +283,29 @@ export default function AuditLogPage() {
             </button>
           </div>
         </div>
-        <p className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-          <Shield className="size-3.5 shrink-0" aria-hidden />
-          Read-only, tamper-evident record; entries cannot be edited or deleted.
-        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
+          <p className="flex items-center gap-2 text-muted-foreground">
+            <Shield className="size-3.5 shrink-0" aria-hidden />
+            Read-only, SHA-256 hash-chained record; entries cannot be silently edited or deleted.
+          </p>
+          {chainStatus && (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-medium ${
+                chainStatus.valid ? 'bg-ok-soft text-ok' : 'bg-danger-soft text-danger'
+              }`}
+            >
+              {chainStatus.valid ? (
+                <>
+                  <ShieldCheck className="size-3" /> Chain valid ({chainStatus.checked} hashed)
+                </>
+              ) : (
+                <>
+                  <ShieldAlert className="size-3" /> Tampering detected at entry #{chainStatus.broken_id}
+                </>
+              )}
+            </span>
+          )}
+        </div>
       </header>
 
       {/* Summary strip */}
@@ -408,6 +464,7 @@ export default function AuditLogPage() {
                   <th scope="col" className="px-4 py-3 font-semibold">Detail</th>
                   <th scope="col" className="px-4 py-3 font-semibold">Actor</th>
                   <th scope="col" className="px-4 py-3 font-semibold">IP</th>
+                  <th scope="col" className="px-4 py-3 font-semibold">Hash</th>
                 </tr>
               </thead>
               <tbody>
@@ -437,6 +494,9 @@ export default function AuditLogPage() {
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">{r.ip || '-'}</td>
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] text-muted-foreground" title={r.entry_hash || ''}>
+                        {r.entry_hash ? r.entry_hash.slice(0, 10) : '-'}
+                      </td>
                     </tr>
                   )
                 })}

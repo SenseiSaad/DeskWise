@@ -13,6 +13,7 @@ import json
 import os
 import threading
 import uuid
+from datetime import timedelta
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
@@ -20,6 +21,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q, Avg, Count, Sum
 from django.http import StreamingHttpResponse, Http404, FileResponse, JsonResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.text import slugify
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
@@ -46,11 +48,11 @@ from .auth import (
 from .ratelimit import rate_limit
 from .uploads import UploadRejected, guard_zip_archive, validate_extension, validate_filename
 from .models import (
-    Announcement, AskLog, AuditLog, ChatConversation, ChatMessage, Company, Department,
-    Document, DocumentAccess, DocumentShare, DocumentVersion, LLMConfig, Plan,
-    AttendanceRecord, UserStrike, User, OneTimeToken, GeneratedArtifact,
+    Announcement, AnnouncementAck, AskLog, AuditLog, ChatConversation, ChatMessage, Company,
+    Department, Document, DocumentAccess, DocumentShare, DocumentVersion, LLMConfig, Plan,
+    AttendanceRecord, TeamMessage, UserStrike, User, OneTimeToken, GeneratedArtifact,
 )
-from .permissions import IsAdmin, IsEditor, IsPlatformAdmin, is_platform_admin
+from .permissions import IsAdmin, IsAdminOrDeptAdmin, IsEditor, IsPlatformAdmin, is_dept_admin, is_platform_admin
 from .serializers import (
     AnnouncementSerializer, AskLogSerializer, AuditSerializer, ChatConversationSerializer,
     ChatMessageSerializer, CompanyDirectorySerializer, CompanyProfileSerializer,
@@ -177,41 +179,37 @@ def _platform_admin_blocked(request):
     return None
 
 
+def _feature_disabled(request, attr: str, message: str):
+    """403 when a company-level feature toggle is disabled."""
+    company = getattr(request.user, "company", None)
+    if company is not None and not getattr(company, attr, True):
+        return Response({"detail": message}, status=403)
+    return None
+
+
 def _attendance_disabled(request):
     """403 when attendance tracking is turned off for the user's company."""
-    company = getattr(request.user, "company", None)
-    if company is not None and not getattr(company, "enable_attendance", True):
-        return Response({"detail": "Attendance tracking is disabled for your company."}, status=403)
-    return None
+    return _feature_disabled(request, "enable_attendance", "Attendance tracking is disabled for your company.")
 
 
 def _docgen_disabled(request):
     """403 when document & template generation is turned off for the user's company."""
-    company = getattr(request.user, "company", None)
-    if company is not None and not getattr(company, "enable_docgen", True):
-        return Response({"detail": "Document and template generation is disabled for your company."}, status=403)
-    return None
+    return _feature_disabled(request, "enable_docgen", "Document and template generation is disabled for your company.")
+
+
+def _ai_chat_disabled(request):
+    """403 when AI chat is turned off for the user's company."""
+    return _feature_disabled(request, "enable_ai_chat", "AI chat is disabled for your company.")
+
+
+def _external_sharing_disabled(request):
+    """403 when cross-company document sharing is turned off for the user's company."""
+    return _feature_disabled(request, "enable_external_sharing", "External document sharing is disabled for your company.")
 
 
 def visible_documents(user):
-    """Return only documents the signed-in user is allowed to read.
-
-    Platform/root admins have NO tenant context and therefore see NO company
-    documents; platform reporting lives in /api/admin/reports, not here.
-    """
-    if not getattr(user, "company_id", None):
-        return Document.objects.none()
-    if _is_platform_level(user):
-        return Document.objects.filter(company_id=user.company_id).distinct()
-    dept_q = (
-        Q(access_scope="department", department_id=user.department_id)
-        if getattr(user, "department_id", None) else Q()
-    )
-    return (
-        Document.objects.filter(company_id=user.company_id)
-        .filter(Q(access_scope="company") | dept_q | Q(access_grants__user=user))
-        .distinct()
-    )
+    """Return only own-company documents the signed-in user is allowed to read."""
+    return rag.accessible_documents_qs(user, include_unapproved=True, include_external_shares=False)
 
 
 def share_target(request):
@@ -443,6 +441,16 @@ def logout(request):
 
 
 @api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def logout_all(request):
+    """Invalidate every active session/token across all devices for the current user."""
+    revoke_user_refresh_tokens(request.user)
+    audit(request, "logout_all")
+    resp = Response({"ok": True})
+    return clear_auth_cookies(resp)
+
+
+@api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
 @rate_limit("refresh", rate=30, per_seconds=60, key="ip")
@@ -463,7 +471,9 @@ def refresh(request):
         token = RefreshToken(raw)
         token.check_blacklist()
         user = User.objects.get(id=token["user_id"], is_active=True)
-    except (TokenError, User.DoesNotExist, KeyError):
+        if "tv" in token and int(token["tv"]) != int(getattr(user, "token_version", 1)):
+            raise TokenError("Session revoked")
+    except (TokenError, User.DoesNotExist, KeyError, ValueError):
         resp = Response({"detail": "Session expired. Sign in again."}, status=401)
         return clear_auth_cookies(resp)
     resp = Response({"ok": True, "user": UserSerializer(user).data})
@@ -649,6 +659,32 @@ def _plan_for(company):
     return company.plan or Plan.default()
 
 
+def _parse_doc_governance_fields(request, company):
+    """Parse sensitivity and approval status for upload_document / upload_confirm."""
+    sensitivity = str(request.data.get("sensitivity") or "standard").strip().lower()
+    if sensitivity not in {"standard", "internal", "confidential"}:
+        return None, None, Response({"detail": "sensitivity must be standard, internal or confidential."}, status=400)
+    is_admin_or_dept = bool(
+        request.user.role == "admin"
+        or _is_platform_level(request.user)
+        or is_dept_admin(request.user)
+    )
+    if sensitivity == "confidential" and not is_admin_or_dept:
+        return None, None, Response({"detail": "Only admins can upload confidential documents."}, status=403)
+
+    default_status = (
+        "in_review"
+        if (getattr(company, "require_doc_approval", False) and not is_admin_or_dept)
+        else "approved"
+    )
+    doc_status = str(request.data.get("status") or default_status).strip().lower()
+    if doc_status not in {"draft", "in_review", "approved"}:
+        return None, None, Response({"detail": "status must be draft, in_review or approved."}, status=400)
+    if getattr(company, "require_doc_approval", False) and doc_status == "approved" and not is_admin_or_dept:
+        doc_status = "in_review"
+    return sensitivity, doc_status, None
+
+
 @api_view(["POST"])
 @permission_classes([IsEditor])
 def upload_document(request):
@@ -691,6 +727,10 @@ def upload_document(request):
                        "active company (use the company switcher in the sidebar) before uploading."},
             status=400,
         )
+
+    sensitivity, doc_status, gov_err = _parse_doc_governance_fields(request, company)
+    if gov_err:
+        return gov_err
 
     # Plan limits: document count and storage quota (server-enforced).
     plan = _plan_for(company)
@@ -736,6 +776,7 @@ def upload_document(request):
             content_type=f.content_type or "", size=f.size,
             category=category, description=description, tags=tags,
             is_okf=is_okf, access_scope=access_scope, department=department,
+            sensitivity=sensitivity, status=doc_status,
             is_template=is_template, template_type=template_type,
             uploaded_by=request.user, indexing_status="pending",
         )
@@ -831,6 +872,10 @@ def upload_confirm(request):
     if is_template and not template_type:
         template_type = "other"
 
+    sensitivity, doc_status, gov_err = _parse_doc_governance_fields(request, company)
+    if gov_err:
+        return gov_err
+
     plan = _plan_for(company)
     department = None
     if access_scope == "department":
@@ -851,6 +896,7 @@ def upload_confirm(request):
             content_type=content_type, size=size,
             category=category, description=description, tags=tags,
             is_okf=is_okf, access_scope=access_scope, department=department,
+            sensitivity=sensitivity, status=doc_status,
             is_template=is_template, template_type=template_type,
             uploaded_by=request.user, indexing_status="pending",
         )
@@ -879,6 +925,7 @@ def _index_in_background(doc: Document):
         # Eager mode (tests / single-box debug): execute the task inline.
         from .tasks import index_document_task
         index_document_task.apply(args=[doc.id])
+        doc.refresh_from_db()
         return
 
     def run():
@@ -971,6 +1018,8 @@ def document_detail(request, pk):
         if not _can_manage_document(request, doc):
             return Response({"detail": "Only admins or the uploader can delete a document."},
                             status=403)
+        if getattr(doc, "legal_hold", False):
+            return Response({"detail": "Document is under legal hold and cannot be deleted."}, status=403)
         # Every stored blob goes with it: the current file AND archived
         # version files, which otherwise leak storage forever.
         paths = {doc.stored_path}
@@ -1000,6 +1049,32 @@ def document_detail(request, pk):
     if "access_scope" in data and not _can_manage_document(request, doc):
         return Response({"detail": "Only admins or the uploader can change who can access "
                                    "this document."}, status=403)
+    if "sensitivity" in data:
+        if not _can_manage_document(request, doc):
+            return Response({"detail": "Only admins or the uploader can change document sensitivity."}, status=403)
+        sens = str(data.get("sensitivity") or "standard").strip().lower()
+        if sens not in {"standard", "internal", "confidential"}:
+            return Response({"detail": "sensitivity must be standard, internal or confidential."}, status=400)
+        if sens == "confidential" and not _can_approve_document(request.user, doc):
+            return Response({"detail": "Only admins can mark a document confidential."}, status=403)
+        if sens == "confidential" and doc.sensitivity != "confidential":
+            DocumentAccess.objects.filter(document=doc).exclude(user__role="admin").delete()
+        doc.sensitivity = sens
+    if "legal_hold" in data:
+        if not (request.user.role == "admin" or _is_platform_level(request.user)):
+            return Response({"detail": "Only company admins can change legal hold."}, status=403)
+        doc.legal_hold = str(data.get("legal_hold")).lower() in ("1", "true", "yes", "on")
+    if "status" in data:
+        new_status = str(data.get("status") or "").strip().lower()
+        if new_status not in {"draft", "in_review", "approved", "archived"}:
+            return Response({"detail": "status must be draft, in_review, approved or archived."}, status=400)
+        if new_status in ("approved", "archived") and not _can_approve_document(request.user, doc):
+            return Response({"detail": "Only admins or department sub-admins can approve or archive documents."},
+                            status=403)
+        doc.status = new_status
+        if new_status in ("approved", "archived"):
+            doc.reviewed_by = request.user
+            doc.reviewed_at = timezone.now()
     if "category" in data:
         doc.category = str(data.get("category") or "Other")[:50]
     if "description" in data:
@@ -1031,18 +1106,65 @@ def _is_editor_request(request):
     return bool(u.role in ("admin", "employee") or _is_platform_level(u))
 
 
-def _can_manage_document(request, doc):
-    """True for platform level, company admins, and the document's uploader.
+def _can_approve_document(user, doc) -> bool:
+    """True for company admins, platform admins in company, or dept sub-admin of doc's department."""
+    if not getattr(user, "company_id", None) or doc.company_id != user.company_id:
+        return False
+    if _is_platform_level(user) or user.role == "admin":
+        return True
+    return bool(is_dept_admin(user) and doc.department_id and doc.department_id == user.department_id)
 
-    Changing WHO can read a document (access scope) or destroying it are
-    privilege decisions, not content edits: any editor can fix a typo, but
-    widening a restricted document's audience or deleting it requires this
-    stronger check.
-    """
+
+def _can_manage_document(request, doc):
+    """True for platform level, company admins, department sub-admins (own dept), and the uploader."""
     u = request.user
     if not getattr(u, "company_id", None) or doc.company_id != u.company_id:
         return False
-    return bool(_is_platform_level(u) or u.role == "admin" or doc.uploaded_by_id == u.id)
+    return bool(
+        _is_platform_level(u)
+        or u.role == "admin"
+        or doc.uploaded_by_id == u.id
+        or (is_dept_admin(u) and doc.department_id and doc.department_id == u.department_id)
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsEditor])
+def document_review(request, pk):
+    """Transition a document through draft -> in_review -> approved / archived."""
+    _guard = _platform_admin_blocked(request)
+    if _guard:
+        return _guard
+    doc = _accessible_doc(request, pk)
+    if doc.company_id != getattr(request.user, "company_id", None):
+        raise Http404
+    data = request.data or {}
+    action = str(data.get("action") or "").strip().lower()
+    note = str(data.get("note") or "").strip()[:300]
+    action_to_status = {
+        "submit": "in_review",
+        "approve": "approved",
+        "reject": "draft",
+        "archive": "archived",
+    }
+    target_status = action_to_status.get(action) or str(data.get("status") or "").strip().lower()
+    if target_status not in {"draft", "in_review", "approved", "archived"}:
+        return Response({"detail": "action must be submit, approve, reject, or archive."}, status=400)
+
+    if target_status == "in_review":
+        if not _can_manage_document(request, doc):
+            return Response({"detail": "Only admins or the uploader can submit for review."}, status=403)
+    else:
+        if not _can_approve_document(request.user, doc):
+            return Response({"detail": "Only admins or department sub-admins can review documents."}, status=403)
+        doc.reviewed_by = request.user
+        doc.reviewed_at = timezone.now()
+        doc.review_note = note
+
+    doc.status = target_status
+    doc.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_note", "updated_at"])
+    audit(request, f"document_{action or target_status}", f"{doc.filename} ({target_status})")
+    return Response(DocumentSerializer(doc).data)
 
 
 @api_view(["POST"])
@@ -1118,27 +1240,16 @@ def _get_doc(request, pk):
 
 def _accessible_doc(request, pk):
     """Resolve a document only when its ACL grants this exact user access."""
-    try:
-        doc = Document.objects.get(pk=pk)
-    except Document.DoesNotExist:
+    doc = (
+        rag.accessible_documents_qs(
+            request.user, include_unapproved=True, include_external_shares=True,
+        )
+        .filter(pk=pk)
+        .first()
+    )
+    if doc is None:
         raise Http404
-    u = request.user
-    if _is_platform_level(u) and not getattr(u, "company_id", None):
-        raise Http404
-    if getattr(u, "company_id", None) and doc.company_id == u.company_id:
-        if doc.access_scope in ("company",):
-            return doc
-        if doc.access_scope == "department" and doc.department_id and doc.department_id == u.department_id:
-            return doc
-        if doc.uploaded_by_id == u.id:
-            return doc  # the uploader can always see (and now manage) their own document
-        if DocumentAccess.objects.filter(document=doc, user=u).exists():
-            return doc
-    if DocumentShare.objects.filter(document=doc, shared_with_user=u).exists():
-        return doc
-    if DocumentAccess.objects.filter(document=doc, user=u).exists():
-        return doc
-    raise Http404
+    return doc
 
 
 def _can_download(request, doc):
@@ -1149,9 +1260,18 @@ def _can_download(request, doc):
             return True
         grant = DocumentAccess.objects.filter(document=doc, user=u).first()
         return bool(grant and grant.can_download)
-    share = DocumentShare.objects.filter(document=doc, shared_with_user=u).first()
+    if not getattr(doc.company, "enable_external_sharing", True) or doc.status != "approved":
+        return False
+    now = timezone.now()
+    share = (
+        DocumentShare.objects.filter(document=doc, shared_with_user=u)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+        .first()
+    )
     if share:
         return share.can_download
+    if DocumentShare.objects.filter(document=doc, shared_with_user=u, expires_at__lte=now).exists():
+        return False
     grant = DocumentAccess.objects.filter(document=doc, user=u).first()
     return bool(grant and grant.can_download)
 
@@ -1200,6 +1320,9 @@ def document_preview(request, pk):
             doc.save(update_fields=["preview_text"])
         except OSError:
             raise Http404
+    is_external = doc.company_id != getattr(request.user, "company_id", None)
+    if is_external and doc.contains_pii:
+        text, _ = moderation.redact_pii(text)
     audit(request, "preview", doc.filename)
     return Response({
         "id": doc.id, "filename": doc.filename, "content_type": doc.content_type,
@@ -1218,7 +1341,10 @@ def ask(request):
 
     Feature 4: every incoming question is first run through the policy scanner.
     A match is recorded as a POLICY_VIOLATION_DETECTED audit row and surfaced to
-    the user as a `flag` event, but it never blocks the conversation."""
+    the user as a `flag` event, while bulk-exfiltration prompts are blocked."""
+    _guard = _platform_admin_blocked(request) or _ai_chat_disabled(request)
+    if _guard:
+        return _guard
     s = AskSerializer(data=request.data)
     s.is_valid(raise_exception=True)
     question = s.validated_data["question"]
@@ -1226,12 +1352,19 @@ def ask(request):
     provider = s.validated_data.get("provider")
     conversation_id = s.validated_data.get("conversation_id")
 
-    if _is_platform_level(request.user) and not getattr(request.user, "company_id", None):
+    if moderation.is_exfiltration_attempt(question):
+        audit(request, "POLICY_VIOLATION_DETECTED", f"exfiltration_blocked :: {question[:120]}")
         return Response(
-            {"detail": "Platform admins cannot query company data. "
-                       "Use /api/admin/reports for subscription analytics."},
+            {"detail": "Bulk verbatim extraction of documents is blocked by workspace security policy."},
             status=403,
         )
+
+    scan = moderation.scan(question)
+    moderation_flags = None
+    if scan.flagged:
+        moderation_flags = scan.labels
+        audit(request, "POLICY_VIOLATION_DETECTED",
+              f"{scan.summary()} :: {question[:120]}")
 
     # Output routing: a policy question gets ONLY the grounded text answer, a
     # form/email request gets ONLY the finished document(s), and a mixed
@@ -1330,18 +1463,11 @@ def ask(request):
                           if (template_text and doc_plan.artifacts) else "")
         yield from rag.stream_answer(
             request.user, question, mode=mode, provider_override=provider,
-            moderation_flags=None, conversation=conversation,
+            moderation_flags=moderation_flags, conversation=conversation,
             template_text=template_text, template_rules=template_rules,
         )
         if doc_plan.artifacts:
             yield from artifact_events(False)
-
-    scan = moderation.scan(question)
-    moderation_flags = None
-    if scan.flagged:
-        moderation_flags = scan.labels
-        audit(request, "POLICY_VIOLATION_DETECTED",
-              f"{scan.summary()} :: {question[:120]}")
 
     resp = StreamingHttpResponse(stream(), content_type="application/x-ndjson")
     resp["Cache-Control"] = "no-cache"
@@ -1352,7 +1478,7 @@ def ask(request):
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def conversations(request):
-    _guard = _platform_admin_blocked(request)
+    _guard = _platform_admin_blocked(request) or _ai_chat_disabled(request)
     if _guard:
         return _guard
     """List the caller's chat threads, or start an empty one."""
@@ -1376,7 +1502,7 @@ def conversations(request):
 @api_view(["GET", "DELETE", "PATCH"])
 @permission_classes([IsAuthenticated])
 def conversation_detail(request, pk):
-    _guard = _platform_admin_blocked(request)
+    _guard = _platform_admin_blocked(request) or _ai_chat_disabled(request)
     if _guard:
         return _guard
     """One thread with its messages (own threads only), or delete/rename it."""
@@ -1400,7 +1526,7 @@ def conversation_detail(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def message_rate(request, pk):
-    _guard = _platform_admin_blocked(request)
+    _guard = _platform_admin_blocked(request) or _ai_chat_disabled(request)
     if _guard:
         return _guard
     """Thumbs up (1) / down (-1) on an assistant message (own messages only)."""
@@ -1461,19 +1587,25 @@ def llm_status(request):
 
 # -------------------------------------------------------- admin (company)
 @api_view(["GET", "POST"])
-@permission_classes([IsAdmin])
+@permission_classes([IsAdminOrDeptAdmin])
 def users(request):
-    """List or create users within the admin's own company only."""
+    """List or create users within the admin's own company (or dept sub-admin's department)."""
     company = request.user.company
     if company is None:
         return Response({"detail": "No company context."}, status=400)
+    full_admin = bool(request.user.role == "admin" or _is_platform_level(request.user))
     if request.method == "GET":
         qs = User.objects.filter(company=company).order_by("email")
+        if not full_admin:
+            qs = qs.filter(department_id=request.user.department_id)
         return Response(UserSerializer(qs, many=True, context={"request": request}).data)
 
     s = UserCreateSerializer(data=request.data)
     s.is_valid(raise_exception=True)
     d = s.validated_data
+    if not full_admin:
+        if d["role"] == "admin" or d.get("is_dept_admin"):
+            return Response({"detail": "Department sub-admins cannot create admins."}, status=403)
     if User.objects.filter(email__iexact=d["email"].strip()).exists():
         return Response(
             {"detail": "This email is already registered in Deskwise. Please enter a unique work "
@@ -1493,15 +1625,21 @@ def users(request):
         )
 
     department = None
-    if d.get("department_id"):
+    if not full_admin:
+        department = request.user.department
+    elif d.get("department_id"):
         department = Department.objects.filter(pk=d["department_id"], company=company).first()
         if department is None:
             return Response({"detail": "Department not found in this company."}, status=400)
 
+    is_dadmin = bool(d.get("is_dept_admin")) if full_admin else False
+    if is_dadmin and (d["role"] != "employee" or department is None):
+        return Response({"detail": "Department sub-admins must have role='employee' and a department."}, status=400)
+
     user = User.objects.create_user(
         email=d["email"], password=d["password"],
         full_name=d.get("full_name", ""), title=d.get("title", ""),
-        role=d["role"], company=company, department=department,
+        role=d["role"], is_dept_admin=is_dadmin, company=company, department=department,
     )
     # New members verify on first sign-in flow; send them a welcome+verify mail.
     tok, raw = OneTimeToken.issue(user, "verify_email", minutes=60 * 24 * 3)
@@ -1514,7 +1652,7 @@ def users(request):
 
 
 @api_view(["PATCH", "DELETE"])
-@permission_classes([IsAdmin])
+@permission_classes([IsAdminOrDeptAdmin])
 def user_detail(request, pk):
     """Edit (role/department/name/title/password) or remove a company member."""
     if pk == request.user.id and request.method == "DELETE":
@@ -1523,23 +1661,41 @@ def user_detail(request, pk):
         user = User.objects.get(pk=pk, company=request.user.company)
     except User.DoesNotExist:
         raise Http404
+    full_admin = bool(request.user.role == "admin" or _is_platform_level(request.user))
+    if not full_admin:
+        if user.department_id != request.user.department_id or user.role == "admin" or user.is_dept_admin:
+            return Response({"detail": "Department sub-admins can only manage non-admin members in their own department."},
+                            status=403)
     if request.method == "DELETE":
         email = user.email
         user.delete()
         audit(request, "remove_user", email)
         return Response(status=204)
     data = request.data
+    prev_role, prev_dept, prev_dadmin = user.role, user.department_id, user.is_dept_admin
     if "role" in data:
         role = data.get("role")
         if role not in ("admin", "employee", "viewer"):
             return Response({"detail": "Invalid role."}, status=400)
+        if not full_admin and role == "admin":
+            return Response({"detail": "Department sub-admins cannot promote users to admin."}, status=403)
         if user.id == request.user.id and role != "admin":
             return Response({"detail": "You can't demote yourself."}, status=400)
         user.role = role
     if "department_id" in data:
+        if not full_admin:
+            return Response({"detail": "Department sub-admins cannot reassign departments."}, status=403)
         dept_id = data.get("department_id")
         user.department = (Department.objects.filter(pk=dept_id, company=request.user.company).first()
                            if dept_id else None)
+    if "is_dept_admin" in data:
+        if not full_admin:
+            return Response({"detail": "Only company admins can assign department sub-admins."}, status=403)
+        val = data.get("is_dept_admin")
+        flag = val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes", "on")
+        if flag and (user.role != "employee" or user.department_id is None):
+            return Response({"detail": "Department sub-admins must be employees assigned to a department."}, status=400)
+        user.is_dept_admin = flag
     if "full_name" in data:
         user.full_name = str(data.get("full_name") or "")[:200]
     if "title" in data:
@@ -1552,7 +1708,12 @@ def user_detail(request, pk):
     if "is_active" in data:
         user.is_active = bool(data.get("is_active"))
     user.save()
-    if data.get("password") or data.get("is_active") is False:
+    privilege_changed = (
+        user.role != prev_role
+        or user.department_id != prev_dept
+        or user.is_dept_admin != prev_dadmin
+    )
+    if data.get("password") or data.get("is_active") is False or privilege_changed:
         revoke_user_refresh_tokens(user)
     audit(request, "update_user", f"{user.email}")
     return Response(UserSerializer(user, context={"request": request}).data)
@@ -1567,9 +1728,12 @@ def audit_log(request):
         import csv as _csv
         buf = io.StringIO()
         w = _csv.writer(buf)
-        w.writerow(["created_at", "action", "detail", "ip", "user_id"])
+        w.writerow(["created_at", "action", "detail", "ip", "user_id", "prev_hash", "entry_hash"])
         for row in qs[:5000]:
-            w.writerow([row.created_at.isoformat(), row.action, row.detail, row.ip, row.user_id])
+            w.writerow([
+                row.created_at.isoformat(), row.action, row.detail, row.ip,
+                row.user_id, row.prev_hash, row.entry_hash,
+            ])
         resp = FileResponse(io.BytesIO(buf.getvalue().encode("utf-8")), as_attachment=True,
                             filename=f"deskwise-audit-{timezone.localdate().isoformat()}.csv")
         return resp
@@ -1578,6 +1742,14 @@ def audit_log(request):
         "results": AuditSerializer(page["qs"], many=True).data,
         "count": page["count"], "page": page["page"], "pages": page["pages"],
     })
+
+
+@api_view(["GET"])
+@permission_classes([IsAdmin])
+def audit_verify(request):
+    """Verify tamper-evident SHA-256 hash chain across the company's audit log."""
+    valid, checked, broken_id = AuditLog.verify_chain(request.user.company)
+    return Response({"valid": valid, "checked": checked, "broken_id": broken_id})
 
 
 # --------------------------------------------------------- company settings
@@ -1602,12 +1774,22 @@ def company_settings(request):
         company.signature = str(data.get("signature") or "").strip()[:2000]
     def _parse_bool(val):
         return val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes", "on")
-    if "enable_attendance" in data:
-        company.enable_attendance = _parse_bool(data["enable_attendance"])
-    if "attendance_auto_freeze" in data:
-        company.attendance_auto_freeze = _parse_bool(data["attendance_auto_freeze"])
-    if "enable_docgen" in data:
-        company.enable_docgen = _parse_bool(data["enable_docgen"])
+    for flag in (
+        "enable_attendance", "attendance_auto_freeze", "enable_docgen",
+        "enable_ai_chat", "enable_team_chat", "enable_external_sharing",
+        "require_doc_approval", "redact_pii_for_llm",
+    ):
+        if flag in data:
+            setattr(company, flag, _parse_bool(data[flag]))
+    if "doc_retention_days" in data:
+        raw_ret = data.get("doc_retention_days")
+        if raw_ret in (None, ""):
+            company.doc_retention_days = None
+        else:
+            try:
+                company.doc_retention_days = max(1, int(raw_ret))
+            except (TypeError, ValueError):
+                return Response({"detail": "doc_retention_days must be a positive integer."}, status=400)
     if "max_employees" in data:
         raw = data.get("max_employees")
         if raw in (None, ""):
@@ -1684,7 +1866,7 @@ def platform_reports(request):
 @permission_classes([IsAuthenticated])
 @rate_limit("company_search", rate=20, per_seconds=60, key="ip")
 def company_search(request):
-    _guard = _platform_admin_blocked(request)
+    _guard = _platform_admin_blocked(request) or _external_sharing_disabled(request)
     if _guard:
         return _guard
     """Find a registered company by its short share code."""
@@ -1701,7 +1883,7 @@ def company_search(request):
 @permission_classes([IsAuthenticated])
 @rate_limit("company_members", rate=20, per_seconds=60, key="ip")
 def company_members(request, access_code):
-    _guard = _platform_admin_blocked(request)
+    _guard = _platform_admin_blocked(request) or _external_sharing_disabled(request)
     if _guard:
         return _guard
     """List selectable enterprise members for a company found by access code.
@@ -1729,6 +1911,38 @@ def document_shares(request, pk):
         )
         return Response(DocumentShareSerializer(shares, many=True).data)
 
+    ext_guard = _external_sharing_disabled(request)
+    if ext_guard:
+        return ext_guard
+    if doc.status != "approved":
+        return Response({"detail": "Only approved documents can be shared externally."}, status=400)
+    allow_pii_raw = request.data.get("allow_pii", False)
+    allow_pii = allow_pii_raw if isinstance(allow_pii_raw, bool) else str(allow_pii_raw).lower() in ("1", "true", "yes", "on")
+    if doc.contains_pii and not (request.user.role == "admin" and allow_pii):
+        return Response(
+            {"detail": "Document contains sensitive PII/credentials; an admin must confirm allow_pii=true to share externally."},
+            status=403,
+        )
+
+    expires_at = None
+    if request.data.get("expires_in_days") not in (None, ""):
+        try:
+            days = int(request.data.get("expires_in_days"))
+            if days <= 0:
+                raise ValueError
+            expires_at = timezone.now() + timedelta(days=days)
+        except (TypeError, ValueError):
+            return Response({"detail": "expires_in_days must be a positive integer."}, status=400)
+    elif request.data.get("expires_at"):
+        parsed = parse_datetime(str(request.data.get("expires_at")))
+        if parsed is None:
+            return Response({"detail": "Invalid expires_at ISO timestamp."}, status=400)
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+        if parsed <= timezone.now():
+            return Response({"detail": "expires_at must be in the future."}, status=400)
+        expires_at = parsed
+
     target, error = share_target(request)
     if error:
         return Response({"detail": error}, status=400)
@@ -1743,6 +1957,7 @@ def document_shares(request, pk):
         defaults={
             "shared_by": request.user,
             "can_download": access.can_download,
+            "expires_at": expires_at,
         },
     )
     audit(request, "share", f"{doc.filename} -> {target.email} ({target.company.name})")
@@ -1770,8 +1985,14 @@ def shared_with_me(request):
     if _guard:
         return _guard
     """Documents from OTHER companies that were shared with the current user."""
+    now = timezone.now()
     shares = (
-        DocumentShare.objects.filter(shared_with_user=request.user)
+        DocumentShare.objects.filter(
+            shared_with_user=request.user,
+            document__status="approved",
+            document__company__enable_external_sharing=True,
+        )
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
         .exclude(document__company=request.user.company)
         .select_related("document", "document__company", "shared_by")
         .order_by("-created_at")
@@ -1781,6 +2002,7 @@ def shared_with_me(request):
         data = DocumentSerializer(s.document).data
         data["shared_by"] = s.shared_by.email if s.shared_by else None
         data["can_download"] = s.can_download
+        data["expires_at"] = s.expires_at.isoformat() if s.expires_at else None
         out.append(data)
     return Response(out)
 
@@ -1926,17 +2148,72 @@ def announcements(request):
         return Response([])
     if request.method == "GET":
         qs = company.announcements.all()[:50]
-        return Response(AnnouncementSerializer(qs, many=True).data)
+        return Response(AnnouncementSerializer(qs, many=True, context={"request": request}).data)
     if request.user.role != "admin" and not _is_platform_level(request.user):
         return Response({"detail": "Only admins can post announcements."}, status=403)
     title = str((request.data or {}).get("title") or "").strip()[:200]
     body = str((request.data or {}).get("body") or "").strip()
     if not title or not body:
         return Response({"detail": "Title and body are required."}, status=400)
-    ann = Announcement.objects.create(company=company, title=title, body=body,
-                                      created_by=request.user)
+    raw_ack = (request.data or {}).get("require_ack", False)
+    require_ack = raw_ack if isinstance(raw_ack, bool) else str(raw_ack).lower() in ("1", "true", "yes", "on")
+    ann = Announcement.objects.create(
+        company=company, title=title, body=body, require_ack=require_ack, created_by=request.user,
+    )
     audit(request, "announcement", title)
-    return Response(AnnouncementSerializer(ann).data, status=201)
+    return Response(AnnouncementSerializer(ann, context={"request": request}).data, status=201)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def announcement_ack(request, pk):
+    """Record that the signed-in employee read and acknowledged a mandatory announcement."""
+    if not getattr(request.user, "company_id", None):
+        raise Http404
+    try:
+        ann = Announcement.objects.get(pk=pk, company=request.user.company)
+    except Announcement.DoesNotExist:
+        raise Http404
+    ack, created = AnnouncementAck.objects.get_or_create(announcement=ann, user=request.user)
+    if created:
+        audit(request, "announcement_ack", ann.title)
+    return Response({
+        "announcement_id": ann.id,
+        "acknowledged": True,
+        "acknowledged_at": ack.acknowledged_at.isoformat(),
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAdmin])
+def announcement_acks(request, pk):
+    """List who acknowledged (and who still hasn't) for a company announcement."""
+    try:
+        ann = Announcement.objects.get(pk=pk, company=request.user.company)
+    except Announcement.DoesNotExist:
+        raise Http404
+    acks = list(
+        AnnouncementAck.objects.filter(announcement=ann).select_related("user").order_by("acknowledged_at")
+    )
+    acked_ids = {a.user_id for a in acks}
+    pending = User.objects.filter(company=request.user.company, is_active=True).exclude(id__in=acked_ids)
+    return Response({
+        "announcement_id": ann.id,
+        "require_ack": ann.require_ack,
+        "acknowledged": [
+            {
+                "user_id": a.user_id,
+                "email": a.user.email,
+                "full_name": a.user.full_name,
+                "acknowledged_at": a.acknowledged_at.isoformat(),
+            }
+            for a in acks
+        ],
+        "pending": [
+            {"user_id": u.id, "email": u.email, "full_name": u.full_name}
+            for u in pending
+        ],
+    })
 
 
 @api_view(["DELETE"])
@@ -2649,3 +2926,183 @@ def artifact_download(request, pk):
     resp = FileResponse(io.BytesIO(data), as_attachment=True, filename=filename)
     resp["Content-Type"] = content_type
     return resp
+
+
+# ----------------------------------------- unified search & governance alerts
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def unified_search(request):
+    """Permission-filtered search across accessible documents, team messages, and artifacts."""
+    _guard = _platform_admin_blocked(request)
+    if _guard:
+        return _guard
+    q = str(request.query_params.get("q") or "").strip()
+    if len(q) < 2:
+        return Response({"detail": "Query parameter 'q' must be at least 2 characters."}, status=400)
+    ql = q.lower()
+    company = getattr(request.user, "company", None)
+
+    doc_hits = []
+    for doc in visible_documents(request.user).select_related("department").order_by("-updated_at")[:150]:
+        if (
+            ql in (doc.filename or "").lower()
+            or ql in (doc.description or "").lower()
+            or ql in (doc.tags or "").lower()
+            or ql in (doc.preview_text or "").lower()
+        ):
+            doc_hits.append(DocumentSerializer(doc).data)
+            if len(doc_hits) >= 20:
+                break
+
+    msg_hits = []
+    if company and getattr(company, "enable_team_chat", True):
+        from .team_chat import accessible_rooms_for
+        rooms = list(accessible_rooms_for(request.user))
+        room_ids = [r.id for r in rooms]
+        if room_ids:
+            msgs = (
+                TeamMessage.objects.filter(room_id__in=room_ids, content__icontains=q)
+                .select_related("room", "sender")
+                .order_by("-created_at")[:20]
+            )
+            msg_hits = [
+                {
+                    "id": m.id,
+                    "room_id": m.room_id,
+                    "room_name": m.room.name,
+                    "sender": m.sender.email if m.sender else "DeskWise",
+                    "content": m.content[:240],
+                    "created_at": m.created_at.isoformat(),
+                }
+                for m in msgs
+            ]
+
+    artifact_hits = []
+    if company and getattr(company, "enable_docgen", True):
+        arts = (
+            GeneratedArtifact.objects.filter(company=company, user=request.user)
+            .filter(Q(title__icontains=q) | Q(content_md__icontains=q))
+            .order_by("-created_at")[:20]
+        )
+        artifact_hits = [_artifact_payload(a) for a in arts]
+
+    return Response({
+        "query": q,
+        "documents": doc_hits,
+        "team_messages": msg_hits,
+        "artifacts": artifact_hits,
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAdmin])
+def admin_governance(request):
+    """Governance & compliance overview: pending reviews, PII docs, legal holds, stale docs, expiring shares, audit chain."""
+    company = request.user.company
+    if company is None:
+        return Response({"detail": "No company context."}, status=400)
+    now = timezone.now()
+    stale_days = company.doc_retention_days or 180
+    stale_cutoff = now - timedelta(days=stale_days)
+    expiring_cutoff = now + timedelta(days=7)
+
+    pending_docs = Document.objects.filter(company=company, status="in_review").order_by("-updated_at")[:25]
+    pii_docs = Document.objects.filter(company=company, contains_pii=True).order_by("-updated_at")[:25]
+    held_docs = Document.objects.filter(company=company, legal_hold=True).order_by("-updated_at")[:25]
+    stale_docs = Document.objects.filter(company=company, status="approved", updated_at__lt=stale_cutoff).order_by("updated_at")[:25]
+    expiring_shares = (
+        DocumentShare.objects.filter(
+            document__company=company,
+            expires_at__isnull=False,
+            expires_at__gt=now,
+            expires_at__lte=expiring_cutoff,
+        )
+        .select_related("document", "shared_with_user", "shared_with_user__company")
+        .order_by("expires_at")[:25]
+    )
+    expired_count = DocumentShare.objects.filter(
+        document__company=company, expires_at__isnull=False, expires_at__lte=now,
+    ).count()
+
+    active_members = User.objects.filter(company=company, is_active=True).count()
+    mandatory_anns = []
+    for ann in Announcement.objects.filter(company=company, require_ack=True)[:20]:
+        acked = ann.acks.count()
+        mandatory_anns.append({
+            "id": ann.id,
+            "title": ann.title,
+            "acknowledged_count": acked,
+            "pending_count": max(0, active_members - acked),
+        })
+
+    chain_valid, chain_checked, chain_broken_id = AuditLog.verify_chain(company)
+
+    return Response({
+        "pending_review_count": Document.objects.filter(company=company, status="in_review").count(),
+        "pending_reviews": DocumentSerializer(pending_docs, many=True).data,
+        "pii_document_count": Document.objects.filter(company=company, contains_pii=True).count(),
+        "pii_documents": DocumentSerializer(pii_docs, many=True).data,
+        "legal_hold_count": Document.objects.filter(company=company, legal_hold=True).count(),
+        "legal_hold_documents": DocumentSerializer(held_docs, many=True).data,
+        "stale_threshold_days": stale_days,
+        "stale_document_count": Document.objects.filter(company=company, status="approved", updated_at__lt=stale_cutoff).count(),
+        "stale_documents": DocumentSerializer(stale_docs, many=True).data,
+        "expiring_shares": DocumentShareSerializer(expiring_shares, many=True).data,
+        "expired_share_count": expired_count,
+        "mandatory_announcements": mandatory_anns,
+        "audit_integrity": {
+            "valid": chain_valid,
+            "checked": chain_checked,
+            "broken_id": chain_broken_id,
+        },
+    })
+
+
+@api_view(["GET", "POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def cron_maintenance(request):
+    """Scheduled maintenance endpoint for serverless hosts (e.g. Vercel Cron).
+
+    Protected by `CRON_SECRET` via `Authorization: Bearer <CRON_SECRET>`.
+    Re-indexes up to 10 stuck pending documents and prunes old AskLog rows.
+    """
+    import hmac
+    from io import StringIO
+    from django.core.management import call_command
+
+    secret = os.getenv("CRON_SECRET", "").strip()
+    if not secret:
+        return Response({"detail": "CRON_SECRET is not configured."}, status=503)
+    auth = (request.headers.get("Authorization") or "").strip()
+    expected = f"Bearer {secret}"
+    if not hmac.compare_digest(auth, expected):
+        return Response({"detail": "Unauthorized."}, status=401)
+
+    cutoff = timezone.now() - timedelta(minutes=30)
+    stuck_docs = list(
+        Document.objects.filter(indexing_status="pending", updated_at__lt=cutoff)[:10]
+    )
+    reindexed = 0
+    failed = 0
+    for doc in stuck_docs:
+        try:
+            raw = storage.read_bytes(doc.stored_path, base_dir=settings.DATA_DIR)
+            n = rag.index_document(doc, raw)
+            doc.indexing_status = "ready" if n >= 0 else "failed"
+            doc.index_error = ""
+            reindexed += 1
+        except Exception as exc:
+            doc.indexing_status = "failed"
+            doc.index_error = str(exc)[:300]
+            failed += 1
+        doc.save(update_fields=["indexing_status", "index_error"])
+
+    out = StringIO()
+    call_command("prune_asklogs", days=90, stdout=out)
+    return Response({
+        "ok": True,
+        "reindexed": reindexed,
+        "failed": failed,
+        "prune_output": out.getvalue().strip(),
+    })

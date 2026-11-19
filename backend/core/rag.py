@@ -26,8 +26,7 @@ except ImportError:  # numpy only needed for embedding similarity; keyword searc
     np = None
 
 from .models import Chunk, Document
-from . import providers, workflow
-from . import docgen
+from . import docgen, moderation, providers, workflow
 from .uploads import MAX_PDF_PAGES, UploadRejected, guard_zip_archive, truncate_text
 
 # ---------------------------------------------------------------- extraction
@@ -359,17 +358,19 @@ def _pg_shortlist(document_ids, qvec, limit: int) -> dict:
 def prepare_document_chunks(doc: Document, raw: bytes) -> tuple[list[Chunk], list[str]]:
     """Stage 1 of indexing: fast extraction + chunking (<100ms).
 
-    Persists Chunk rows with `embedding=None`, updates `doc.num_chunks` and caches
-    `doc.preview_text` immediately so the document is previewable and keyword-
-    searchable via BM25 while Stage 2 computes vector embeddings asynchronously.
+    Persists Chunk rows with `embedding=None`, updates `doc.num_chunks`,
+    `doc.contains_pii`, and caches encrypted `doc.preview_text` immediately so
+    the document is previewable and keyword-searchable via BM25 while Stage 2
+    computes vector embeddings asynchronously.
     """
     text = extract_text(raw, doc.filename, doc.content_type)
+    doc.contains_pii = moderation.detect_pii(text)
     pieces = chunk_text(text)
     Chunk.objects.filter(document=doc).delete()
     if not pieces:
         doc.num_chunks = 0
         doc.preview_text = (text or "")[:500_000]
-        doc.save(update_fields=["num_chunks", "preview_text"])
+        doc.save(update_fields=["num_chunks", "preview_text", "contains_pii"])
         return [], []
 
     rows = [
@@ -381,7 +382,7 @@ def prepare_document_chunks(doc: Document, raw: bytes) -> tuple[list[Chunk], lis
     # Cache the extraction for /preview so viewing a document never re-parses
     # the file (a 50MB PDF preview would otherwise cost seconds per view).
     doc.preview_text = (text or "")[:500_000]
-    doc.save(update_fields=["num_chunks", "preview_text"])
+    doc.save(update_fields=["num_chunks", "preview_text", "contains_pii"])
     return rows, pieces
 
 
@@ -499,30 +500,96 @@ def _bm25_scores(query: str, texts: list[str], normalize: bool = True) -> list[f
     return [(s - lo) / (hi - lo) for s in scores]
 
 # ---------------------------------------------------------------- retrieval
-def accessible_doc_ids(user) -> set:
-    """Documents this user may use in chat: their OWN company's documents
-    (company-wide, or department-scoped when the user is in that department),
-    plus any specific document explicitly shared/granted with them. Platform
-    admins WITHOUT a company see NO documents (platform reporting is separate)."""
-    from .models import DocumentAccess, DocumentShare
-    ids = set()
-    is_platform = bool(getattr(user, "is_platform_admin", False) or getattr(user, "is_superuser", False))
-    if is_platform and not getattr(user, "company_id", None):
-        return set()
+def accessible_documents_qs(user, *, include_unapproved: bool = False, include_external_shares: bool = True):
+    """Single source of truth for Document ACL across views, downloads, and RAG.
 
-    if getattr(user, "company_id", None):
-        own = Document.objects.filter(company_id=user.company_id)
-        if is_platform:
-            ids |= set(own.values_list("id", flat=True))
+    Enforces:
+    - Tenant boundary (`company_id`)
+    - Platform root admins with no active company see nothing
+    - Role/sensitivity clearance (`viewer` -> standard only; `employee` -> standard/internal; `admin` -> all)
+    - Department scope & delegated department sub-admin (`is_dept_admin`)
+    - Approval lifecycle (`status='approved'` required for AI and external shares)
+    - Active, unexpired cross-company `DocumentShare`s when `enable_external_sharing` is enabled
+    """
+    from .models import DocumentAccess, DocumentShare
+
+    if not user or not getattr(user, "is_authenticated", False):
+        return Document.objects.none()
+
+    is_platform = bool(getattr(user, "is_platform_admin", False) or getattr(user, "is_superuser", False))
+    company_id = getattr(user, "company_id", None)
+    if is_platform and not company_id:
+        return Document.objects.none()
+
+    q = Q(pk__in=[])
+    if company_id:
+        role = getattr(user, "role", "employee")
+        if is_platform or role == "admin":
+            own_q = Q(company_id=company_id)
+            if not include_unapproved:
+                own_q &= Q(status="approved")
+            q |= own_q
         else:
-            dept_q = Q(access_scope="department", department_id=user.department_id) if getattr(user, "department_id", None) else Q()
-            ids |= set(
-                own.filter(Q(access_scope="company") | dept_q | Q(access_grants__user=user))
-                .values_list("id", flat=True)
-            )
-    ids |= set(DocumentAccess.objects.filter(user=user).values_list("document_id", flat=True))
-    ids |= set(DocumentShare.objects.filter(shared_with_user=user).values_list("document_id", flat=True))
-    return ids
+            allowed_sens = ["standard"] if role == "viewer" else ["standard", "internal"]
+            dept_id = getattr(user, "department_id", None)
+            is_dadmin = bool(role == "employee" and getattr(user, "is_dept_admin", False) and dept_id)
+
+            scope_q = Q(access_scope="company", sensitivity__in=allowed_sens)
+            if dept_id:
+                if is_dadmin:
+                    scope_q |= Q(access_scope="department", department_id=dept_id)
+                else:
+                    scope_q |= Q(access_scope="department", department_id=dept_id, sensitivity__in=allowed_sens)
+
+            if not include_unapproved:
+                own_doc_q = scope_q & Q(status="approved")
+                grant_q = Q(access_grants__user=user, status="approved")
+            else:
+                uploader_q = Q(uploaded_by=user, sensitivity__in=allowed_sens, status__in=("draft", "in_review", "approved"))
+                if is_dadmin:
+                    uploader_q |= Q(department_id=dept_id, status__in=("draft", "in_review", "archived"))
+                own_doc_q = (scope_q & Q(status="approved")) | uploader_q
+                grant_q = Q(access_grants__user=user) & (
+                    Q(status="approved")
+                    | Q(uploaded_by=user)
+                    | (Q(department_id=dept_id) if is_dadmin else Q(pk__in=[]))
+                )
+            q |= Q(company_id=company_id) & (own_doc_q | grant_q)
+
+    if include_external_shares:
+        now = timezone.now()
+        active_share_ids = DocumentShare.objects.filter(
+            shared_with_user=user,
+            document__status="approved",
+            document__company__enable_external_sharing=True,
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).values_list("document_id", flat=True)
+
+        expired_share_doc_ids = DocumentShare.objects.filter(
+            shared_with_user=user,
+            expires_at__isnull=False,
+            expires_at__lte=now,
+        ).values_list("document_id", flat=True)
+
+        ext_access_qs = DocumentAccess.objects.filter(
+            user=user,
+            document__status="approved",
+            document__company__enable_external_sharing=True,
+        )
+        if company_id:
+            ext_access_qs = ext_access_qs.exclude(document__company_id=company_id)
+        ext_access_ids = ext_access_qs.exclude(document_id__in=expired_share_doc_ids).values_list("document_id", flat=True)
+
+        q |= Q(id__in=active_share_ids) | Q(id__in=ext_access_ids)
+
+    return Document.objects.filter(q).distinct()
+
+
+def accessible_doc_ids(user) -> set:
+    """Approved, active, sensitivity-permitted documents this user may use in AI chat."""
+    return set(
+        accessible_documents_qs(user, include_unapproved=False, include_external_shares=True)
+        .values_list("id", flat=True)
+    )
 
 
 
@@ -737,22 +804,36 @@ def extract_intent(tail: str) -> dict | None:
 
 def build_messages(chunks: list[Chunk], question: str, history: list[dict] | None = None,
                    language: str = "en", user=None, profile_block: str = "",
-                   template_text: str = "", template_rules: str = "") -> list[dict]:
+                   template_text: str = "", template_rules: str = "",
+                   redacted_out: list[str] | None = None) -> list[dict]:
     """Assemble the system + user messages: retrieved chunks become the CONTEXT
-    block, tagged by document name (or OKF), with fences neutralised.
+    block, tagged by document name (or OKF), with fences neutralised and PII redacted.
 
     `history` is the prior conversation (oldest first, role/content dicts) so the
     assistant keeps context across turns. `language` is the user's reply-language
     preference: 'en' (default) or 'ur' (Roman Urdu). `user` is the authenticated
     client user object whose profile details auto-fill forms and email drafts.
     """
+    company = getattr(user, "company", None) if user is not None else None
+    should_redact = getattr(company, "redact_pii_for_llm", True) if company is not None else True
+
+    def _clean_text(raw: str) -> str:
+        s = raw.replace("```", "'''").strip()
+        if should_redact:
+            s, cats = moderation.redact_pii(s)
+            if redacted_out is not None:
+                for cat in cats:
+                    if cat not in redacted_out:
+                        redacted_out.append(cat)
+        return s
+
     blocks = []
     total_chars = 0
     max_context_chars = getattr(settings, "RAG_MAX_CONTEXT_CHARS", 12000)
     for c in chunks:
         tag = "OKF" if c.document.is_okf else c.document.filename
-        # neutralise obvious injection markers from document text
-        safe = c.text.replace("```", "'''").strip()
+        # neutralise obvious injection markers and redact sensitive PII/secrets
+        safe = _clean_text(c.text)
         if total_chars + len(safe) > max_context_chars and blocks:
             remaining = max_context_chars - total_chars
             if remaining > 250:
@@ -762,7 +843,7 @@ def build_messages(chunks: list[Chunk], question: str, history: list[dict] | Non
         total_chars += len(safe)
     if template_text:
         # Template requests get the WHOLE document, never retrieval chunks.
-        context = f"TEMPLATE DOCUMENT (keep its structure):\n{template_text}"
+        context = f"TEMPLATE DOCUMENT (keep its structure):\n{_clean_text(template_text)}"
     else:
         context = "\n\n---\n\n".join(blocks) if blocks else "(no documents indexed yet)"
     user_msg = f"CONTEXT:\n{context}\n\n---\n\nQUESTION: {question}"
@@ -843,21 +924,36 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
     # A template request reads the whole template rather than scoring chunks.
     chunks = [] if template_text else retrieve(user, question, doc_ids_override=doc_ids_override)
     sources = sorted({c.document.filename for c in chunks})
-    yield json.dumps({"type": "sources", "sources": sources}) + "\n"
+    company = getattr(user, "company", None)
+    should_redact = getattr(company, "redact_pii_for_llm", True) if company is not None else True
+    citations = []
+    for c in chunks:
+        snippet = c.text.strip().replace("\n", " ")[:180]
+        if should_redact:
+            snippet, _ = moderation.redact_pii(snippet)
+        citations.append({
+            "document_id": c.document_id,
+            "filename": c.document.filename,
+            "chunk_ord": c.ord,
+            "snippet": snippet,
+        })
+    yield json.dumps({"type": "sources", "sources": sources, "citations": citations}) + "\n"
 
     provider_used = ""
     chat = providers.get_chat_provider(mode=mode, provider_override=provider_override,
-                                       company=getattr(user, "company", None))
+                                       company=company)
     provider_used = chat.label
 
     history = list(history_override or [])
     if not history and conversation is not None:
         history = list(conversation.messages.values("role", "content"))
 
+    redacted_cats: list[str] = []
     messages = build_messages(chunks, question, history=history,
                               language=getattr(user, "language", "en") or "en",
                               user=user, template_text=template_text,
-                              template_rules=template_rules)
+                              template_rules=template_rules,
+                              redacted_out=redacted_cats)
 
     # Feature 4: surface a policy-violation flag to the user (audit row written by caller).
     if moderation_flags:
@@ -865,6 +961,12 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
             "type": "flag",
             "message": "This message was flagged for review: " + "; ".join(moderation_flags) + ".",
             "categories": moderation_flags,
+        }) + "\n"
+    if redacted_cats:
+        yield json.dumps({
+            "type": "redaction",
+            "message": "Sensitive data was redacted before sending context to the AI provider.",
+            "categories": redacted_cats,
         }) + "\n"
 
     if not chat.available():

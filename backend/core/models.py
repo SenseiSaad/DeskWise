@@ -1,30 +1,36 @@
 """Database tables. Every tenant-owned row carries `company` — that FK is the
 backbone of multi-tenant isolation (one company can never see another's data)."""
+import hashlib
 import os
 import secrets
 import string
-from datetime import timedelta
+from datetime import timedelta, timezone as dt_timezone
 
 from django.contrib.auth.models import (
     AbstractBaseUser, BaseUserManager, PermissionsMixin,
 )
 from django.db import IntegrityError, models, transaction
+from django.utils import timezone
 
 from .crypto import decrypt_secret, encrypt_secret
 
 
-class EncryptedCharField(models.CharField):
-    """CharField whose value is encrypted at rest, transparently.
-
-    Database column type is unchanged; legacy plaintext rows still read and are
-    encrypted the next time they are written.
-    """
+class _EncryptedFieldMixin:
+    """Transparently encrypt field values at rest; legacy plaintext rows still read."""
 
     def from_db_value(self, value, expression, connection):
         return decrypt_secret(value)
 
     def get_prep_value(self, value):
         return encrypt_secret(super().get_prep_value(value))
+
+
+class EncryptedCharField(_EncryptedFieldMixin, models.CharField):
+    """CharField whose value is encrypted at rest, transparently."""
+
+
+class EncryptedTextField(_EncryptedFieldMixin, models.TextField):
+    """TextField whose value is encrypted at rest, transparently."""
 
 
 _COMPANY_CODE_ALPHABET = string.ascii_uppercase + string.digits
@@ -76,6 +82,12 @@ class Company(models.Model):
     enable_attendance = models.BooleanField(default=True)
     attendance_auto_freeze = models.BooleanField(default=False)  # warn-only by default (False = no auto-deactivation)
     enable_docgen = models.BooleanField(default=True)
+    enable_ai_chat = models.BooleanField(default=True)
+    enable_team_chat = models.BooleanField(default=True)
+    enable_external_sharing = models.BooleanField(default=True)
+    require_doc_approval = models.BooleanField(default=False)
+    redact_pii_for_llm = models.BooleanField(default=True)
+    doc_retention_days = models.PositiveIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
@@ -149,6 +161,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         null=True, blank=True,
     )
     role = models.CharField(max_length=20, choices=ROLES, default="employee")
+    # Delegated department sub-admin (can manage/approve docs & members inside own department only).
+    is_dept_admin = models.BooleanField(default=False)
+    # Bumped on password reset, deactivation, role/dept changes, or logout-all to invalidate active JWTs.
+    token_version = models.PositiveIntegerField(default=1)
     # Platform root admin: complete authority over every tenant, the platform
     # LLM default, plans and company plan assignment. Granted via the
     # `create_platform_admin` management command — never hardcoded to an email.
@@ -343,7 +359,27 @@ class Document(models.Model):
         ("restricted", "Selected people"),
         ("department", "My department"),
     ]
+    SENSITIVITY_LEVELS = [
+        ("standard", "Standard"),
+        ("internal", "Internal (Employees+)"),
+        ("confidential", "Confidential (Admin Only)"),
+    ]
+    APPROVAL_STATES = [
+        ("draft", "Draft"),
+        ("in_review", "In Review"),
+        ("approved", "Approved"),
+        ("archived", "Archived"),
+    ]
     access_scope = models.CharField(max_length=20, choices=ACCESS_SCOPES, default="company")
+    sensitivity = models.CharField(max_length=20, choices=SENSITIVITY_LEVELS, default="standard")
+    status = models.CharField(max_length=20, choices=APPROVAL_STATES, default="approved")
+    reviewed_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="reviewed_documents",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(max_length=300, blank=True, default="")
+    contains_pii = models.BooleanField(default=False)
+    legal_hold = models.BooleanField(default=False)
     department = models.ForeignKey(
         Department, on_delete=models.SET_NULL, related_name="documents", null=True, blank=True,
     )
@@ -360,8 +396,8 @@ class Document(models.Model):
     # name is recorded at index time and surfaced by check_embeddings.
     embed_model = models.CharField(max_length=120, blank=True, default="")
     # Extracted text cached at index time so /documents/<id>/preview does not
-    # re-parse the file on every view. Cleared on new-version upload.
-    preview_text = models.TextField(blank=True, default="")
+    # re-parse the file on every view. Cleared on new-version upload; encrypted at rest.
+    preview_text = EncryptedTextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -443,11 +479,22 @@ class Announcement(models.Model):
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="announcements")
     title = models.CharField(max_length=200)
     body = models.TextField()
+    require_ack = models.BooleanField(default=False)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class AnnouncementAck(models.Model):
+    """Employee read-acknowledgement receipt for a mandatory announcement/policy."""
+    announcement = models.ForeignKey(Announcement, on_delete=models.CASCADE, related_name="acks")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="announcement_acks")
+    acknowledged_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("announcement", "user")
 
 
 class DocumentAccess(models.Model):
@@ -468,28 +515,74 @@ class DocumentAccess(models.Model):
 
 class Chunk(models.Model):
     """A slice of a document's text plus its embedding, used for RAG retrieval.
-    Carries `company` too so retrieval can filter by tenant without a join."""
+    Carries `company` too so retrieval can filter by tenant without a join; text is encrypted at rest."""
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="chunks")
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="chunks")
     ord = models.IntegerField(default=0)
-    text = models.TextField()
+    text = EncryptedTextField()
     # numpy float32 vector as raw bytes; NULL when embeddings unavailable
     embedding = models.BinaryField(null=True, blank=True)
 
 
 class AuditLog(models.Model):
-    """Append-only activity trail per company (login, upload, share, ...) shown
-    on the admin audit page."""
+    """Append-only, hash-chained activity trail per company shown on the admin audit page."""
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="audit")
     user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
     action = models.CharField(max_length=50)
     detail = models.CharField(max_length=300, blank=True, default="")
     ip = models.CharField(max_length=64, blank=True, default="")
-    created_at = models.DateTimeField(auto_now_add=True)
+    prev_hash = models.CharField(max_length=64, blank=True, default="")
+    entry_hash = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         # The audit page paginates newest-first within one company.
         indexes = [models.Index(fields=["company", "-created_at"])]
+
+    def compute_hash(self, prev_hash: str) -> str:
+        ts = self.created_at
+        if timezone.is_naive(ts):
+            ts = timezone.make_aware(ts, dt_timezone.utc)
+        ts_str = ts.astimezone(dt_timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        payload = f"{self.company_id}|{self.action}|{self.detail}|{self.ip}|{ts_str}|{prev_hash}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def save(self, *args, **kwargs):
+        if not self.created_at:
+            self.created_at = timezone.now()
+        if self._state.adding and self.company_id and not self.entry_hash:
+            with transaction.atomic():
+                last = (
+                    type(self).objects
+                    .select_for_update()
+                    .filter(company_id=self.company_id)
+                    .order_by("-id")
+                    .values_list("entry_hash", flat=True)
+                    .first()
+                )
+                self.prev_hash = last or ("0" * 64)
+                self.entry_hash = self.compute_hash(self.prev_hash)
+                return super().save(*args, **kwargs)
+        return super().save(*args, **kwargs)
+
+    @classmethod
+    def verify_chain(cls, company) -> tuple[bool, int, int | None]:
+        """Verify hash chain integrity for `company`. Returns (valid, checked_count, broken_id)."""
+        rows = list(cls.objects.filter(company=company).order_by("id"))
+        expected_prev = "0" * 64
+        checked = 0
+        seen_hashed = False
+        for row in rows:
+            if not row.entry_hash:
+                if seen_hashed:
+                    return False, checked, row.id
+                continue
+            seen_hashed = True
+            checked += 1
+            if row.prev_hash != expected_prev or row.entry_hash != row.compute_hash(expected_prev):
+                return False, checked, row.id
+            expected_prev = row.entry_hash
+        return True, checked, None
 
 
 class DocumentShare(models.Model):
@@ -509,10 +602,15 @@ class DocumentShare(models.Model):
         User, null=True, on_delete=models.SET_NULL, related_name="shares_created"
     )
     can_download = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ("document", "shared_with_user")
+
+    @property
+    def is_expired(self) -> bool:
+        return bool(self.expires_at and self.expires_at <= timezone.now())
 
 
 class LLMConfig(models.Model):

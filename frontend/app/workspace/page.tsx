@@ -18,6 +18,7 @@ import {
   Phone,
   Plus,
   ScrollText,
+  Search,
   Share2,
   ShieldCheck,
   Sparkles,
@@ -37,6 +38,7 @@ import {
   type AuditRow,
   type CompanyProfile,
   type EnterpriseDoc,
+  type GovernanceSummary,
   type LlmStatus,
   type User,
 } from '@/lib/api'
@@ -56,19 +58,38 @@ export default function WorkspaceOverviewPage() {
   const [audit, setAudit] = useState<AuditRow[]>([])
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
+  const [governance, setGovernance] = useState<GovernanceSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Unified search across documents, team chat, and AI artifacts
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [searchResults, setSearchResults] = useState<Awaited<ReturnType<typeof workApi.search>> | null>(null)
+
+  // Mandatory announcement acknowledgments
+  const [ackBusyId, setAckBusyId] = useState<number | null>(null)
+  const [ackInspect, setAckInspect] = useState<{
+    id: number
+    title: string
+    acknowledged: { user_id: number; email: string; full_name: string; acknowledged_at: string }[]
+    pending: { user_id: number; email: string; full_name: string }[]
+  } | null>(null)
 
   // New announcement modal (persisted across tab switches)
   const { overviewDraft, setOverviewDraft } = useWorkspaceStore()
   const { showAnnounceModal, announceTitle, announceBody } = overviewDraft
+  const requireAck = overviewDraft.requireAck ?? false
   const setShowAnnounceModal = (v: boolean) =>
     setOverviewDraft((s) => ({ ...s, showAnnounceModal: v }))
   const setAnnounceTitle = (v: string) =>
     setOverviewDraft((s) => ({ ...s, announceTitle: v }))
   const setAnnounceBody = (v: string) =>
     setOverviewDraft((s) => ({ ...s, announceBody: v }))
+  const setRequireAck = (v: boolean) =>
+    setOverviewDraft((s) => ({ ...s, requireAck: v }))
   useEscapeKey(() => setShowAnnounceModal(false), showAnnounceModal)
+  useEscapeKey(() => setAckInspect(null), !!ackInspect)
   const [postingAnnounce, setPostingAnnounce] = useState(false)
 
   const load = useCallback(async () => {
@@ -86,18 +107,21 @@ export default function WorkspaceOverviewPage() {
 
       if (isAdmin) {
         try {
-          const [usersRes, auditRes, analyticsRes] = await Promise.all([
+          const [usersRes, auditRes, analyticsRes, govRes] = await Promise.all([
             adminApi.users(),
             adminApi.audit(1, 10),
             analyticsApi.get(30).catch(() => null),
+            adminApi.governance().catch(() => null),
           ])
           setMembers(usersRes)
           setAudit(auditRes.results || [])
           setAnalytics(analyticsRes)
+          setGovernance(govRes)
         } catch {
           setMembers([])
           setAudit([])
           setAnalytics(null)
+          setGovernance(null)
         }
       }
     } catch (e) {
@@ -112,6 +136,47 @@ export default function WorkspaceOverviewPage() {
     void load()
   }, [user, load])
 
+  async function onUnifiedSearch(e: React.FormEvent) {
+    e.preventDefault()
+    const q = searchQuery.trim()
+    if (!q) {
+      setSearchResults(null)
+      return
+    }
+    setSearching(true)
+    try {
+      setSearchResults(await workApi.search(q))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Search failed.')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  async function onAckAnnouncement(id: number) {
+    setAckBusyId(id)
+    try {
+      await companyApi2.ackAnnouncement(id)
+      setAnnouncements((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, acknowledged_by_me: true, ack_count: (a.ack_count || 0) + 1 } : a)),
+      )
+      toast.success('Announcement acknowledged.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not acknowledge announcement.')
+    } finally {
+      setAckBusyId(null)
+    }
+  }
+
+  async function onInspectAcks(a: Announcement) {
+    try {
+      const res = await companyApi2.announcementAcks(a.id)
+      setAckInspect({ id: a.id, title: a.title, acknowledged: res.acknowledged, pending: res.pending })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not load acknowledgment receipts.')
+    }
+  }
+
   async function onPostAnnouncement(e: React.FormEvent) {
     e.preventDefault()
     if (!announceTitle.trim() || !announceBody.trim()) return
@@ -120,10 +185,12 @@ export default function WorkspaceOverviewPage() {
       const created = await companyApi2.addAnnouncement({
         title: announceTitle.trim(),
         body: announceBody.trim(),
+        require_ack: requireAck,
       })
       setAnnouncements((prev) => [created, ...prev])
       setAnnounceTitle('')
       setAnnounceBody('')
+      setRequireAck(false)
       setShowAnnounceModal(false)
       toast.success('Announcement broadcasted.')
     } catch (err) {
@@ -203,6 +270,101 @@ export default function WorkspaceOverviewPage() {
             />
           ) : null}
 
+          {/* Unified Workspace Search */}
+          <section className="mt-6 rounded-3xl border border-border bg-surface p-4 shadow-sm">
+            <form onSubmit={onUnifiedSearch} className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search across permitted documents, team chat, and artifacts…"
+                  className="h-10 w-full rounded-2xl border border-border bg-surface-2 pl-10 pr-4 text-xs text-foreground outline-none focus:border-foreground"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={searching}
+                className="inline-flex h-10 items-center gap-1.5 rounded-2xl bg-primary px-4 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {searching ? <Loader2 className="size-3.5 animate-spin" /> : <Search className="size-3.5" />}
+                Search
+              </button>
+              {searchResults && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('')
+                    setSearchResults(null)
+                  }}
+                  className="inline-flex h-10 items-center rounded-2xl border border-border px-3 text-xs text-muted-foreground hover:bg-surface-2"
+                >
+                  Clear
+                </button>
+              )}
+            </form>
+
+            {searchResults && (
+              <div className="mt-3 grid gap-3 border-t border-border pt-3 text-xs sm:grid-cols-3">
+                <div>
+                  <p className="font-semibold text-foreground">
+                    Documents ({searchResults.documents.length})
+                  </p>
+                  {searchResults.documents.length === 0 ? (
+                    <p className="mt-1 text-muted-foreground">No document matches.</p>
+                  ) : (
+                    <ul className="mt-1.5 space-y-1">
+                      {searchResults.documents.slice(0, 5).map((d) => (
+                        <li key={d.id} className="truncate">
+                          <Link href="/workspace/documents" className="text-info hover:underline">
+                            {d.filename}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground">
+                    Team Chat ({searchResults.team_messages.length})
+                  </p>
+                  {searchResults.team_messages.length === 0 ? (
+                    <p className="mt-1 text-muted-foreground">No chat matches.</p>
+                  ) : (
+                    <ul className="mt-1.5 space-y-1">
+                      {searchResults.team_messages.slice(0, 5).map((m) => (
+                        <li key={m.id} className="truncate text-muted-foreground">
+                          <Link href="/workspace/team-chat" className="font-medium text-foreground hover:underline">
+                            #{m.room_name}
+                          </Link>{' '}
+                          · {m.sender}: {m.content}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground">
+                    Artifacts ({searchResults.artifacts.length})
+                  </p>
+                  {searchResults.artifacts.length === 0 ? (
+                    <p className="mt-1 text-muted-foreground">No artifact matches.</p>
+                  ) : (
+                    <ul className="mt-1.5 space-y-1">
+                      {searchResults.artifacts.slice(0, 5).map((art) => (
+                        <li key={art.id} className="truncate">
+                          <Link href="/workspace/chat" className="text-info hover:underline">
+                            {art.title || art.kind}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+
           {/* Quick Stats Grid */}
           <section className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
             {[
@@ -272,6 +434,81 @@ export default function WorkspaceOverviewPage() {
             </section>
           )}
 
+          {/* Governance Health Strip (Admin) */}
+          {isAdmin && governance && (
+            <section className="mt-6 rounded-3xl border border-border bg-surface p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="size-4 text-foreground" />
+                  <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    Governance &amp; Compliance Health
+                  </h2>
+                </div>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                    governance.audit_integrity.valid
+                      ? 'bg-ok-soft text-ok'
+                      : 'bg-danger-soft text-danger'
+                  }`}
+                >
+                  {governance.audit_integrity.valid
+                    ? `Audit chain valid (${governance.audit_integrity.checked} entries)`
+                    : `Audit integrity break at #${governance.audit_integrity.broken_id}`}
+                </span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                <Link
+                  href="/workspace/documents"
+                  className="rounded-2xl border border-border bg-surface-2 p-3.5 transition hover:border-border-strong"
+                >
+                  <p className="text-[11px] text-muted-foreground">Pending Reviews</p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight text-warn">
+                    {governance.pending_review_count}
+                  </p>
+                </Link>
+                <Link
+                  href="/workspace/documents"
+                  className="rounded-2xl border border-border bg-surface-2 p-3.5 transition hover:border-border-strong"
+                >
+                  <p className="text-[11px] text-muted-foreground">PII Flagged Docs</p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight text-danger">
+                    {governance.pii_document_count}
+                  </p>
+                </Link>
+                <Link
+                  href="/workspace/documents"
+                  className="rounded-2xl border border-border bg-surface-2 p-3.5 transition hover:border-border-strong"
+                >
+                  <p className="text-[11px] text-muted-foreground">Legal Hold</p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+                    {governance.legal_hold_count}
+                  </p>
+                </Link>
+                <Link
+                  href="/workspace/documents"
+                  className="rounded-2xl border border-border bg-surface-2 p-3.5 transition hover:border-border-strong"
+                >
+                  <p className="text-[11px] text-muted-foreground">
+                    Stale (&gt;{governance.stale_threshold_days}d)
+                  </p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+                    {governance.stale_document_count}
+                  </p>
+                </Link>
+                <Link
+                  href="/workspace/audit"
+                  className="rounded-2xl border border-border bg-surface-2 p-3.5 transition hover:border-border-strong"
+                >
+                  <p className="text-[11px] text-muted-foreground">Expiring / Expired Shares</p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight text-info">
+                    {governance.expiring_shares.length} / {governance.expired_share_count}
+                  </p>
+                </Link>
+              </div>
+            </section>
+          )}
+
           {/* Announcements Section */}
           <section className="mt-6 rounded-3xl border border-border bg-surface p-6 shadow-sm">
             <div className="flex items-center justify-between border-b border-border pb-4">
@@ -303,23 +540,57 @@ export default function WorkspaceOverviewPage() {
                       className="flex items-start justify-between gap-3 rounded-2xl border border-border bg-surface-2 p-4 text-xs"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-foreground">{a.title}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-foreground">{a.title}</p>
+                          {a.require_ack && (
+                            <span className="rounded-full bg-warn-soft px-2 py-0.5 text-[10px] font-medium text-warn">
+                              Ack required{typeof a.ack_count === 'number' ? ` · ${a.ack_count}` : ''}
+                            </span>
+                          )}
+                        </div>
                         <p className="mt-1 leading-relaxed text-muted-foreground whitespace-pre-wrap">{a.body}</p>
                         <p className="mt-2 text-[10px] text-muted-foreground">
                           {a.created_by_name ? `By ${a.created_by_name} · ` : ''}
                           {formatDate(a.created_at)}
                         </p>
                       </div>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => onDeleteAnnouncement(a.id)}
-                          className="rounded p-1 text-danger hover:bg-danger-soft"
-                          title="Delete announcement"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      )}
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {a.require_ack &&
+                          (a.acknowledged_by_me ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-ok-soft px-2.5 py-1 text-[10px] font-medium text-ok">
+                              <Check className="size-3" /> Acknowledged
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={ackBusyId === a.id}
+                              onClick={() => onAckAnnouncement(a.id)}
+                              className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                            >
+                              {ackBusyId === a.id ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
+                              Acknowledge
+                            </button>
+                          ))}
+                        {isAdmin && a.require_ack && (
+                          <button
+                            type="button"
+                            onClick={() => onInspectAcks(a)}
+                            className="rounded-full border border-border-strong px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+                          >
+                            Receipts
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteAnnouncement(a.id)}
+                            className="rounded p-1 text-danger hover:bg-danger-soft"
+                            title="Delete announcement"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -478,6 +749,16 @@ export default function WorkspaceOverviewPage() {
                 />
               </div>
 
+              <label className="flex items-center gap-2 text-xs text-foreground">
+                <input
+                  type="checkbox"
+                  checked={requireAck}
+                  onChange={(e) => setRequireAck(e.target.checked)}
+                  className="size-4 accent-foreground"
+                />
+                <span>Require team acknowledgment (compliance read-receipt)</span>
+              </label>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -496,6 +777,59 @@ export default function WorkspaceOverviewPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {ackInspect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-3xl border border-border-strong bg-surface p-6 shadow-xl">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Read Receipts
+                </p>
+                <h3 className="truncate text-sm font-semibold text-foreground">{ackInspect.title}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAckInspect(null)}
+                className="rounded-full p-1 text-muted-foreground hover:bg-surface-2"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid max-h-72 gap-4 overflow-y-auto text-xs sm:grid-cols-2">
+              <div className="rounded-2xl border border-border bg-surface-2 p-3">
+                <p className="font-semibold text-ok">Acknowledged ({ackInspect.acknowledged.length})</p>
+                {ackInspect.acknowledged.length === 0 ? (
+                  <p className="mt-2 text-muted-foreground">None yet.</p>
+                ) : (
+                  <ul className="mt-2 space-y-1.5">
+                    {ackInspect.acknowledged.map((u) => (
+                      <li key={u.user_id} className="truncate text-foreground" title={u.email}>
+                        {u.full_name || u.email}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="rounded-2xl border border-border bg-surface-2 p-3">
+                <p className="font-semibold text-warn">Pending ({ackInspect.pending.length})</p>
+                {ackInspect.pending.length === 0 ? (
+                  <p className="mt-2 text-muted-foreground">Everyone acknowledged.</p>
+                ) : (
+                  <ul className="mt-2 space-y-1.5">
+                    {ackInspect.pending.map((u) => (
+                      <li key={u.user_id} className="truncate text-muted-foreground" title={u.email}>
+                        {u.full_name || u.email}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
