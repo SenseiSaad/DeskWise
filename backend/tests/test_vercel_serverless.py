@@ -91,3 +91,18 @@ class VercelServerlessTests(TestCase):
         self.assertTrue(data["deskwise_triggered"])
         self.assertIsNotNone(data["deskwise_message"])
         self.assertEqual(data["deskwise_message"]["sender_type"], "deskwise")
+
+    @override_settings(
+        AWS_STORAGE_BUCKET_NAME="deskwise-docs",
+        AWS_S3_ENDPOINT_URL="https://br-test.storage.c-1.us-east-2.aws.neon.tech",
+        AWS_S3_REGION_NAME="us-east-2",
+        AWS_ACCESS_KEY_ID="nak_test",
+        AWS_SECRET_ACCESS_KEY="nsk_test",
+    )
+    def test_s3_client_uses_path_style_and_sigv4_for_custom_endpoints(self):
+        from core.storage import _s3_client
+
+        client = _s3_client()
+        self.assertEqual(client._client_config.signature_version, "s3v4")
+        self.assertEqual(client._client_config.s3.get("addressing_style"), "path")
+

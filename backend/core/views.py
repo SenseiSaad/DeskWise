@@ -1309,10 +1309,10 @@ def document_preview(request, pk):
     caches it) only for documents indexed before the cache existed.
     """
     doc = _accessible_doc(request, pk)
-    if not doc.stored_path or not storage.exists(doc.stored_path, base_dir=settings.DATA_DIR):
-        raise Http404
     text = doc.preview_text
     if not text:
+        if not doc.stored_path or not storage.exists(doc.stored_path, base_dir=settings.DATA_DIR):
+            raise Http404
         try:
             raw = storage.read_bytes(doc.stored_path, base_dir=settings.DATA_DIR)
             text = rag.extract_text(raw, doc.filename, doc.content_type)

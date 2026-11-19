@@ -21,6 +21,7 @@ def is_s3_enabled() -> bool:
 
 def _s3_client():
     import boto3
+    from botocore.config import Config
 
     kwargs: dict = {}
     region = getattr(settings, "AWS_S3_REGION_NAME", "").strip()
@@ -29,6 +30,14 @@ def _s3_client():
     endpoint = getattr(settings, "AWS_S3_ENDPOINT_URL", "").strip()
     if endpoint:
         kwargs["endpoint_url"] = endpoint
+        # Neon Object Storage / R2 / MinIO require path-style addressing and SigV4
+        # without mandatory AWS SDK v2 CRC32 checksum headers.
+        kwargs["config"] = Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
+        )
     access_key = getattr(settings, "AWS_ACCESS_KEY_ID", "").strip()
     secret_key = getattr(settings, "AWS_SECRET_ACCESS_KEY", "").strip()
     if access_key and secret_key:

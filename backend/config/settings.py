@@ -105,12 +105,23 @@ elif os.getenv("POSTGRES_DB"):
         }
     }
 else:
+    # shortcut: /tmp SQLite on Vercel is ephemeral and unmigrated, upgrade by setting DATABASE_URL to PostgreSQL
+    _default_sqlite = (
+        str(Path(tempfile.gettempdir()) / "openvault" / "db.sqlite3")
+        if IS_VERCEL
+        else str(BASE_DIR / "db.sqlite3")
+    )
+    _sqlite_path = os.getenv("SQLITE_PATH") or _default_sqlite
+    try:
+        os.makedirs(os.path.dirname(_sqlite_path), exist_ok=True)
+    except OSError:
+        pass
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             # Honour SQLITE_PATH so container deployments can put the database
             # on a persistent volume instead of inside the image layer.
-            "NAME": os.getenv("SQLITE_PATH") or str(BASE_DIR / "db.sqlite3"),
+            "NAME": _sqlite_path,
             "OPTIONS": {
                 "timeout": 30,
                 "init_command": "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;",
@@ -233,10 +244,19 @@ try:
 except OSError:
     pass
 
-# ── Optional S3 Object Storage (used on Vercel / stateless hosts) ──
+# ── Optional S3 Object Storage (used on Vercel / stateless hosts, e.g. Neon Object Storage / R2 / S3) ──
 AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME", "").strip()
-AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME", os.getenv("BEDROCK_REGION", "ap-south-1")).strip()
-AWS_S3_ENDPOINT_URL = os.getenv("AWS_S3_ENDPOINT_URL", "").strip()
+AWS_S3_REGION_NAME = (
+    os.getenv("AWS_S3_REGION_NAME")
+    or os.getenv("AWS_REGION")
+    or os.getenv("BEDROCK_REGION")
+    or "us-east-2"
+).strip()
+AWS_S3_ENDPOINT_URL = (
+    os.getenv("AWS_S3_ENDPOINT_URL")
+    or os.getenv("AWS_ENDPOINT_URL_S3")
+    or ""
+).strip()
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
 
