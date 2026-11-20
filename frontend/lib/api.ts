@@ -1035,6 +1035,8 @@ export interface TeamMessage {
   created_at: string
   client_nonce?: string
   replaces_stream_id?: string
+  /** Local-only flag: message not yet confirmed by the server. */
+  _pending?: boolean
 }
 
 export interface TeamChatRoomsResponse {

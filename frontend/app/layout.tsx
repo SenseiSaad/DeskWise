@@ -58,7 +58,8 @@ export const viewport: Viewport = {
 }
 
 // Apply the saved theme before first paint so there is no light/dark flash.
-const themeScript = `(function(){try{var d=localStorage.getItem('theme')==='dark';var r=document.documentElement;r.classList.toggle('dark',d);r.classList.toggle('light',!d);r.style.colorScheme=d?'dark':'light';r.dataset.theme=d?'dark':'light';}catch(e){}})();`
+// Dark is the default; only an explicit light choice opts out.
+const themeScript = `(function(){try{var d=localStorage.getItem('theme')!=='light';var r=document.documentElement;r.classList.toggle('dark',d);r.classList.toggle('light',!d);r.style.colorScheme=d?'dark':'light';r.dataset.theme=d?'dark':'light';}catch(e){}})();`
 
 export default function RootLayout({
   children,
@@ -78,7 +79,7 @@ export default function RootLayout({
         </noscript>
       </head>
       <body className="min-h-screen antialiased">
-        <ThemeProvider defaultTheme="light">
+        <ThemeProvider defaultTheme="dark">
           <AuthProvider>
             <SmoothScroll>{children}</SmoothScroll>
           </AuthProvider>

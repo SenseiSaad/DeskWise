@@ -1,160 +1,53 @@
 'use client'
 
-import { useEffect, useId, useRef, useState } from 'react'
-import { Check, Moon, Sun } from 'lucide-react'
-import { motion, AnimatePresence } from 'motion/react'
-import { useTheme, type Theme } from './theme-provider'
-
-const OPTIONS: { value: Theme; label: string; icon: typeof Sun }[] = [
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
-]
-
-const TRIGGER_LABEL: Record<Theme, string> = {
-  light: 'Light theme',
-  dark: 'Dark theme',
-}
+import { Moon, Sun } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
+import { useTheme } from './theme-provider'
 
 /**
- * Two presentations of the same control:
- * - `menu`: a compact icon button with a popover, used in the site header.
- * - `segmented`: an inline Light / Dark switch, used in the footer / auth screens.
+ * One-click theme switch: dark by default, light on click.
+ * `variant` / `compact` are accepted for existing call sites; the control is
+ * always a single icon button.
  */
 export function ThemeToggle({
-  variant = 'menu',
+  variant: _variant = 'menu',
   compact = false,
 }: {
   variant?: 'menu' | 'segmented'
   compact?: boolean
 }) {
-  const { theme, setTheme } = useTheme()
-  const pillId = useId()
-  const [open, setOpen] = useState(false)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
-
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node
-      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) setOpen(false)
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpen(false)
-        buttonRef.current?.focus()
-      }
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const index = OPTIONS.findIndex((option) => option.value === theme)
-    itemRefs.current[Math.max(index, 0)]?.focus()
-  }, [open, theme])
-
-  if (variant === 'segmented') {
-    return (
-      <div
-        role="group"
-        aria-label="Color theme"
-        className="relative inline-flex items-center gap-0.5 rounded-full border border-border bg-surface p-0.5"
-      >
-        {OPTIONS.map(({ value, label, icon: Icon }) => {
-          const isActive = theme === value
-          return (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setTheme(value)}
-              aria-pressed={isActive}
-              title={compact ? label : undefined}
-              className={`relative z-10 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-medium transition-colors duration-200 ${
-                isActive
-                  ? 'text-primary-foreground font-semibold'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {isActive && (
-                <motion.span
-                  layoutId={`theme-active-indicator-${pillId}`}
-                  className="absolute inset-0 -z-10 rounded-full bg-primary shadow-sm"
-                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                />
-              )}
-              <Icon className="size-3.5" aria-hidden />
-              {compact ? (
-                <span className="sr-only">{label}</span>
-              ) : (
-                <>
-                  <span className="hidden sm:inline">{label}</span>
-                  <span className="sr-only sm:hidden">{label}</span>
-                </>
-              )}
-            </button>
-          )
-        })}
-      </div>
-    )
-  }
+  const { theme, toggleTheme } = useTheme()
+  const isDark = theme === 'dark'
+  const label = isDark ? 'Switch to light theme' : 'Switch to dark theme'
 
   return (
-    <div className="relative">
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-label={`Change theme — currently ${TRIGGER_LABEL[theme].toLowerCase()}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="grid size-9 place-items-center rounded-full border border-border bg-surface text-foreground transition-all duration-200 hover:border-border-strong hover:bg-surface-2"
-      >
-        <Sun className="size-4 dark:hidden" aria-hidden />
-        <Moon className="hidden size-4 dark:block" aria-hidden />
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            ref={menuRef}
-            role="menu"
-            aria-label="Color theme"
-            initial={{ opacity: 0, scale: 0.94, y: -6 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.94, y: -6 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute right-0 top-[calc(100%+0.55rem)] z-50 w-40 origin-top-right overflow-hidden rounded-xl border border-border bg-surface-elevated/95 p-1 shadow-xl shadow-black/10 backdrop-blur-md"
-          >
-            {OPTIONS.map(({ value, label, icon: Icon }, index) => (
-              <button
-                key={value}
-                ref={(node) => { itemRefs.current[index] = node }}
-                type="button"
-                role="menuitemradio"
-                aria-checked={theme === value}
-                onClick={() => {
-                  setTheme(value)
-                  setOpen(false)
-                  buttonRef.current?.focus()
-                }}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-surface-2 focus:bg-surface-2 focus:outline-none"
-              >
-                <Icon className="size-3.5 text-muted-foreground" aria-hidden />
-                <span className="flex-1">{label}</span>
-                {theme === value && <Check className="size-3.5 text-accent" aria-hidden />}
-              </button>
-            ))}
-          </motion.div>
-        )}
+    <button
+      type="button"
+      onClick={(event) => toggleTheme({ x: event.clientX, y: event.clientY })}
+      aria-label={label}
+      title={label}
+      aria-pressed={isDark}
+      className={`group relative grid shrink-0 place-items-center overflow-hidden rounded-full border border-border bg-surface text-foreground transition-colors duration-200 hover:border-border-strong hover:bg-surface-2 ${
+        compact ? 'size-8' : 'size-9'
+      }`}
+    >
+      <AnimatePresence initial={false} mode="wait">
+        <motion.span
+          key={isDark ? 'moon' : 'sun'}
+          initial={{ y: 10, opacity: 0, rotate: -35 }}
+          animate={{ y: 0, opacity: 1, rotate: 0 }}
+          exit={{ y: -10, opacity: 0, rotate: 35 }}
+          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          className="absolute inset-0 grid place-items-center"
+        >
+          {isDark ? (
+            <Moon className="size-4" aria-hidden />
+          ) : (
+            <Sun className="size-4" aria-hidden />
+          )}
+        </motion.span>
       </AnimatePresence>
-    </div>
+    </button>
   )
 }
 

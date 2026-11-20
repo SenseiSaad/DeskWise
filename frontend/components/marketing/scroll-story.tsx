@@ -37,8 +37,8 @@ const CHAPTERS = [
 
 export function ScrollStory() {
   const [active, setActive] = useState(0)
-  const [progress, setProgress] = useState(0)
   const sectionRef = useRef<HTMLElement>(null)
+  const railRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<(HTMLLIElement | null)[]>([])
 
   useEffect(() => {
@@ -60,7 +60,10 @@ export function ScrollStory() {
         if (!el) return
         const r = el.getBoundingClientRect()
         const total = r.height - window.innerHeight
-        setProgress(Math.min(1, Math.max(0, total > 0 ? -r.top / total : 0)))
+        const next = Math.min(1, Math.max(0, total > 0 ? -r.top / total : 0))
+        // Written straight to the DOM: this runs every frame while scrolling,
+        // so a React state update here would re-render the section continuously.
+        if (railRef.current) railRef.current.style.height = `${next * 100}%`
       })
     }
     onScroll()
@@ -93,8 +96,9 @@ export function ScrollStory() {
           {/* progress rail */}
           <div aria-hidden className="absolute -left-4 top-0 hidden h-full w-px bg-border xl:block">
             <div
-              className="w-px bg-accent transition-[height] duration-200 ease-out"
-              style={{ height: `${progress * 100}%` }}
+              ref={railRef}
+              className="w-px bg-accent will-change-[height]"
+              style={{ height: '0%' }}
             />
           </div>
 

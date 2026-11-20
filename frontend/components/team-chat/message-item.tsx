@@ -7,6 +7,7 @@ import rehypeSanitize from 'rehype-sanitize'
 import {
   Check,
   FileText,
+  Loader2,
   Pencil,
   Pin,
   PinOff,
@@ -63,6 +64,8 @@ interface MessageItemProps {
   nowMs: number
   isOnline: boolean
   highlighted?: boolean
+  /** Message not yet confirmed by the server (optimistic send). */
+  pending?: boolean
   onReply: (msg: TeamMessage) => void
   onJumpTo: (messageId: number) => void
   onEditSave: (msgId: number, content: string) => Promise<void>
@@ -78,6 +81,7 @@ export function MessageItem({
   nowMs,
   isOnline,
   highlighted = false,
+  pending = false,
   onReply,
   onJumpTo,
   onEditSave,
@@ -97,10 +101,10 @@ export function MessageItem({
 
   const isBot = msg.sender_type === 'deskwise'
   const isOwn = msg.sender_type === 'user' && msg.sender_id === currentUser.id
-  const canParticipate = canParticipateInChat(currentUser)
-  const canEdit = canEditTeamMessage(currentUser, msg, nowMs)
-  const canDelete = canDeleteTeamMessage(currentUser, msg)
-  const canPin = canPinTeamMessage(currentUser)
+  const canParticipate = canParticipateInChat(currentUser) && !pending
+  const canEdit = !pending && canEditTeamMessage(currentUser, msg, nowMs)
+  const canDelete = !pending && canDeleteTeamMessage(currentUser, msg)
+  const canPin = !pending && canPinTeamMessage(currentUser)
   const remainingSec = editSecondsRemaining(msg, nowMs)
 
   const displayName = isBot
@@ -270,6 +274,13 @@ export function MessageItem({
             )}
 
             <span className="text-[11px] text-muted-foreground">{formatTime(msg.created_at)}</span>
+
+            {pending && (
+              <span className="inline-flex items-center gap-1 text-[11px] italic text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" />
+                Sending…
+              </span>
+            )}
 
             {msg.is_edited && (
               <span

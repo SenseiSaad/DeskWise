@@ -99,7 +99,6 @@ export default function TeamChatPage() {
   const [attachedDoc, setAttachedDoc] = useState<EnterpriseDoc | null>(null)
   const [docPickerOpen, setDocPickerOpen] = useState(false)
   const [availableDocs, setAvailableDocs] = useState<EnterpriseDoc[]>([])
-  const [sending, setSending] = useState(false)
 
   // @mention autocomplete
   const [mentionState, setMentionState] = useState<{ query: string; startIndex: number; caret: number } | null>(null)
@@ -334,7 +333,14 @@ export default function TeamChatPage() {
               })
             }
             if (m.room_id === activeRoomRef.current) {
-              setMessages((prev) => upsertTeamMessage(prev, m))
+              // Our own optimistic copy is replaced by the server's version.
+              const echoNonce = (m as TeamMessage).client_nonce
+              setMessages((prev) => {
+                const withoutLocal = echoNonce
+                  ? prev.filter((x) => x.client_nonce !== echoNonce)
+                  : prev
+                return upsertTeamMessage(withoutLocal, m)
+              })
               if (m.replaces_stream_id) {
                 setDeskwiseStream((cur) => (cur?.streamId === m.replaces_stream_id ? null : cur))
               }
@@ -491,17 +497,70 @@ export default function TeamChatPage() {
   }
 
   async function handleSend() {
-    if (!activeRoom || !canParticipate || sending) return
+    if (!activeRoom || !canParticipate) return
     const clean = composer.trim()
     if (!clean) return
 
-    setSending(true)
     const replyId = replyTo?.id ?? null
     const docId = attachedDoc?.id ?? null
+    const nonce = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     setComposer('')
     setReplyTo(null)
     setAttachedDoc(null)
     setMentionState(null)
+
+    // Show the message immediately; the server echo replaces it by client_nonce.
+    setMessages((prev) =>
+      upsertTeamMessage(prev, {
+        id: -Date.now(),
+        room_id: activeRoom.id,
+        sender_type: 'user',
+        sender_id: user?.id ?? null,
+        sender: user
+          ? {
+              id: user.id,
+              full_name: user.full_name || '',
+              email: user.email,
+              title: user.title || '',
+              role: user.role,
+              department_name: user.department_name ?? null,
+            }
+          : null,
+        content: clean,
+        reply_to_id: replyId,
+        reply_to: replyTo
+          ? {
+              id: replyTo.id,
+              sender_type: replyTo.sender_type,
+              sender_id: replyTo.sender_id,
+              sender_name: replyTo.sender_type === 'deskwise' ? 'DeskWise' : replyTo.sender?.full_name || 'Teammate',
+              content: replyTo.content.slice(0, 140),
+            }
+          : null,
+        referenced_document: attachedDoc
+          ? {
+              id: attachedDoc.id,
+              filename: attachedDoc.filename,
+              category: attachedDoc.category,
+              access_scope: attachedDoc.access_scope,
+            }
+          : null,
+        sources: [],
+        metadata: {},
+        reactions: [],
+        is_pinned: false,
+        pinned_by_id: null,
+        pinned_by_name: null,
+        pinned_at: null,
+        is_edited: false,
+        edited_at: null,
+        edit_expires_at: null,
+        created_at: new Date().toISOString(),
+        client_nonce: nonce,
+        _pending: true,
+      }),
+    )
+    scrollToBottom(true)
 
     try {
       const ws = wsRef.current
@@ -513,6 +572,7 @@ export default function TeamChatPage() {
             content: clean,
             reply_to_id: replyId,
             referenced_document_id: docId,
+            client_nonce: nonce,
           }),
         )
       } else {
@@ -520,6 +580,7 @@ export default function TeamChatPage() {
           content: clean,
           reply_to_id: replyId,
           referenced_document_id: docId,
+          client_nonce: nonce,
         })
         setMessages((prev) => {
           let next = upsertTeamMessage(prev, res.message)
@@ -529,10 +590,10 @@ export default function TeamChatPage() {
         setTimeout(() => scrollToBottom(true), 20)
       }
     } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.client_nonce !== nonce))
       setComposer(clean)
-      toast.error(err instanceof Error ? err.message : 'Failed to send message')
+      toast.error(err instanceof Error ? err.message : 'Message could not be sent. Please try again.')
     } finally {
-      setSending(false)
       inputRef.current?.focus()
     }
   }
@@ -794,7 +855,7 @@ export default function TeamChatPage() {
               }`}
             >
               <span className="size-2 rounded-full bg-ok" />
-              <span>{onlineUserIds.length || 1} online</span>
+              <span>{onlineUserIds.length} online</span>
             </button>
 
             {activeRoom && (
@@ -812,11 +873,11 @@ export default function TeamChatPage() {
                     setSummarizing(false)
                   }
                 }}
-                title="AI Catch-Up Summary"
+                title="Ask the AI (@DeskWise)"
                 className="inline-flex items-center gap-1 rounded-xl border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-2 disabled:opacity-50"
               >
                 {summarizing ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                <span>Summarize</span>
+                <span>Catch me up</span>
               </button>
             )}
 
@@ -889,7 +950,7 @@ export default function TeamChatPage() {
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-1.5 font-semibold text-foreground">
                 <Sparkles className="size-3.5 text-info" />
-                <span>Room Catch-Up Summary ({summaryPanel.message_count} messages · {summaryPanel.mode})</span>
+                <span>What you missed · {summaryPanel.message_count} messages</span>
               </div>
               <button
                 type="button"
@@ -1028,6 +1089,7 @@ export default function TeamChatPage() {
                     nowMs={nowMs}
                     isOnline={Boolean(msg.sender_id && onlineUserIds.includes(msg.sender_id))}
                     highlighted={highlightedId === msg.id}
+                    pending={Boolean(msg._pending)}
                     onReply={(m) => {
                       setReplyTo(m)
                       inputRef.current?.focus()
@@ -1082,7 +1144,7 @@ export default function TeamChatPage() {
           <div className="border-t border-border bg-surface p-3 sm:px-5 sm:py-3.5">
             {!canParticipate ? (
               <div className="rounded-xl border border-border bg-background px-4 py-2.5 text-center text-xs text-muted-foreground">
-                Read-only viewer role: you can read and search messages, but cannot post, edit, pin, or delete.
+                Read-only access: you can read and search messages here, but sending is turned off for your role.
               </div>
             ) : (
               <div className="relative space-y-2">
@@ -1116,14 +1178,14 @@ export default function TeamChatPage() {
                 {docPickerOpen && (
                   <div className="absolute bottom-full right-0 z-30 mb-2 w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-surface-elevated shadow-xl">
                     <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs font-semibold">
-                      <span>Attach workspace document</span>
+                      <span>Attach a document</span>
                       <button type="button" onClick={() => setDocPickerOpen(false)}>
                         <X className="size-3.5" />
                       </button>
                     </div>
                     <div className="max-h-48 overflow-y-auto p-1.5 space-y-0.5">
                       {availableDocs.length === 0 ? (
-                        <p className="p-2 text-xs text-muted-foreground">No accessible documents found.</p>
+                        <p className="p-2 text-xs text-muted-foreground">No documents you can open yet.</p>
                       ) : (
                         availableDocs.map((doc) => (
                           <button
@@ -1198,8 +1260,8 @@ export default function TeamChatPage() {
                   <button
                     type="button"
                     onClick={() => setDocPickerOpen((v) => !v)}
-                    title="Attach workspace document"
-                    aria-label="Attach workspace document"
+                    title="Attach a document"
+                    aria-label="Attach a document"
                     className="shrink-0 rounded-xl p-1.5 text-muted-foreground hover:bg-surface hover:text-foreground"
                   >
                     <Paperclip className="size-4" />
@@ -1239,18 +1301,18 @@ export default function TeamChatPage() {
                         handleSend()
                       }
                     }}
-                    placeholder={`Message ${activeRoom?.name ?? 'General'}… (type @DeskWise for AI help)`}
+                    placeholder={`Message ${activeRoom?.name ?? 'General'}… — type @ to mention, @DeskWise for the AI`}
                     className="max-h-36 min-h-8 flex-1 resize-none bg-transparent py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground"
                   />
 
                   <button
                     type="button"
                     onClick={handleSend}
-                    disabled={sending || !composer.trim() || !activeRoom}
+                    disabled={!composer.trim() || !activeRoom}
                     aria-label="Send message"
                     className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
                   >
-                    {sending ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+                    <ArrowUp className="size-4" />
                   </button>
                 </div>
               </div>
