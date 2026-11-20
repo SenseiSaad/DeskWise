@@ -73,7 +73,7 @@ export function PricingSection({ showTable = false }: { showTable?: boolean }) {
             const copy = PLAN_COPY[p.name]
             const hot = copy?.highlight
             return (
-              <Reveal key={p.name} delay={i * 70}>
+              <Reveal key={p.name} delay={i * 70} className="h-full">
                 <div
                   className={`group relative flex h-full flex-col rounded-2xl border bg-surface p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/5 ${
                     hot ? 'border-accent ring-1 ring-accent' : 'border-border hover:border-border-strong'
