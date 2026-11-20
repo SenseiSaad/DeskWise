@@ -784,7 +784,13 @@ def upload_document(request):
         audit(request, "upload", f"{f.name}")
 
     _index_in_background(doc)
-    return Response(DocumentSerializer(doc).data, status=201)
+    payload = dict(DocumentSerializer(doc).data)
+    if getattr(settings, "IS_VERCEL", False) and not storage.is_s3_enabled():
+        payload["ephemeral_notice"] = (
+            "Beta demo upload (Vercel): uploaded files are capped at 4.5 MB and "
+            "automatically deleted after 24 hours. Production deployments connect S3/R2 for permanent storage."
+        )
+    return Response(payload, status=201)
 
 
 @api_view(["POST"])
@@ -904,7 +910,13 @@ def upload_confirm(request):
         audit(request, "upload", filename)
 
     _index_in_background(doc)
-    return Response(DocumentSerializer(doc).data, status=201)
+    payload = dict(DocumentSerializer(doc).data)
+    if getattr(settings, "IS_VERCEL", False) and not storage.is_s3_enabled():
+        payload["ephemeral_notice"] = (
+            "Beta demo upload (Vercel): uploaded files are capped at 4.5 MB and "
+            "automatically deleted after 24 hours. Production deployments connect S3/R2 for permanent storage."
+        )
+    return Response(payload, status=201)
 
 
 _INDEX_LOCK = threading.BoundedSemaphore(4)
@@ -3098,11 +3110,26 @@ def cron_maintenance(request):
             failed += 1
         doc.save(update_fields=["indexing_status", "index_error"])
 
+    pruned_ephemeral_docs = 0
+    if getattr(settings, "IS_VERCEL", False) and not storage.is_s3_enabled():
+        ephemeral_cutoff = timezone.now() - timedelta(hours=24)
+        stale_uploads = list(
+            Document.objects.filter(
+                created_at__lt=ephemeral_cutoff,
+                legal_hold=False,
+            ).exclude(stored_path__startswith="demo/")
+        )
+        for doc in stale_uploads:
+            storage.delete(doc.stored_path, base_dir=settings.DATA_DIR)
+            doc.delete()
+            pruned_ephemeral_docs += 1
+
     out = StringIO()
     call_command("prune_asklogs", days=90, stdout=out)
     return Response({
         "ok": True,
         "reindexed": reindexed,
         "failed": failed,
+        "pruned_ephemeral_docs": pruned_ephemeral_docs,
         "prune_output": out.getvalue().strip(),
     })

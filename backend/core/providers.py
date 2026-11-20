@@ -346,10 +346,10 @@ class GeminiProvider(BaseProvider):
     def __init__(self, api_key, chat_model, embed_model=""):
         self.api_key = api_key or ""
         self.base = "https://generativelanguage.googleapis.com/v1beta"
-        model = (chat_model or "gemini-2.5-flash").strip()
+        model = (chat_model or "gemini-3.5-flash-lite").strip()
         if model.startswith("models/"):
             model = model[len("models/"):]
-        self.chat_model = model or "gemini-2.5-flash"
+        self.chat_model = model or "gemini-3.5-flash-lite"
         em = (embed_model or "gemini-embedding-001").strip()
         if em.startswith("models/"):
             em = em[len("models/"):]
@@ -419,27 +419,27 @@ class GeminiProvider(BaseProvider):
         if not merged_rest:
             merged_rest = [{"role": "user", "parts": [{"text": "Hello"}]}]
 
-        # For fastest response and to prevent thinking tokens from consuming the
-        # entire maxOutputTokens budget on short replies, disable thinking budget
-        gen_config = {
-            "temperature": temperature,
-            "maxOutputTokens": max(max_tokens, 64),
-            "thinkingConfig": {"thinkingBudget": 0},
-        }
-
-        payload = {
-            "contents": merged_rest,
-            "generationConfig": gen_config,
-        }
-        if system:
-            payload["systemInstruction"] = {"parts": [{"text": system}]}
-
         models_to_try = [self.chat_model]
-        if self.chat_model != "gemini-2.5-flash-lite":
-            models_to_try.append("gemini-2.5-flash-lite")
+        for fallback in ("gemini-3.5-flash-lite", "gemini-flash-lite-latest"):
+            if fallback not in models_to_try:
+                models_to_try.append(fallback)
 
         last_error = None
         for model_name in models_to_try:
+            gen_config = {
+                "temperature": temperature,
+                "maxOutputTokens": max(max_tokens, 64),
+            }
+            # thinkingBudget=0 is Gemini 2.5 only; Gemini 3.x rejects it with HTTP 400.
+            if model_name.startswith("gemini-2.5"):
+                gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+            payload = {
+                "contents": merged_rest,
+                "generationConfig": gen_config,
+            }
+            if system:
+                payload["systemInstruction"] = {"parts": [{"text": system}]}
+
             url = (
                 f"{self.base}/models/{model_name}:streamGenerateContent"
                 f"?alt=sse"
@@ -474,8 +474,8 @@ class GeminiProvider(BaseProvider):
                     except Exception:
                         err_msg = body or e.reason
                     last_error = RuntimeError(f"Gemini API error ({e.code}): {err_msg}")
-                    # If thinkingConfig was rejected by an older model, retry without it
-                    if "thinkingConfig" in err_msg and "thinkingConfig" in gen_config:
+                    # If thinkingConfig caused a 400 (even with generic INVALID_ARGUMENT), retry without it
+                    if e.code == 400 and "thinkingConfig" in gen_config:
                         del gen_config["thinkingConfig"]
                         payload["generationConfig"] = gen_config
                         continue
@@ -723,7 +723,7 @@ DEFAULT_MODELS = {
     "ollama": "qwen2.5:0.5b",
     "openai": "gpt-4o-mini",
     "anthropic": "claude-3-5-haiku-latest",
-    "gemini": "gemini-2.5-flash",
+    "gemini": "gemini-3.5-flash-lite",
     "selfhosted": "qwen2.5:7b",
     "fake": "fake-1",
     # India geographic inference profile — NOT the global one.

@@ -106,3 +106,73 @@ class VercelServerlessTests(TestCase):
         self.assertEqual(client._client_config.signature_version, "s3v4")
         self.assertEqual(client._client_config.s3.get("addressing_style"), "path")
 
+    def test_gemini_3x_omits_thinking_budget_and_uses_live_fallback(self):
+        import io
+        import urllib.error
+
+        seen_calls = []
+
+        class _FakeSSE:
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+            def __iter__(self):
+                return iter([b'data: {"candidates":[{"content":{"parts":[{"text":"OK"}]}}]}\n'])
+
+        def fake_open(url, payload=None, headers=None, method=None, timeout=30.0):
+            seen_calls.append((url, payload))
+            if "gemini-3.8-flash" in url:
+                raise urllib.error.HTTPError(url, 503, "Unavailable", {}, io.BytesIO(b'{"error":{"message":"busy"}}'))
+            return _FakeSSE()
+
+        prov = GeminiProvider("fake-key", "gemini-3.8-flash")
+        with patch("core.providers._open", side_effect=fake_open), patch("core.providers.time.sleep"):
+            out = "".join(prov.stream_chat([{"role": "user", "content": "hi"}]))
+
+        self.assertEqual(out, "OK")
+        self.assertNotIn("thinkingConfig", seen_calls[0][1]["generationConfig"])
+        self.assertTrue(any("gemini-3.5-flash-lite" in u for u, _ in seen_calls))
+        self.assertFalse(any("gemini-2.5-flash-lite" in u for u, _ in seen_calls))
+
+    @override_settings(IS_VERCEL=True, AWS_STORAGE_BUCKET_NAME="", SYNC_INDEXING=True, RATELIMIT_ENABLED=False)
+    def test_vercel_upload_returns_ephemeral_notice_and_cron_prunes_old_uploads(self):
+        import tempfile
+        from datetime import timedelta
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from django.utils import timezone
+        from core.models import Document
+
+        with tempfile.TemporaryDirectory() as tmpdir, override_settings(DATA_DIR=tmpdir):
+            company = Company.objects.create(name="Beta Co", slug="beta-co")
+            user = User.objects.create_user(
+                username="betaadmin",
+                email="beta@vercel.test",
+                password="Password123!",
+                company=company,
+                role="admin",
+                full_name="Beta Admin",
+            )
+            self.client.force_authenticate(user=user)
+            f = SimpleUploadedFile("temp_note.txt", b"temporary test file content", content_type="text/plain")
+            resp = self.client.post("/api/documents/upload", {"file": f}, format="multipart")
+            self.assertEqual(resp.status_code, 201)
+            data = resp.json()
+            self.assertIn("24 hours", data.get("ephemeral_notice", ""))
+
+            # Create a protected default demo doc and backdate both past 24 hours
+            demo_doc = Document.objects.create(
+                company=company, filename="Default.md", stored_path="demo/Default.md",
+                size=10, uploaded_by=user, indexing_status="ready",
+            )
+            old_ts = timezone.now() - timedelta(hours=30)
+            Document.objects.filter(pk__in=[data["id"], demo_doc.pk]).update(created_at=old_ts)
+
+            with patch.dict("os.environ", {"CRON_SECRET": "cron-test-key"}, clear=False):
+                r = self.client.get("/api/cron/maintenance", HTTP_AUTHORIZATION="Bearer cron-test-key")
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json()["pruned_ephemeral_docs"], 1)
+            self.assertFalse(Document.objects.filter(pk=data["id"]).exists())
+            self.assertTrue(Document.objects.filter(pk=demo_doc.pk).exists())
+
+

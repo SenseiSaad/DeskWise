@@ -512,6 +512,7 @@ export interface EnterpriseDoc {
   created_at: string
   updated_at: string
   company_name?: string
+  ephemeral_notice?: string
 }
 
 // Paginated list envelope returned by the documents endpoint.

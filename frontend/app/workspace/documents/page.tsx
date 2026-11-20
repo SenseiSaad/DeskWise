@@ -1307,6 +1307,18 @@ export default function DocumentsPage() {
   const [previewDoc, setPreviewDoc] = useState<EnterpriseDoc | null>(null)
   const [versionsDoc, setVersionsDoc] = useState<EnterpriseDoc | null>(null)
   const [editDoc, setEditDoc] = useState<EnterpriseDoc | null>(null)
+  const [ephemeralNotice, setEphemeralNotice] = useState<string | null>(null)
+  const shownEphemeralIdsRef = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    for (const job of uploadJobs) {
+      const notice = job.doc?.ephemeral_notice
+      if (notice && !shownEphemeralIdsRef.current.has(job.id)) {
+        shownEphemeralIdsRef.current.add(job.id)
+        setEphemeralNotice(notice)
+      }
+    }
+  }, [uploadJobs])
 
   const [busy, setBusy] = useState<Set<number>>(new Set())
   const [downloadedIds, setDownloadedIds] = useState<Set<number>>(new Set())
@@ -2081,6 +2093,30 @@ export default function DocumentsPage() {
               setDocs((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
             }}
           />
+        )}
+        {ephemeralNotice && (
+          <SmoothDialogFrame onClose={() => setEphemeralNotice(null)} maxWidthClass="max-w-md">
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-warn-soft text-warn">
+                  <AlertCircle className="size-4" aria-hidden />
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Temporary Beta Upload</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{ephemeralNotice}</p>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setEphemeralNotice(null)}
+                  className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
+                >
+                  Understood
+                </button>
+              </div>
+            </div>
+          </SmoothDialogFrame>
         )}
       </AnimatePresence>
 

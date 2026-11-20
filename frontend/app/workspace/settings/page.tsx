@@ -52,7 +52,7 @@ const BEDROCK_DEFAULT_MODEL = 'us.amazon.nova-lite-v1:0'
 const BEDROCK_DEFAULT_REGION = 'us-east-1'
 const OLLAMA_DEFAULT_MODEL = 'qwen2.5:0.5b'
 const OLLAMA_DEFAULT_URL = 'http://localhost:11434'
-const GEMINI_DEFAULT_MODEL = 'gemini-2.5-flash'
+const GEMINI_DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 type ActiveLlmProvider = Extract<LlmProvider, 'bedrock' | 'ollama' | 'gemini'>
 
 // Beta lockdown: Gemini is the only selectable provider. The others are listed
