@@ -206,7 +206,7 @@ export default function WorkspaceChatPage() {
           onOpenSidebar={() => setSidebarOpen(true)}
         />
 
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto flex h-full w-full max-w-4xl flex-col">
             {loadingConv ? (
               <div className="grid h-full place-items-center text-sm text-muted-foreground">

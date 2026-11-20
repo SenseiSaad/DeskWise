@@ -979,9 +979,9 @@ export default function TeamChatPage() {
 
       {/* Body + optional side drawers (Pinned / Online Members) */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Messages feed */}
-          <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 space-y-2">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 space-y-2">
             {loadingRooms || loadingMsgs ? (
               <div className="grid h-full place-items-center text-xs text-muted-foreground">
                 <span className="flex items-center gap-2">

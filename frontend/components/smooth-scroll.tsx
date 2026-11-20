@@ -1,10 +1,19 @@
 'use client'
 
 import { useEffect, type ReactNode } from 'react'
+import { usePathname } from 'next/navigation'
 import Lenis from 'lenis'
 
 export function SmoothScroll({ children }: { children: ReactNode }) {
+  const pathname = usePathname()
+  // The workspace is an app shell with its own scroll panes (chat feeds,
+  // sidebars). Lenis hijacks wheel/touch at the document level and would stop
+  // those panes from scrolling, so it only runs on the marketing pages.
+  const isAppRoute = pathname?.startsWith('/workspace') || pathname?.startsWith('/auth')
+
   useEffect(() => {
+    if (isAppRoute) return
+
     // Respect user's reduced motion preference
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       return
@@ -62,7 +71,7 @@ export function SmoothScroll({ children }: { children: ReactNode }) {
       document.removeEventListener('click', handleAnchorClick)
       lenis.destroy()
     }
-  }, [])
+  }, [isAppRoute])
 
   return <>{children}</>
 }
