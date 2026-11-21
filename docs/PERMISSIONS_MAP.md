@@ -123,7 +123,7 @@ It records the pre-hardening baseline (flagged gaps) and tracks migration to the
 | `/api/admin/members/<pk>/effective-access` | GET | *(New in Phase B)* | Admin / Dept Mgr (own dept) | `decide` + `accessible_documents_qs` | **YES (New)** | Returns counts + lists of accessible / downloadable documents. |
 | `/api/admin/access/explain` | GET | *(New in Phase B)* | Admin / Dept Mgr (own dept) | `decide(target, action, doc)` | **YES (New)** | Returns decision + plain-English rule chain; every call is audited. |
 | `/api/admin/audit` | GET | `views.audit_log` | Company Admin | `IsAdmin` | N/A | **FLAG (F-13):** 5000-row cap, CSV formula injection, restricted filenames & raw prompts in `detail`. |
-| `/api/admin/audit/verify` | GET | `views.audit_verify` | Company Admin | `IsAdmin` | N/A | Add verification certificate download (`?format=certificate`). |
+| `/api/admin/audit/verify` | GET | `views.audit_verify` | Company Admin | `IsAdmin` | N/A | Verification certificate download via `?certificate=1` (also accepts `?download=certificate`; DRF reserves `?format=`). |
 | `/api/admin/governance` | GET | `views.admin_governance` | Company Admin | **Ad-hoc raw `Document` filter** | **NO (F-09, F-13)** | Masks filenames of ungranted `restricted` docs. |
 | `/api/admin/company` | GET, PATCH | `views.company_settings` | Company Admin | `IsAdmin` | **Partial** | Route through `decide(user, "settings")` + audit before/after diffs. |
 | `/api/admin/departments` | GET, POST | `views.departments` | Company Admin | `IsAdmin` + `plan.allow_departments` | N/A | Clean. |
@@ -138,3 +138,18 @@ It records the pre-hardening baseline (flagged gaps) and tracks migration to the
 | `/api/billing/webhook` | POST | `views.billing_webhook` | Stripe webhook | `@csrf_exempt`, `AllowAny` | **NO (F-15)** | Refuse unsigned webhooks when `STRIPE_WEBHOOK_SECRET` is unset unless explicitly running in tests; verify `payment_status == "paid"`. |
 | `/api/admin/reports`, `/admin/companies`, `/admin/companies/<pk>/plan` | GET, POST | `views.platform_reports`, `list_companies`, `company_set_plan` | Platform Admin | `IsPlatformAdmin` | N/A | Clean. |
 | `/api/admin/switch-company`, `/admin/detach-company` | POST | `views.switch_company`, `detach_company` | Permanently disabled (403) | `IsPlatformAdmin` -> 403 | N/A | Enforces platform-admin zero-access to tenant docs. |
+
+---
+
+## 8. Post-Hardening Status (Phases B, E, F Complete)
+
+Every endpoint flagged above has been wired to the canonical engine in [`backend/core/access.py`](../backend/core/access.py) (`decide()` and `accessible_documents_qs()`) and verified by `backend/tests/test_permission_matrix.py` and `backend/tests/test_security_regressions.py`:
+
+- **Document CRUD, preview, download, versions, reindex, review, shares, break-glass, presign/confirm, search:** All route through `access.decide()` / `access.accessible_documents_qs()` (`F-01`–`F-09`). `PendingUpload` binds presign keys to the uploader (`F-02`); `storage._resolve_local_path` confines local paths (`F-10`).
+- **AI Chat, Conversations, DocGen, Artifacts, Team Chat & WebSockets:** `rag.accessible_documents_qs` delegates directly to `access.accessible_documents_qs`; `rag.filter_conversation_messages_for_user` masks revoked conversation history (`F-12`); `docgen.collect_uploaded_templates` enforces `action="download"`, `include_unapproved=False`, `include_external_shares=False` (`F-11`); `team_chat.room_allowed_doc_ids` derives from `core.access` and excludes `internal` docs when a standard-clearance viewer is in the department (`F-12`); `ws.TeamChatConsumer` re-checks `is_active`, `token_version`, `enable_team_chat`, and room membership on every frame/broadcast (`F-12`).
+- **New Explainability & Break-Glass Endpoints:**
+  - `POST /api/documents/<pk>/break-glass` (`views.document_break_glass`) — Admin-only, mandatory reason, audited.
+  - `GET /api/admin/access/explain` (`views.admin_access_explain`) — Admin or Dept Manager (own dept), returns `Decision(allowed, reason_code, rule_chain)`, audited on every call.
+  - `GET /api/admin/members/<pk>/effective-access` (`views.admin_member_effective_access`) — Admin or Dept Manager (own dept), returns counts and accessible/downloadable lists.
+- **Audit, Auth, Attendance, Billing & Admin MFA:** `AuditLog` v2 (`F-13`), fail-closed audit on security-sensitive actions, streaming formula-safe CSV export, `?certificate=1` verification certificate, `verify_audit_chain --all`; `/api/attendance/qr` restricted to `IsAdmin` (`F-07`); `DELETE /api/admin/departments/<pk>` sets `access_scope="restricted"` and revokes `is_dept_admin` (`F-05`); `register_company`, `user_detail`, and `attendance.evaluate` auth fixes (`F-14`); Stripe webhook/redirect & directory sharing checks (`F-15`); Django `/admin/mfa-*` rate limits (`F-16`).
+

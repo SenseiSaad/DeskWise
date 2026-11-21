@@ -18,6 +18,11 @@ Every API endpoint, query path, vector retrieval pipeline, and write operation w
 
 Two vulnerabilities were discovered during the audit and remediated immediately. Both remediations have been verified with automated regression tests, and the isolation suite is integrated into CI.
 
+### Update (2026-11-21 — Permission Hardening v3)
+- **Canonical Engine (`backend/core/access.py`):** Replaced ad-hoc view checks with a single pure 3-gate evaluator `decide(user, action, document=None)` and derived `accessible_documents_qs()`, proven equivalent by a 4,680+ case differential test (`backend/tests/test_permission_matrix.py`).
+- **16 Security Findings Remediated (`F-01` – `F-16`):** Closed intra-company share self-grant escalation (`F-01`), S3 `/documents/confirm` key hijacking via `PendingUpload` binding (`F-02`), cross-tenant PATCH on external shares (`F-03`), unguarded `/versions/new` (`F-04`), department-deletion widening (`F-05`), admin auto-read on restricted docs / dept-admin confidential read / grant clearance bypass (`F-06`), non-admin attendance QR minting (`F-07`), upload governance bypass (`F-08`), reindex/unshare/version/metadata leaks (`F-09`), local storage path traversal (`F-10`), docgen template isolation (`F-11`), post-revocation chat/artifact/team-chat/WebSocket leaks (`F-12`), audit log v2 + DB triggers + CSV formula neutralization (`F-13`), auth/deactivation edge cases (`F-14`), billing webhook/redirect & directory oracle hardening (`F-15`), and Django admin MFA rate limiting (`F-16`).
+- **Honest Audit Guarantees:** Replaced "immutable" wording with **tamper-evident, append-only** — see [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md) and [`docs/PERMISSIONS_REPORT.md`](docs/PERMISSIONS_REPORT.md).
+
 ---
 
 ## 2. API Endpoint & Model Enumeration
@@ -41,7 +46,7 @@ Every tenant-owned entity carries an explicit Foreign Key binding to `Company`. 
 | `ChatMessage` | FK to `ChatConversation`; assistant rating restricted to thread owner. | Isolated |
 | `AskLog` | FK to `Company` AND FK to `User`; private question analytics. | Isolated |
 | `Announcement` | FK to `Company`; admin-authored company notices. | Isolated |
-| `AuditLog` | FK to `Company` AND FK to `User`; immutable administrative activity stream. | Isolated |
+| `AuditLog` | FK to `Company` AND FK to `User`; tamper-evident, append-only SHA-256 hash-chained administrative activity stream (v2 binds actor/outcome/target; DB triggers block UPDATE/DELETE). | Isolated |
 | `LLMConfig` | FK to `Company` (nullable for platform default); write-only API key. | Isolated |
 | `AttendanceRecord` | FK to `Company` AND FK to `User`; daily check-in marks. | Isolated |
 | `AttendanceExemption` | FK to `User` (company-scoped); approved absence windows. | Isolated |

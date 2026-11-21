@@ -38,7 +38,7 @@ Unlike public chatbots that mix organizational data or stream internal files to 
 * **Deterministic Document Generation (DocGen):** Rule-based template parser for HR forms, leave requests, and official letters. Generates `.docx`, `.pdf`, `.md`, and `.txt` with zero LLM hallucination and zero token cost.
 
 ### Compliance & Administrative Governance
-* **Immutable Audit Trail:** Comprehensive activity logging (sign-ins, uploads, downloads, member changes, share grants, revocations, and AI questions) with IP tracking and CSV export.
+* **Tamper-Evident, Append-Only Audit Trail:** Comprehensive SHA-256 hash-chained activity logging (sign-ins, denials, uploads, downloads, member changes, break-glass grants, explain calls, share grants, revocations, and metadata-only AI questions) protected by ORM guards, database triggers, actor/outcome/target binding, verification certificates, and formula-safe streaming CSV export.
 * **QR Attendance & Legal Safety:** QR check-in with HMAC-SHA256 short-lived tokens. Includes a "Warn-Only" legal safety mode that flags excessive absences without automatically freezing employee accounts.
 * **Platform Administration:** Platform admin role with global cross-tenant visibility, plan management, and usage analytics.
 

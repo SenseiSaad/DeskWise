@@ -6,27 +6,34 @@ Deskwise is an enterprise document repository and retrieval-augmented generation
 
 ---
 
-## Zero-Step Quickstart (Clone & Run in One Line)
+## Zero-Step Quickstart (Windows, macOS & Linux)
 
-Deskwise includes an automated launcher that handles `.env` generation, cryptographic key generation, migrations, demo corpus seeding, and service orchestration automatically.
+Deskwise includes one-command launchers (`scripts/start_local.sh`, `scripts/start_local.ps1`, double-click `Start Deskwise.bat` on Windows, and `Start Deskwise.command` on macOS) with an integrated `doctor` preflight check, local secret generation, demo persona seeding, and zero-key retrieval-only mode by default (never defaults to AWS Bedrock).
 
-**Prerequisites:** Docker Engine/Desktop with the `docker compose` v2 plugin, `git`, `curl`, and free host ports **3000** (web) and **8000** (API). (`--native` mode instead needs Python 3.12+ and Node 20+.) The launcher checks the ports first and tells you if one is busy.
+**Prerequisites:** Docker Engine/Desktop with the `docker compose` v2 plugin and free host ports **3000** (web) and **8000** (API). No Administrator/root privileges required.
 
 ```bash
 git clone https://github.com/SenseiSaad/openvault.git Deskwise
 cd Deskwise
 
-# Option A: Full Docker Compose stack (Next.js :3000 + Django :8000 + SQLite)
-./scripts/start_local.sh --docker
+# 1. Check local environment (Docker, Compose v2, ports, disk, RAM):
+./scripts/start_local.sh doctor
 
-# Option B: Native local development (runs with local node + python venv)
-./scripts/start_local.sh --native
+# 2. Launch in default retrieval-only mode (--no-ai, zero API keys required):
+./scripts/start_local.sh
 
-# Stop the Docker stack (data volumes are kept):
-docker compose down
-# Stop everything the launcher may have started, including native dev servers:
+# Or launch with a live AI provider (prompts for key into gitignored .env):
+./scripts/start_local.sh --ai gemini   # or --ai openai | --ai ollama
+
+# 3. Verify the 3-persona permission demo story (Finance allowed, Employee denied, Admin audit):
+./scripts/verify_install
+
+# Stop or wipe local demo volumes:
 ./scripts/start_local.sh --stop
+./scripts/start_local.sh --reset
 ```
+
+On **Windows**, double-click `Start Deskwise.bat` or run `.\scripts\start_local.ps1` in PowerShell. On **macOS**, double-click `Start Deskwise.command`. See [`docs/INSTALL_TEST.md`](docs/INSTALL_TEST.md), [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md), and [`docs/PERMISSIONS_REPORT.md`](docs/PERMISSIONS_REPORT.md) for the canonical permission model, verification matrix, and tamper-evident, append-only audit guarantees.
 
 The first Docker run builds two images (several minutes) and ends by printing the demo login. It waits for both containers' health checks, so "LIVE" means both are actually healthy. Credentials are also saved in `.dev-logs/demo-credentials.txt`.
 
@@ -122,7 +129,9 @@ See [`docs/DEPLOY.md`](docs/DEPLOY.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITE
 * **Three Access Scopes:**
   1. `company`: Visible to all authenticated members of the tenant.
   2. `department`: Automatically restricted to members of the document's assigned department.
-  3. `restricted`: Locked strictly to explicitly granted individuals (`DocumentAccess`), invisible even to company managers without access grants.
+  3. `restricted`: Locked strictly to the uploader and explicitly granted individuals (`DocumentAccess`). Company admins see masked metadata only and must invoke audited **Break-Glass** with a written reason to inspect content.
+* **Explicit Clearance & Explainability:** Every member has a clearance level (`standard` < `internal` < `confidential`) evaluated against document sensitivity by one canonical engine (`backend/core/access.py`). Admins and department managers can inspect any decision via `/api/admin/access/explain` and preview effective access via `/api/admin/members/<id>/effective-access`.
+* **Tamper-Evident, Append-Only Audit Trail:** Every login, denial, permission change, break-glass access, explain call, and export is recorded in a serialized SHA-256 hash chain guarded by ORM and database triggers (`verify_audit_chain --all`). See [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md) for exact guarantees and limitations.
 * **Granular Cross-Company Collaboration:** Admins can share a specific single document with a named user at a partner company (`DocumentShare`), with configurable download permissions and instant revocation.
 
 ---

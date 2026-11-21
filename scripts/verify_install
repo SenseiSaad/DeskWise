@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Deskwise local install verifier — exercises the 3-persona permission demo story:
+  1. Finance manager logs in and sees `finance_contract.txt` (200 preview + content).
+  2. General employee logs in and is DENIED `finance_contract.txt` (404 preview, excluded from list/search).
+  3. Admin logs in and sees BOTH Finance's access and Employee's denial in `/api/admin/audit`,
+     and verifies the SHA-256 audit hash chain passes!
+
+Usage:
+  ./scripts/verify_install
+  ./scripts/verify_install --base-url http://localhost:8000 --password <demo-password>
+"""
+from __future__ import annotations
+
+import argparse
+import http.cookiejar
+import json
+import pathlib
+import sys
+import urllib.error
+import urllib.request
+
+
+class Client:
+    def __init__(self, base_url: str):
+        self.base = base_url.rstrip("/")
+        self.jar = http.cookiejar.CookieJar()
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
+
+    def req(self, method: str, path: str, data=None):
+        headers = {"Accept": "application/json"}
+        body = None
+        if data is not None:
+            body = json.dumps(data).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        r = urllib.request.Request(f"{self.base}{path}", data=body, headers=headers, method=method)
+        try:
+            with self.opener.open(r, timeout=15) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                return resp.status, json.loads(raw) if raw else None
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            try:
+                return exc.code, json.loads(raw) if raw else None
+            except Exception:
+                return exc.code, raw
+
+
+def read_demo_password() -> str:
+    creds = pathlib.Path(__file__).resolve().parents[1] / ".dev-logs" / "demo-credentials.txt"
+    if creds.exists():
+        for line in creds.read_text(encoding="utf-8").splitlines():
+            if line.startswith("Password:"):
+                return line.split(":", 1)[1].strip()
+    return ""
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Verify local Deskwise install via 3-persona permission story.")
+    parser.add_argument("--base-url", default="http://localhost:8000")
+    parser.add_argument("--password", default="")
+    args = parser.parse_args()
+
+    password = args.password or read_demo_password()
+    if not password:
+        print("ERROR: Demo password not found. Pass --password or run ./scripts/start_local.sh first.", file=sys.stderr)
+        return 1
+
+    base = args.base_url.rstrip("/")
+    fin = Client(base)
+    emp = Client(base)
+    adm = Client(base)
+
+    # 1. Finance manager logs in and opens finance_contract.txt
+    sc, _ = fin.req("POST", "/api/auth/login", {"email": "finance@demo.deskwise.local", "password": password})
+    assert sc == 200, f"Finance login failed: HTTP {sc}"
+    sc, docs = fin.req("GET", "/api/documents?page_size=50")
+    assert sc == 200, f"Finance list docs failed: HTTP {sc}"
+    contract = next((d for d in docs["results"] if d["filename"] == "finance_contract.txt"), None)
+    assert contract is not None, "Finance manager could not find finance_contract.txt"
+    sc, prev = fin.req("GET", f"/api/documents/{contract['id']}/preview")
+    assert sc == 200 and "DEMO-FINANCE-CONTRACT-2026" in prev.get("text", ""), f"Finance preview failed: HTTP {sc}"
+    print(f"[PASS] 1/3 Finance manager opened finance_contract.txt (doc #{contract['id']})")
+
+    # 2. General employee (Engineering) is DENIED finance_contract.txt
+    sc, _ = emp.req("POST", "/api/auth/login", {"email": "employee@demo.deskwise.local", "password": password})
+    assert sc == 200, f"Employee login failed: HTTP {sc}"
+    sc, emp_docs = emp.req("GET", "/api/documents?page_size=50")
+    assert sc == 200
+    assert all(d["id"] != contract["id"] for d in emp_docs["results"]), "LEAK: employee listed finance_contract.txt!"
+    sc, _ = emp.req("GET", f"/api/documents/{contract['id']}/preview")
+    assert sc == 404, f"Expected 404 for employee previewing finance contract, got HTTP {sc}"
+    sc, srch = emp.req("GET", "/api/search?q=DEMO-FINANCE-CONTRACT-2026")
+    assert sc == 200 and srch["documents"] == [], "LEAK: employee found finance contract via /api/search!"
+    print(f"[PASS] 2/3 Engineering employee denied finance_contract.txt (404 preview + zero search hits)")
+
+    # 3. Admin verifies BOTH Finance's preview AND Employee's denial in audit log + chain valid
+    sc, _ = adm.req("POST", "/api/auth/login", {"email": "admin@demo.deskwise.local", "password": password})
+    assert sc == 200, f"Admin login failed: HTTP {sc}"
+    sc, audit_res = adm.req("GET", "/api/admin/audit?page_size=50")
+    assert sc == 200, f"Admin audit fetch failed: HTTP {sc}"
+    rows = audit_res["results"]
+    saw_finance_preview = any(
+        r.get("action") == "preview"
+        and r.get("actor_email") == "finance@demo.deskwise.local"
+        and r.get("target_id") == str(contract["id"])
+        for r in rows
+    )
+    saw_employee_denial = any(
+        r.get("action") == "document_access_denied"
+        and r.get("outcome") == "denied"
+        and r.get("actor_email") == "employee@demo.deskwise.local"
+        and r.get("target_id") == str(contract["id"])
+        for r in rows
+    )
+    assert saw_finance_preview, "Admin audit log missing Finance manager's preview event!"
+    assert saw_employee_denial, "Admin audit log missing Engineering employee's denial event!"
+
+    sc, ver = adm.req("GET", "/api/admin/audit/verify")
+    assert sc == 200 and ver.get("valid") is True, f"Audit chain verification failed: {ver}"
+    print(
+        f"[PASS] 3/3 Admin sees both Finance preview (allowed) and Employee denial (denied) in audit log; "
+        f"hash chain verified ({ver.get('checked')} entries)."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
