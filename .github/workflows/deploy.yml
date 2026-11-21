@@ -3,6 +3,7 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: deploy-main
@@ -18,6 +19,8 @@ env:
 jobs:
   build-push:
     name: Build once and push immutable SHA images
+    # Skip automatically when AWS deploy vars are not configured (e.g. demo repo)
+    if: ${{ vars.AWS_REGION != '' && vars.BUILD_ROLE_ARN != '' }}
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ github.sha }}

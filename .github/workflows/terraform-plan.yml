@@ -18,6 +18,8 @@ permissions:
 jobs:
   plan:
     name: Plan ${{ matrix.github_environment }}
+    # Skip automatically when AWS Terraform vars are not configured (e.g. demo repo)
+    if: ${{ vars.AWS_REGION != '' && vars.TERRAFORM_PLAN_ROLE_ARN != '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
