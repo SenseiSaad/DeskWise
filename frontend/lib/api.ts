@@ -300,6 +300,7 @@ export async function askStream(
 
 // ---- Types ---------------------------------------------------------------
 export type Role = 'admin' | 'employee' | 'viewer'
+export type Clearance = 'standard' | 'internal' | 'confidential'
 
 export const SUPPORTED_LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -385,6 +386,8 @@ export interface User {
   title: string // display job title (CEO/CTO/HR/...), not a permission
   role: Role
   is_dept_admin?: boolean
+  clearance?: '' | Clearance
+  effective_clearance?: Clearance
   company_id: number | null
   company: CompanyProfile | null
   department_id: number | null
@@ -513,6 +516,8 @@ export interface EnterpriseDoc {
   updated_at: string
   company_name?: string
   ephemeral_notice?: string
+  masked?: boolean
+  requires_break_glass?: boolean
 }
 
 // Paginated list envelope returned by the documents endpoint.
@@ -521,18 +526,84 @@ export interface Paged<T> {
   count: number
   page: number
   pages: number
+  restricted_metadata?: EnterpriseDoc[]
 }
 
 // One row of the company audit trail.
 export interface AuditRow {
   id: number
   user_id: number | null
+  actor_id?: number | null
+  actor_email?: string
   action: string
+  outcome?: 'allowed' | 'denied'
+  target_type?: string
+  target_id?: string
   detail: string
   ip: string
+  hash_version?: number
   prev_hash?: string
   entry_hash?: string
   created_at: string
+}
+
+export interface AuditVerifyReport {
+  valid: boolean
+  checked: number
+  broken_id: number | null
+  head_hash?: string
+  verified_at?: string
+  company_id?: number
+  company_name?: string
+  guarantee_note?: string
+}
+
+export interface AccessExplainResult {
+  user: {
+    id: number
+    email: string
+    full_name: string
+    role: Role
+    is_dept_admin: boolean
+    department_name: string | null
+    clearance: Clearance
+  }
+  document: {
+    id: number
+    filename: string
+    access_scope: 'company' | 'department' | 'restricted'
+    sensitivity: Clearance
+    status: string
+    department_name: string | null
+    masked: boolean
+  }
+  action: string
+  allowed: boolean
+  reason_code: string
+  rule_chain: string[]
+  metadata_only: boolean
+}
+
+export interface EffectiveAccessResult {
+  user: User
+  summary: {
+    total_documents: number
+    total_approved: number
+    searchable_count: number
+    workspace_visible_count: number
+    downloadable_count: number
+  }
+  documents: {
+    id: number
+    filename: string
+    masked: boolean
+    access_scope: 'company' | 'department' | 'restricted'
+    sensitivity: Clearance
+    status: string
+    department_name: string | null
+    can_search: boolean
+    can_download: boolean
+  }[]
 }
 
 export interface LlmStatus {
@@ -632,6 +703,8 @@ export interface NewUser {
   password: string
   role: Role
   is_dept_admin?: boolean
+  clearance?: '' | Clearance
+  reason?: string
 }
 
 // Company documents. Access is filtered server-side; upload/delete/share
@@ -679,12 +752,14 @@ export const workApi = {
     return api.upload('/documents/upload', form)
   },
   docDetail: (id: number): Promise<EnterpriseDoc> => api.get(`/documents/${id}`),
-  updateDoc: (id: number, p: Partial<EnterpriseDoc>): Promise<EnterpriseDoc> =>
+  updateDoc: (id: number, p: Partial<EnterpriseDoc> & { department_id?: number | null }): Promise<EnterpriseDoc> =>
     api.patch(`/documents/${id}`, p),
   reviewDoc: (
     id: number,
     p: { action: 'submit' | 'approve' | 'reject' | 'archive'; note?: string },
   ): Promise<EnterpriseDoc> => api.post(`/documents/${id}/review`, p),
+  breakGlass: (id: number, reason: string): Promise<EnterpriseDoc> =>
+    api.post(`/documents/${id}/break-glass`, { reason }),
   remove: (id: number): Promise<null> => api.del(`/documents/${id}`),
   reindex: (id: number): Promise<EnterpriseDoc> => api.post(`/documents/${id}/reindex`),
   preview: (id: number): Promise<{ id: number; filename: string; text: string; truncated: boolean; num_chunks: number }> =>
@@ -710,7 +785,15 @@ export const shareApi = {
   list: (docId: number): Promise<DocumentShareRow[]> => api.get(`/documents/${docId}/shares`),
   add: (
     docId: number,
-    payload: { access_code: string; user_id: number; can_download?: boolean; expires_in_days?: number; allow_pii?: boolean },
+    payload: {
+      access_code?: string
+      user_id: number
+      can_download?: boolean
+      expires_in_days?: number
+      allow_pii?: boolean
+      override_clearance?: boolean
+      grant_reason?: string
+    },
   ): Promise<DocumentShareRow> => api.post(`/documents/${docId}/shares`, payload),
   remove: (docId: number, userId: number): Promise<null> =>
     api.del(`/documents/${docId}/shares/${userId}`),
@@ -863,13 +946,34 @@ export const adminApi = {
   createUser: (p: NewUser): Promise<User> => api.post('/admin/users', p),
   updateUser: (
     id: number,
-    p: { role?: Role; is_dept_admin?: boolean; department_id?: number | null; full_name?: string; title?: string; is_active?: boolean },
+    p: {
+      role?: Role
+      is_dept_admin?: boolean
+      department_id?: number | null
+      clearance?: '' | Clearance
+      full_name?: string
+      title?: string
+      is_active?: boolean
+      reason?: string
+    },
   ): Promise<User> => api.patch(`/admin/users/${id}`, p),
   removeUser: (id: number): Promise<null> => api.del(`/admin/users/${id}`),
+  explainAccess: (
+    userId: number,
+    documentId: number,
+    action: 'view_ask' | 'download' = 'view_ask',
+    includeUnapproved = false,
+  ): Promise<AccessExplainResult> =>
+    api.get(
+      `/admin/access/explain?user_id=${userId}&document_id=${documentId}&action=${action}&include_unapproved=${includeUnapproved ? '1' : '0'}`,
+    ),
+  effectiveAccess: (userId: number): Promise<EffectiveAccessResult> =>
+    api.get(`/admin/members/${userId}/effective-access`),
   audit: (page = 1, pageSize = 200): Promise<Paged<AuditRow>> =>
     api.get(`/admin/audit?page=${page}&page_size=${pageSize}`),
-  verifyAudit: (): Promise<{ valid: boolean; checked: number; broken_id: number | null }> =>
+  verifyAudit: (): Promise<AuditVerifyReport> =>
     api.get('/admin/audit/verify'),
+  auditCertificateUrl: () => `${API_BASE}/api/admin/audit/verify?certificate=1`,
   governance: (): Promise<GovernanceSummary> => api.get('/admin/governance'),
   exportAudit: () => `${API_BASE}/api/admin/audit?export=csv`,
   companies: (): Promise<AdminCompany[]> => api.get('/admin/companies'),

@@ -117,10 +117,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   const NAV = [
     { href: '/workspace', label: t('overview'), icon: LayoutDashboard, adminOnly: false, deptAdminOk: false, exact: true, enabled: true },
     { href: '/workspace/chat', label: t('askAi'), icon: Sparkles, adminOnly: false, deptAdminOk: false, exact: false, enabled: comp?.enable_ai_chat !== false },
-    { href: '/workspace/team-chat', label: t('teamChat'), icon: MessagesSquare, adminOnly: false, deptAdminOk: false, exact: false, enabled: comp?.enable_team_chat !== false },
+    { href: '/workspace/team-chat', label: t('teamChat'), icon: MessagesSquare, adminOnly: false, deptAdminOk: false, exact: false, enabled: comp?.enable_team_chat === true },
     { href: '/workspace/documents', label: t('documents'), icon: FileText, adminOnly: false, deptAdminOk: false, exact: false, enabled: true },
     { href: '/workspace/shared', label: t('shared'), icon: Share2, adminOnly: false, deptAdminOk: false, exact: false, enabled: true },
-    { href: '/workspace/attendance', label: t('attendance'), icon: QrCode, adminOnly: false, deptAdminOk: false, exact: false, enabled: comp?.enable_attendance !== false },
+    { href: '/workspace/attendance', label: t('attendance'), icon: QrCode, adminOnly: false, deptAdminOk: false, exact: false, enabled: comp?.enable_attendance === true },
     { href: '/workspace/members', label: t('members'), icon: Users, adminOnly: true, deptAdminOk: true, exact: false, enabled: true },
     { href: '/workspace/audit', label: t('audit'), icon: ScrollText, adminOnly: true, deptAdminOk: false, exact: false, enabled: true },
     { href: '/workspace/usage', label: t('usagePlan'), icon: Gauge, adminOnly: true, deptAdminOk: false, exact: false, enabled: true },

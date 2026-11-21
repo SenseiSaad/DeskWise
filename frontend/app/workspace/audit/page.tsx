@@ -20,7 +20,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { adminApi, type AuditRow } from '@/lib/api'
+import { adminApi, type AuditRow, type AuditVerifyReport } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useWorkspaceStore } from '@/lib/workspace-store'
 
@@ -69,7 +69,11 @@ function formatDay(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-const actorLabel = (id: number | null): string => (id === null ? 'system' : `#${id}`)
+const actorLabel = (row: AuditRow): string => {
+  if (row.actor_email) return row.actor_email
+  const id = row.actor_id ?? row.user_id
+  return id === null || id === undefined ? 'system' : `#${id}`
+}
 
 export default function AuditLogPage() {
   const { user } = useAuth()
@@ -83,7 +87,8 @@ export default function AuditLogPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [verifying, setVerifying] = useState(false)
-  const [chainStatus, setChainStatus] = useState<{ valid: boolean; checked: number; broken_id: number | null } | null>(null)
+  const [chainStatus, setChainStatus] = useState<AuditVerifyReport | null>(null)
+  const [showGuarantee, setShowGuarantee] = useState(false)
 
   const { search, actionFilter, actorFilter, page } = auditState
   const pageRef = useRef(page)
@@ -238,8 +243,9 @@ export default function AuditLogPage() {
               Audit <span className="font-serif font-normal italic">trail.</span>
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              The immutable record of who did what across your organization: uploads, downloads,
-              logins, member changes, and visibility toggles, newest first.
+              The tamper-evident, append-only record of who did what across your organization:
+              logins, denials, permission changes, break-glass grants, explain calls, uploads,
+              downloads, and exports — newest first.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -258,6 +264,16 @@ export default function AuditLogPage() {
               )}
               Verify Chain
             </button>
+            <a
+              href={adminApi.auditCertificateUrl()}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-border-strong bg-surface-elevated px-4 text-sm font-medium text-foreground transition-colors hover:border-foreground ${focusRing}`}
+            >
+              <ShieldCheck className="size-4 text-ok" aria-hidden />
+              Certificate
+            </a>
             <a
               href={adminApi.exportAudit()}
               download
@@ -286,7 +302,7 @@ export default function AuditLogPage() {
         <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
           <p className="flex items-center gap-2 text-muted-foreground">
             <Shield className="size-3.5 shrink-0" aria-hidden />
-            Read-only, SHA-256 hash-chained record; entries cannot be silently edited or deleted.
+            Tamper-evident, append-only SHA-256 hash chain guarded by database triggers.
           </p>
           {chainStatus && (
             <span
@@ -296,7 +312,7 @@ export default function AuditLogPage() {
             >
               {chainStatus.valid ? (
                 <>
-                  <ShieldCheck className="size-3" /> Chain valid ({chainStatus.checked} hashed)
+                  <ShieldCheck className="size-3" /> Chain verified ✓ ({chainStatus.checked} entries)
                 </>
               ) : (
                 <>
@@ -305,7 +321,34 @@ export default function AuditLogPage() {
               )}
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => setShowGuarantee((v) => !v)}
+            aria-expanded={showGuarantee}
+            className={`text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground ${focusRing}`}
+          >
+            {showGuarantee ? 'Hide security scope' : 'What this does & doesn\u2019t guarantee'}
+          </button>
         </div>
+        {showGuarantee && (
+          <div className="mt-3 rounded-2xl border border-border bg-surface p-4 text-xs leading-relaxed text-muted-foreground">
+            <p className="font-semibold text-foreground">What this tamper-evident, append-only audit log guarantees</p>
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              <li>
+                <strong className="text-foreground">Guaranteed:</strong> Application code, Django admin, and standard SQL
+                sessions cannot update or delete rows (ORM guards + database triggers + serialized SHA-256 hash chain binding
+                actor, outcome, target, and timestamp). Any single-row edit breaks verification immediately.
+              </li>
+              <li>
+                <strong className="text-foreground">Not guaranteed:</strong> A database superuser with direct host/SQL
+                control can still drop triggers, alter rows, and recompute the entire chain from the modified row onward.
+                To defend against a compromised DB host, periodically export or anchor the verification certificate&apos;s{' '}
+                <code className="font-mono text-foreground">head_hash</code>{' '}
+                {chainStatus?.head_hash ? `(${chainStatus.head_hash.slice(0, 12)}…)` : ''} to external WORM storage.
+              </li>
+            </ul>
+          </div>
+        )}
       </header>
 
       {/* Summary strip */}
@@ -479,23 +522,30 @@ export default function AuditLogPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium ${tint}`}
-                        >
-                          {r.action}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium ${tint}`}
+                          >
+                            {r.action}
+                          </span>
+                          {r.outcome === 'denied' && (
+                            <span className="rounded-full bg-danger-soft px-2 py-0.5 text-[10px] font-semibold uppercase text-danger">
+                              denied
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="max-w-[22rem] px-4 py-3 text-foreground/90">
                         <span className="block truncate" title={r.detail}>{r.detail || '-'}</span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <span className={`font-mono text-xs ${r.user_id === null ? 'text-muted-foreground' : 'text-foreground'}`}>
-                          {actorLabel(r.user_id)}
+                        <span className={`font-mono text-xs ${!r.actor_email && r.user_id === null ? 'text-muted-foreground' : 'text-foreground'}`}>
+                          {actorLabel(r)}
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">{r.ip || '-'}</td>
                       <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] text-muted-foreground" title={r.entry_hash || ''}>
-                        {r.entry_hash ? r.entry_hash.slice(0, 10) : '-'}
+                        {r.entry_hash ? `v${r.hash_version ?? 1}:${r.entry_hash.slice(0, 8)}` : '-'}
                       </td>
                     </tr>
                   )
@@ -524,7 +574,7 @@ export default function AuditLogPage() {
                   <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
                       <Users className="size-3" aria-hidden />
-                      <span className="font-mono">{actorLabel(r.user_id)}</span>
+                      <span className="font-mono">{actorLabel(r)}</span>
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <Fingerprint className="size-3" aria-hidden />

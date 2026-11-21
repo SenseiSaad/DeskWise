@@ -104,7 +104,7 @@ export function SecuritySection() {
                 </span>
                 <p className="text-[11.5px] leading-relaxed text-muted-foreground">
                   Built for CPA and assurance workflows: controlled ownership, least-privilege
-                  access, and an immutable activity trail.
+                  access, and a tamper-evident, append-only activity trail.
                 </p>
               </div>
             </div>

@@ -206,6 +206,17 @@ export default function WorkspaceChatPage() {
           onOpenSidebar={() => setSidebarOpen(true)}
         />
 
+        {(llm?.provider === 'fake' || (llm && !llm.online)) && (
+          <div
+            role="status"
+            className="border-b border-warn/30 bg-warn-soft px-4 py-2 text-xs text-warn sm:px-6"
+          >
+            <strong>Retrieval-only local mode:</strong> No cloud LLM key is configured. Permission checks,
+            document citations, and deterministic form/email templates work locally without API spend.
+            Restart with <code className="font-mono">--ai gemini|openai|ollama</code> to enable live AI generation.
+          </div>
+        )}
+
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto flex h-full w-full max-w-4xl flex-col">
             {loadingConv ? (

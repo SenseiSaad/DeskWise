@@ -12,7 +12,9 @@ import {
   Download,
   Eye,
   FileText,
+  HelpCircle,
   History,
+  KeyRound,
   Loader2,
   Lock,
   Pencil,
@@ -30,16 +32,20 @@ import {
   X,
 } from 'lucide-react'
 import {
+  adminApi,
   companyApi,
   companyApi2,
   downloadOwnDocument,
   shareApi,
   workApi,
+  type AccessExplainResult,
+  type Clearance,
   type CompanyDirectory,
   type Department,
   type DocumentShareRow,
   type EnterpriseDoc,
   type MemberDirectory,
+  type User,
 } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { toast } from '@/components/toaster'
@@ -146,20 +152,96 @@ function IndexingBadge({
   return null
 }
 
+function computeAudiencePreview(
+  scope: 'company' | 'department' | 'restricted',
+  sensitivity: Clearance,
+  deptId: number | '',
+  departments: Department[],
+  members: User[],
+  namedGrantsCount = 0,
+): { sentence: string; warning: string | null } {
+  const rank = (c: Clearance) => (c === 'confidential' ? 3 : c === 'internal' ? 2 : 1)
+  const needed = rank(sensitivity)
+  const memberClearance = (u: User): Clearance =>
+    u.effective_clearance || u.clearance || (u.role === 'admin' ? 'confidential' : u.role === 'viewer' ? 'standard' : 'internal')
+
+  const activeMembers = members.filter((u) => u.is_active !== false)
+  const dept = departments.find((d) => d.id === Number(deptId))
+
+  let warning: string | null = null
+  if (scope === 'company' && sensitivity === 'confidential') {
+    warning = 'Contradiction: “Everyone” with “Confidential” means only Admins or members with Confidential clearance will actually see this file.'
+  } else if (scope === 'department' && sensitivity === 'confidential') {
+    warning = 'Heads up: regular employees and Department Managers cannot read or approve Confidential files — only Admins or people with an audited clearance override.'
+  } else if (scope === 'company' && sensitivity === 'internal') {
+    warning = 'Note: Viewer accounts (Standard clearance) will not see Internal files.'
+  } else if (scope === 'restricted' && sensitivity === 'standard') {
+    warning = 'Private scope applies: only you and people you explicitly grant access to will see this document (admins require audited break-glass).'
+  }
+
+  if (scope === 'restricted') {
+    const count = 1 + namedGrantsCount
+    return {
+      sentence:
+        namedGrantsCount > 0
+          ? `Visible to ${count} ${count === 1 ? 'person' : 'people'} (uploader + ${namedGrantsCount} named).`
+          : 'Visible to 1 person (you only — grant access to named people after uploading).',
+      warning,
+    }
+  }
+
+  if (activeMembers.length > 0) {
+    const eligible = activeMembers.filter((u) => {
+      if (rank(memberClearance(u)) < needed) return false
+      if (scope === 'company') return true
+      if (scope === 'department') return u.role === 'admin' || (deptId !== '' && u.department_id === Number(deptId))
+      return false
+    })
+    const n = eligible.length
+    if (scope === 'department') {
+      const label = dept ? dept.name : 'selected department'
+      const extras = namedGrantsCount > 0 ? ` + ${namedGrantsCount} named` : ''
+      return {
+        sentence: `Visible to ${n} ${n === 1 ? 'person' : 'people'} (${label}${extras} · ${sensitivity} clearance & above).`,
+        warning,
+      }
+    }
+    return {
+      sentence: `Visible to ${n} of ${activeMembers.length} active ${activeMembers.length === 1 ? 'member' : 'members'} (${sensitivity} clearance & above).`,
+      warning,
+    }
+  }
+
+  if (scope === 'department') {
+    const label = dept ? `${dept.name} (${dept.member_count} members)` : 'one department'
+    return {
+      sentence: `Visible to ${label} with ${sensitivity} clearance or above (plus company admins).`,
+      warning,
+    }
+  }
+  return {
+    sentence: `Visible to everyone in the company with ${sensitivity} clearance or above.`,
+    warning,
+  }
+}
+
 function UploadPanel({
   open,
   onToggle,
   categories,
   departments,
+  members,
 }: {
   open: boolean
   onToggle: () => void
   categories: string[]
   departments: Department[]
+  members: User[]
   onUploaded?: (doc: EnterpriseDoc) => void
 }) {
   const { user } = useAuth()
-  const canSetConfidential = Boolean(user?.role === 'admin' || user?.is_platform_admin || user?.is_dept_admin)
+  const isCompanyAdmin = Boolean(user?.role === 'admin' || user?.is_platform_admin)
+  const canSetConfidential = isCompanyAdmin
   const {
     stagedFiles: files,
     setStagedFiles: setFiles,
@@ -472,25 +554,25 @@ function UploadPanel({
           </div>
 
           <fieldset className="rounded-2xl border border-border bg-surface p-4">
-            <legend className="px-1 text-xs font-semibold text-foreground">Who can access this document?</legend>
+            <legend className="px-1 text-xs font-semibold text-foreground">Who can see this?</legend>
             <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
               {[
                 {
                   id: 'company' as const,
-                  title: 'Entire company',
-                  desc: 'All active members can open and ask AI about it.',
+                  title: 'Everyone',
+                  desc: 'All active company members matching clearance.',
                   icon: Building2,
                 },
                 {
                   id: 'department' as const,
-                  title: 'Department only',
-                  desc: 'Visible only to members of one team.',
+                  title: 'My department',
+                  desc: 'Only members of one chosen department.',
                   icon: Users,
                 },
                 {
                   id: 'restricted' as const,
-                  title: 'Selected people',
-                  desc: 'Private to you and people you share with.',
+                  title: 'Only selected people',
+                  desc: 'Private to you and explicitly named people.',
                   icon: Lock,
                 },
               ].map((item) => {
@@ -531,7 +613,7 @@ function UploadPanel({
 
             <SmoothCollapse open={scope === 'department'}>
               <div className="mt-3">
-                <label className="mb-1.5 block text-xs font-medium text-foreground">Select Department</label>
+                <label className="mb-1.5 block text-xs font-medium text-foreground">Select department</label>
                 <SmoothSelect
                   value={deptId === '' ? '' : String(deptId)}
                   onChange={(val) => setDeptId(val ? Number(val) : '')}
@@ -543,52 +625,74 @@ function UploadPanel({
             </SmoothCollapse>
 
             <div className="mt-3">
-              <label className="mb-1.5 block text-xs font-medium text-foreground">Sensitivity clearance</label>
+              <label className="mb-1.5 block text-xs font-medium text-foreground">How confidential?</label>
               <SmoothSelect<'standard' | 'internal' | 'confidential'>
                 value={sensitivity}
                 onChange={setSensitivity}
-                ariaLabel="Sensitivity clearance"
+                ariaLabel="How confidential"
                 options={[
-                  { value: 'standard', label: 'Standard', description: 'Follows scope (all roles incl. viewers)' },
-                  { value: 'internal', label: 'Internal (Employees+)', description: 'Hidden from read-only viewers' },
+                  { value: 'standard', label: 'Standard', description: 'General company info (Viewers, Employees & Admins)' },
+                  { value: 'internal', label: 'Internal', description: 'Staff operations (hidden from read-only Viewers)' },
                   ...(canSetConfidential
-                    ? [{ value: 'confidential' as const, label: 'Confidential (Admin Only)', description: 'Locked to admins & explicit grants' }]
+                    ? [{ value: 'confidential' as const, label: 'Confidential', description: 'Sensitive executive/legal files (Confidential clearance only)' }]
                     : []),
                 ]}
               />
             </div>
+
+            {(() => {
+              const preview = computeAudiencePreview(scope, sensitivity, deptId, departments, members)
+              return (
+                <div className="mt-3 space-y-2" aria-live="polite">
+                  <p className="rounded-xl bg-surface-2 px-3 py-2 text-xs font-medium text-foreground">
+                    {preview.sentence}
+                  </p>
+                  {preview.warning && (
+                    <p
+                      role="status"
+                      className="flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2 text-[11px] leading-relaxed text-warn"
+                    >
+                      <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                      <span>{preview.warning}</span>
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
           </fieldset>
 
-          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3.5 py-2.5 text-xs text-foreground transition-colors hover:bg-surface-2">
-            <span className="flex items-center gap-2.5">
-              <Sparkles className="size-4 text-muted-foreground" />
-              <span>
-                <span className="block font-medium text-foreground">Official reference document</span>
-                <span className="block text-[11px] text-muted-foreground">
-                  Prioritize this file as a verified source when answering team questions
+          {isCompanyAdmin && (
+            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3.5 py-2.5 text-xs text-foreground transition-colors hover:bg-surface-2">
+              <span className="flex items-center gap-2.5">
+                <Sparkles className="size-4 text-muted-foreground" />
+                <span>
+                  <span className="block font-medium text-foreground">Official reference document (Admin)</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    Prioritize this file as a verified source when answering team questions
+                  </span>
                 </span>
               </span>
-            </span>
-            <span className="relative inline-flex shrink-0 items-center">
-              <input
-                type="checkbox"
-                checked={isOkf}
-                onChange={(e) => setIsOkf(e.target.checked)}
-                className="sr-only"
-              />
-              <span
-                className={`flex h-5 w-9 items-center rounded-full p-0.5 transition-colors duration-200 ${
-                  isOkf ? 'bg-primary' : 'bg-border-strong'
-                }`}
-              >
-                <span
-                  className={`size-4 rounded-full bg-background shadow-xs transition-transform duration-200 ${
-                    isOkf ? 'translate-x-4' : 'translate-x-0'
-                  }`}
+              <span className="relative inline-flex shrink-0 items-center">
+                <input
+                  type="checkbox"
+                  checked={isOkf}
+                  onChange={(e) => setIsOkf(e.target.checked)}
+                  className="sr-only"
                 />
+                <span
+                  className={`flex h-5 w-9 items-center rounded-full p-0.5 transition-colors duration-200 ${
+                    isOkf ? 'bg-primary' : 'bg-border-strong'
+                  }`}
+                >
+                  <span
+                    className={`size-4 rounded-full bg-background shadow-xs transition-transform duration-200 ${
+                      isOkf ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             <span className="text-xs text-muted-foreground">
@@ -828,17 +932,19 @@ function VersionsModal({
 function EditMetadataModal({
   doc,
   departments,
+  members,
   onClose,
   onSaved,
 }: {
   doc: EnterpriseDoc
   departments: Department[]
+  members: User[]
   onClose: () => void
   onSaved: (doc: EnterpriseDoc) => void
 }) {
   const { user } = useAuth()
   const isCompanyAdmin = Boolean(user?.role === 'admin' || user?.is_platform_admin)
-  const canSetConfidential = Boolean(isCompanyAdmin || (user?.is_dept_admin && doc.department === user.department_id))
+  const canSetConfidential = isCompanyAdmin
   const [description, setDescription] = useState(doc.description || '')
   const [category, setCategory] = useState(doc.category || '')
   const [tagsInput, setTagsInput] = useState((doc.tags || []).join(', '))
@@ -860,13 +966,13 @@ function EditMetadataModal({
         .split(',')
         .map((t) => t.trim())
         .filter(Boolean)
-      const payload: Partial<EnterpriseDoc> = {
+      const payload: Partial<EnterpriseDoc> & { department_id?: number | null } = {
         description: description.trim(),
         category: category.trim(),
         tags,
         access_scope: scope,
         sensitivity,
-        department: scope === 'department' && deptId ? Number(deptId) : null,
+        department_id: scope === 'department' && deptId ? Number(deptId) : null,
       }
       if (isCompanyAdmin) payload.legal_hold = legalHold
       const updated = await workApi.updateDoc(doc.id, payload)
@@ -927,15 +1033,15 @@ function EditMetadataModal({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-foreground">Who can view</label>
+          <label className="mb-1 block text-xs font-medium text-foreground">Who can see this?</label>
           <SmoothSelect<EnterpriseDoc['access_scope']>
             value={scope}
             onChange={setScope}
-            ariaLabel="Access scope"
+            ariaLabel="Who can see this"
             options={[
-              { value: 'company', label: 'Company-wide', description: 'All active team members' },
-              { value: 'department', label: 'Department only', description: 'Restricted to one department' },
-              { value: 'restricted', label: 'Restricted (selected people)', description: 'Only you and named recipients' },
+              { value: 'company', label: 'Everyone', description: 'All active members matching clearance' },
+              { value: 'department', label: 'My department', description: 'Restricted to one department' },
+              { value: 'restricted', label: 'Only selected people', description: 'Only you and named recipients' },
             ]}
           />
         </div>
@@ -957,20 +1063,37 @@ function EditMetadataModal({
         </SmoothCollapse>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-foreground">Sensitivity clearance</label>
+          <label className="mb-1 block text-xs font-medium text-foreground">How confidential?</label>
           <SmoothSelect<'standard' | 'internal' | 'confidential'>
             value={sensitivity}
             onChange={setSensitivity}
-            ariaLabel="Sensitivity clearance"
+            ariaLabel="How confidential"
             options={[
               { value: 'standard', label: 'Standard', description: 'All roles matching access scope' },
-              { value: 'internal', label: 'Internal (Employees+)', description: 'Blocks viewer accounts' },
+              { value: 'internal', label: 'Internal', description: 'Hidden from Viewer accounts' },
               ...(canSetConfidential
-                ? [{ value: 'confidential' as const, label: 'Confidential (Admin Only)', description: 'Restricted to admins & explicit grants' }]
+                ? [{ value: 'confidential' as const, label: 'Confidential', description: 'Confidential clearance or audited override only' }]
                 : []),
             ]}
           />
         </div>
+
+        {(() => {
+          const preview = computeAudiencePreview(scope, sensitivity, deptId, departments, members)
+          return (
+            <div className="space-y-2" aria-live="polite">
+              <p className="rounded-xl bg-surface-2 px-3 py-2 text-xs font-medium text-foreground">
+                {preview.sentence}
+              </p>
+              {preview.warning && (
+                <p role="status" className="flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2 text-[11px] text-warn">
+                  <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                  <span>{preview.warning}</span>
+                </p>
+              )}
+            </div>
+          )
+        })()}
 
         {isCompanyAdmin && (
           <label className="flex cursor-pointer items-center justify-between rounded-xl border border-border bg-surface px-3 py-2 text-xs">
@@ -1253,6 +1376,238 @@ function ShareDialog({ doc, onClose }: { doc: EnterpriseDoc; onClose: () => void
   )
 }
 
+function ExplainAccessModal({
+  doc,
+  members,
+  onClose,
+}: {
+  doc: EnterpriseDoc
+  members: User[]
+  onClose: () => void
+}) {
+  const [selectedUserId, setSelectedUserId] = useState<number | ''>(members[0]?.id ?? '')
+  const [action, setAction] = useState<'view_ask' | 'download'>('view_ask')
+  const [result, setResult] = useState<AccessExplainResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  async function runExplain(e?: FormEvent) {
+    if (e) e.preventDefault()
+    if (selectedUserId === '') return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await adminApi.explainAccess(Number(selectedUserId), doc.id, action, false)
+      setResult(res)
+    } catch (err) {
+      setResult(null)
+      setError(err instanceof Error ? err.message : 'Could not explain access.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <SmoothDialogFrame
+      onClose={onClose}
+      maxWidthClass="max-w-lg"
+      panelClassName="p-6"
+      ariaLabel={`Explain access for ${doc.filename}`}
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-border pb-3">
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <HelpCircle className="size-4 shrink-0" aria-hidden /> Why can&rsquo;t they see this?
+          </h2>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {displayTitle(doc.filename)} · Every explanation is audited
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="rounded-full p-1.5 text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      <form onSubmit={runExplain} className="mt-4 space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label htmlFor="ex-user" className="mb-1 block text-xs font-medium text-foreground">
+              Team member
+            </label>
+            <select
+              id="ex-user"
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value ? Number(e.target.value) : '')}
+              className={inputClass}
+            >
+              <option value="">Select a member…</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.full_name || m.email} ({m.role})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="ex-action" className="mb-1 block text-xs font-medium text-foreground">
+              Action to check
+            </label>
+            <select
+              id="ex-action"
+              value={action}
+              onChange={(e) => setAction(e.target.value as 'view_ask' | 'download')}
+              className={inputClass}
+            >
+              <option value="view_ask">View / Ask AI</option>
+              <option value="download">Download file</option>
+            </select>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading || selectedUserId === ''}
+          className={primaryBtn}
+        >
+          {loading ? <Loader2 className="size-3.5 animate-spin" /> : <HelpCircle className="size-3.5" />}
+          Check access
+        </button>
+      </form>
+
+      {error && (
+        <p role="alert" className="mt-4 rounded-xl bg-danger-soft px-3 py-2 text-xs text-danger">
+          {error}
+        </p>
+      )}
+
+      {result && (
+        <div className="mt-4 space-y-3 rounded-2xl border border-border bg-surface p-4 text-xs" aria-live="polite">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-semibold ${
+                result.allowed ? 'bg-ok-soft text-ok' : 'bg-danger-soft text-danger'
+              }`}
+            >
+              {result.allowed ? 'Allowed' : 'Denied'}
+            </span>
+            <code className="rounded bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+              {result.reason_code}
+            </code>
+          </div>
+          <ol className="list-decimal space-y-1.5 pl-4 leading-relaxed text-foreground/90">
+            {result.rule_chain.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </SmoothDialogFrame>
+  )
+}
+
+function BreakGlassModal({
+  doc,
+  onClose,
+  onUnlocked,
+}: {
+  doc: EnterpriseDoc
+  onClose: () => void
+  onUnlocked: (unlocked: EnterpriseDoc) => void
+}) {
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (reason.trim().length < 5) {
+      setError('Please enter a written justification (at least 5 characters).')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      const unlocked = await workApi.breakGlass(doc.id, reason.trim())
+      toast.success('Break-glass access granted and permanently logged.')
+      onUnlocked(unlocked)
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Break-glass request failed.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <SmoothDialogFrame
+      onClose={onClose}
+      maxWidthClass="max-w-md"
+      panelClassName="p-6"
+      ariaLabel={`Break-glass access for document #${doc.id}`}
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-border pb-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <KeyRound className="size-4 text-warn" aria-hidden /> Audited Break-Glass Access
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Restricted document #{doc.id} · {doc.sensitivity || 'standard'} · {doc.status || 'approved'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="rounded-full p-1.5 text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      <form onSubmit={submit} className="mt-4 space-y-3">
+        <p className="rounded-xl bg-warn-soft p-3 text-xs leading-relaxed text-warn">
+          Admins do not automatically read private restricted files. Proceeding grants you access to this document
+          and writes a permanent, tamper-evident <code className="font-mono">break_glass</code> entry to the audit log.
+        </p>
+        <div>
+          <label htmlFor="bg-reason" className="mb-1 block text-xs font-medium text-foreground">
+            Mandatory reason <span className="text-danger">*</span>
+          </label>
+          <textarea
+            id="bg-reason"
+            required
+            minLength={5}
+            rows={3}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Legal discovery hold verification ticket #SEC-204"
+            className="w-full rounded-xl border border-border-strong bg-surface-elevated p-3 text-xs text-foreground outline-none focus:border-foreground"
+          />
+        </div>
+        {error && (
+          <p role="alert" className="rounded-xl bg-danger-soft px-3 py-2 text-xs text-danger">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className={ghostBtn}>
+            Cancel
+          </button>
+          <button type="submit" disabled={saving || reason.trim().length < 5} className={primaryBtn}>
+            {saving ? <Loader2 className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
+            Grant break-glass access
+          </button>
+        </div>
+      </form>
+    </SmoothDialogFrame>
+  )
+}
+
 export default function DocumentsPage() {
   const { user } = useAuth()
   const {
@@ -1264,6 +1619,8 @@ export default function DocumentsPage() {
     dismissUploadJobs,
   } = useWorkspaceStore()
   const [docs, setDocs] = useState<EnterpriseDoc[]>([])
+  const [restrictedMeta, setRestrictedMeta] = useState<EnterpriseDoc[]>([])
+  const [members, setMembers] = useState<User[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [pages, setPages] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -1307,6 +1664,8 @@ export default function DocumentsPage() {
   const [previewDoc, setPreviewDoc] = useState<EnterpriseDoc | null>(null)
   const [versionsDoc, setVersionsDoc] = useState<EnterpriseDoc | null>(null)
   const [editDoc, setEditDoc] = useState<EnterpriseDoc | null>(null)
+  const [explainDoc, setExplainDoc] = useState<EnterpriseDoc | null>(null)
+  const [breakGlassDoc, setBreakGlassDoc] = useState<EnterpriseDoc | null>(null)
   const [ephemeralNotice, setEphemeralNotice] = useState<string | null>(null)
   const shownEphemeralIdsRef = useRef<Set<string>>(new Set())
 
@@ -1331,6 +1690,7 @@ export default function DocumentsPage() {
       .documents(targetPage, 50)
       .then((res) => {
         setDocs(res.results || [])
+        setRestrictedMeta(res.restricted_metadata || [])
         setTotalCount(res.count || 0)
         setPage(res.page || 1)
         setPages(res.pages || 1)
@@ -1344,6 +1704,7 @@ export default function DocumentsPage() {
       .documents(targetPage, 50)
       .then((res) => {
         setDocs(res.results || [])
+        setRestrictedMeta(res.restricted_metadata || [])
         setTotalCount(res.count || 0)
         setPage(res.page || 1)
         setPages(res.pages || 1)
@@ -1371,7 +1732,10 @@ export default function DocumentsPage() {
   useEffect(() => {
     load(1)
     companyApi2.departments().then(setDepartments).catch(() => setDepartments([]))
-  }, [load])
+    if (user?.role === 'admin' || user?.is_platform_admin || user?.is_dept_admin) {
+      adminApi.users().then(setMembers).catch(() => setMembers([]))
+    }
+  }, [load, user?.role, user?.is_platform_admin, user?.is_dept_admin])
 
   const categories = useMemo(
     () => [...new Set(docs.map((d) => d.category).filter(Boolean))].sort(),
@@ -1574,6 +1938,7 @@ export default function DocumentsPage() {
             onToggle={() => setUploadOpen((v) => !v)}
             categories={categories}
             departments={departments}
+            members={members}
             onUploaded={(d) => {
               setDocs((prev) => [d, ...prev])
               setTotalCount((c) => c + 1)
@@ -1637,12 +2002,12 @@ export default function DocumentsPage() {
                     : job.error || 'Failed'
                 const barColor =
                   job.status === 'ready'
-                    ? 'bg-emerald-500'
+                    ? 'bg-ok'
                     : job.status === 'failed'
-                    ? 'bg-rose-500'
+                    ? 'bg-danger'
                     : job.status === 'indexing'
-                    ? 'bg-amber-500'
-                    : 'bg-sky-500'
+                    ? 'bg-warn'
+                    : 'bg-info'
                 return (
                   <div
                     key={job.id}
@@ -1999,6 +2364,16 @@ export default function DocumentsPage() {
                           >
                             <Share2 className="size-3.5" /> Share
                           </button>
+                          {(user?.role === 'admin' || user?.is_platform_admin || user?.is_dept_admin) && members.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setExplainDoc(doc)}
+                              className={ghostBtn}
+                              title="Explain why a member can or cannot see this document"
+                            >
+                              <HelpCircle className="size-3.5" /> Why can&rsquo;t they see?
+                            </button>
+                          )}
                           {doc.status === 'in_review' &&
                             (user?.role === 'admin' ||
                               user?.is_platform_admin ||
@@ -2067,12 +2442,78 @@ export default function DocumentsPage() {
             </button>
           </div>
         )}
+        {/* Restricted documents visible as masked metadata only for admins (Break-Glass) */}
+        {restrictedMeta.length > 0 && (
+          <section className="mt-8 rounded-2xl border border-warn/30 bg-surface p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Lock className="size-4 text-warn" aria-hidden />
+                  Private restricted documents ({restrictedMeta.length})
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Admins see masked metadata only. Invoke audited break-glass with a written reason to inspect a file.
+                </p>
+              </div>
+            </div>
+            <ul className="mt-3 space-y-2">
+              {restrictedMeta.map((m) => (
+                <li
+                  key={m.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-elevated px-4 py-3 text-xs"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Lock className="size-3.5 text-warn" aria-hidden />
+                    <span className="font-medium text-foreground">{m.filename}</span>
+                    <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] capitalize text-muted-foreground">
+                      {m.sensitivity || 'standard'}
+                    </span>
+                    <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] capitalize text-muted-foreground">
+                      {(m.status || 'approved').replace('_', ' ')}
+                    </span>
+                    {m.legal_hold && (
+                      <span className="rounded-full bg-danger-soft px-2 py-0.5 text-[10px] font-semibold text-danger">
+                        Legal Hold
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBreakGlassDoc(m)}
+                    className={ghostBtn}
+                  >
+                    <KeyRound className="size-3.5 text-warn" aria-hidden /> Break-glass access
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </section>
 
       {/* Modals */}
       <AnimatePresence>
         {shareDoc && <ShareDialog key={`share-${shareDoc.id}`} doc={shareDoc} onClose={() => setShareDoc(null)} />}
         {previewDoc && <PreviewModal key={`preview-${previewDoc.id}`} doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
+        {explainDoc && (
+          <ExplainAccessModal
+            key={`explain-${explainDoc.id}`}
+            doc={explainDoc}
+            members={members}
+            onClose={() => setExplainDoc(null)}
+          />
+        )}
+        {breakGlassDoc && (
+          <BreakGlassModal
+            key={`bg-${breakGlassDoc.id}`}
+            doc={breakGlassDoc}
+            onClose={() => setBreakGlassDoc(null)}
+            onUnlocked={(unlocked) => {
+              setRestrictedMeta((prev) => prev.filter((x) => x.id !== unlocked.id))
+              setDocs((prev) => [unlocked, ...prev.filter((x) => x.id !== unlocked.id)])
+            }}
+          />
+        )}
         {versionsDoc && (
           <VersionsModal
             key={`versions-${versionsDoc.id}`}
@@ -2088,6 +2529,7 @@ export default function DocumentsPage() {
             key={`edit-${editDoc.id}`}
             doc={editDoc}
             departments={departments}
+            members={members}
             onClose={() => setEditDoc(null)}
             onSaved={(updated) => {
               setDocs((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
