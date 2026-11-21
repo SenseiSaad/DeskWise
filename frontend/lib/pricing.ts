@@ -38,13 +38,13 @@ export const FALLBACK_PLANS: Omit<Plan, 'id'>[] = [
   {
     name: 'Free', price_usd: 0, billing_period: 'month',
     max_members: 3, max_documents: 20, storage_mb: 512, monthly_ask_limit: 50,
-    allow_versions: false, allow_departments: false, allow_custom_llm: false,
+    allow_versions: false, allow_departments: true, allow_custom_llm: false,
     is_default: true,
   },
   {
     name: 'Go', price_usd: 19, billing_period: 'month',
     max_members: 15, max_documents: 200, storage_mb: 5120, monthly_ask_limit: 1500,
-    allow_versions: true, allow_departments: false, allow_custom_llm: false,
+    allow_versions: true, allow_departments: true, allow_custom_llm: false,
     is_default: false,
   },
   {

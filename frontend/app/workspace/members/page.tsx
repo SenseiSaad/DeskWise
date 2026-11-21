@@ -300,6 +300,13 @@ function MembersAdmin({ currentUser, isCompanyAdmin }: { currentUser: User; isCo
   const [confirmUser, setConfirmUser] = useState<User | null>(null)
   const [removingId, setRemovingId] = useState<number | null>(null)
 
+  // Department management (Company Admin)
+  const [newDeptName, setNewDeptName] = useState('')
+  const [deptSaving, setDeptSaving] = useState(false)
+  const [deptError, setDeptError] = useState('')
+  const [confirmDept, setConfirmDept] = useState<Department | null>(null)
+  const [removingDeptId, setRemovingDeptId] = useState<number | null>(null)
+
   const load = useCallback(() => {
     setLoading(true)
     setLoadError('')
@@ -335,9 +342,46 @@ function MembersAdmin({ currentUser, isCompanyAdmin }: { currentUser: User; isCo
   const currentSpec = ACCESS_LEVELS.find((l) => l.id === selectedLevel) ?? ACCESS_LEVELS[0]
   const effectiveDeptId = !isCompanyAdmin ? (currentUser.department_id ?? '') : departmentId
   const isSensitiveInvite = selectedLevel === 'admin' || clearance === 'confidential'
+  const deptRequiredNow = selectedLevel === 'dept_manager' || (currentSpec.requiresDepartment && departments.length > 0)
+
+  async function onCreateDepartment(e: React.FormEvent) {
+    e.preventDefault()
+    const clean = newDeptName.trim()
+    if (!clean) return
+    setDeptError('')
+    setDeptSaving(true)
+    try {
+      const created = await companyApi2.addDepartment(clean)
+      setDepartments((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
+      setNewDeptName('')
+      if (!departmentId) setDepartmentId(created.id)
+      toast.success(`Department "${created.name}" created.`)
+    } catch (err) {
+      setDeptError(err instanceof Error ? err.message : 'Could not create department.')
+    } finally {
+      setDeptSaving(false)
+    }
+  }
+
+  async function onDeleteDepartment(dept: Department) {
+    setRemovingDeptId(dept.id)
+    setDeptError('')
+    try {
+      await companyApi2.removeDepartment(dept.id)
+      setDepartments((prev) => prev.filter((d) => d.id !== dept.id))
+      if (departmentId === dept.id) setDepartmentId('')
+      setConfirmDept(null)
+      toast.success(`Department "${dept.name}" removed. Its files were moved to Restricted.`)
+      load()
+    } catch (err) {
+      setDeptError(err instanceof Error ? err.message : 'Could not delete department.')
+    } finally {
+      setRemovingDeptId(null)
+    }
+  }
 
   function validateCreate(): string | null {
-    if (currentSpec.requiresDepartment && !effectiveDeptId) {
+    if (deptRequiredNow && !effectiveDeptId) {
       return `Please select a department — ${currentSpec.label} accounts must belong to a department.`
     }
     if (isSensitiveInvite && inviteReason.trim().length < 5) {
@@ -463,6 +507,85 @@ function MembersAdmin({ currentUser, isCompanyAdmin }: { currentUser: User; isCo
               )
             })}
           </section>
+
+          {/* Departments management (Company Admin) */}
+          {isCompanyAdmin && (
+            <section className="rounded-2xl border border-border bg-surface p-5 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-2 text-foreground">
+                    <Building2 className="size-4" aria-hidden />
+                  </span>
+                  <div>
+                    <h2 className="text-base font-semibold tracking-[-0.02em]">Departments</h2>
+                    <p className="text-xs text-muted-foreground">
+                      Organize members and scope documents to specific teams (e.g. Finance, HR, Engineering).
+                    </p>
+                  </div>
+                </div>
+                <form onSubmit={onCreateDepartment} className="flex w-full gap-2 sm:w-auto sm:min-w-[18rem]">
+                  <input
+                    type="text"
+                    value={newDeptName}
+                    onChange={(e) => setNewDeptName(e.target.value)}
+                    placeholder="New department name…"
+                    aria-label="New department name"
+                    maxLength={120}
+                    disabled={deptSaving}
+                    className={inputClass}
+                  />
+                  <button
+                    type="submit"
+                    disabled={deptSaving || !newDeptName.trim()}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+                  >
+                    {deptSaving ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                    Add
+                  </button>
+                </form>
+              </div>
+
+              {deptError && (
+                <p role="alert" className="mt-3 flex items-center gap-1.5 rounded-xl border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
+                  <AlertCircle className="size-3.5 shrink-0" aria-hidden /> {deptError}
+                </p>
+              )}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {departments.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No departments yet. Create your first department above before adding Department Managers or department-scoped files.
+                  </p>
+                ) : (
+                  departments.map((d) => (
+                    <span
+                      key={d.id}
+                      className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs text-foreground"
+                    >
+                      <span className="font-medium">{d.name}</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {d.member_count} {d.member_count === 1 ? 'member' : 'members'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDept(d)}
+                        disabled={removingDeptId === d.id}
+                        aria-label={`Delete ${d.name} department`}
+                        title={`Delete ${d.name}`}
+                        className="rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-50"
+                      >
+                        {removingDeptId === d.id ? (
+                          <Loader2 className="size-3 animate-spin" />
+                        ) : (
+                          <X className="size-3" />
+                        )}
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
+            </section>
+          )}
 
           {/* Invite panel */}
           <section className="rounded-2xl border border-border bg-surface p-5 sm:p-7">
@@ -607,7 +730,7 @@ function MembersAdmin({ currentUser, isCompanyAdmin }: { currentUser: User; isCo
                 <div>
                   <label htmlFor="m-dept" className={labelClass}>
                     Department{' '}
-                    {currentSpec.requiresDepartment ? (
+                    {deptRequiredNow ? (
                       <span className="font-semibold text-danger">* required</span>
                     ) : (
                       <span className="font-normal text-muted-foreground">(optional)</span>
@@ -619,10 +742,10 @@ function MembersAdmin({ currentUser, isCompanyAdmin }: { currentUser: User; isCo
                     onChange={(e) => setDepartmentId(e.target.value ? Number(e.target.value) : '')}
                     className={inputClass}
                     disabled={submitting || !isCompanyAdmin}
-                    required={currentSpec.requiresDepartment}
+                    required={deptRequiredNow}
                   >
                     <option value="">
-                      {currentSpec.requiresDepartment ? 'Select a department…' : 'No department'}
+                      {deptRequiredNow ? 'Select a department…' : 'No department'}
                     </option>
                     {departments.map((d) => (
                       <option key={d.id} value={d.id}>
@@ -632,7 +755,7 @@ function MembersAdmin({ currentUser, isCompanyAdmin }: { currentUser: User; isCo
                   </select>
                   {currentSpec.requiresDepartment && departments.length === 0 && (
                     <p className="mt-1 text-[11px] text-warn">
-                      No departments exist yet. Create one in Workspace Settings first.
+                      No departments exist yet. Create one in the Departments section above.
                     </p>
                   )}
                 </div>
@@ -969,6 +1092,17 @@ function MembersAdmin({ currentUser, isCompanyAdmin }: { currentUser: User; isCo
         loading={confirmUser ? removingId === confirmUser.id : false}
         onConfirm={() => confirmUser && onRemove(confirmUser)}
         onCancel={() => setConfirmUser(null)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDept}
+        title={confirmDept ? `Delete ${confirmDept.name} department?` : ''}
+        message="Department documents will be moved to Restricted (never company-wide), and any Department Managers in this department will be downgraded to standard members with active sessions signed out."
+        confirmText="Delete department"
+        danger={true}
+        loading={confirmDept ? removingDeptId === confirmDept.id : false}
+        onConfirm={() => confirmDept && onDeleteDepartment(confirmDept)}
+        onCancel={() => setConfirmDept(null)}
       />
     </div>
   )
