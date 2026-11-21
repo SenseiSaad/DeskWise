@@ -2195,7 +2195,7 @@ export default function DocumentsPage() {
                   key={doc.id}
                   className="rounded-2xl border border-border bg-surface-elevated p-4 shadow-2xs transition-all duration-150 hover:border-border-strong hover:shadow-md"
                 >
-                  <div className="flex flex-col gap-3.5 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-col gap-3">
                     <div className="flex min-w-0 items-start gap-3">
                       {editor && (
                         <input
@@ -2208,7 +2208,7 @@ export default function DocumentsPage() {
                       <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-2">
                         <FileText className="size-4 text-muted-foreground" />
                       </span>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <h2
                             className="truncate text-sm font-semibold text-foreground"
@@ -2310,7 +2310,7 @@ export default function DocumentsPage() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex shrink-0 flex-wrap items-center gap-1.5 pt-1 lg:pt-0">
+                    <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-3">
                       <button
                         type="button"
                         onClick={() => setPreviewDoc(doc)}

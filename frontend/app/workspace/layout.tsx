@@ -13,6 +13,8 @@ import {
   Loader2,
   LogOut,
   MessagesSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   QrCode,
   ScrollText,
   Settings,
@@ -52,6 +54,29 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
   const [companies, setCompanies] = useState<AdminCompany[]>([])
   const [switching, setSwitching] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem('deskwise:sidebar-collapsed') === '1') {
+        setSidebarCollapsed(true)
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [])
+
+  function toggleSidebar() {
+    setSidebarCollapsed((prev) => {
+      const next = !prev
+      try {
+        window.localStorage.setItem('deskwise:sidebar-collapsed', next ? '1' : '0')
+      } catch {
+        // ignore storage errors
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     if (isPlatformAdmin) {
@@ -151,15 +176,35 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       <div className="min-h-dvh bg-background text-foreground">
         <div className="mx-auto flex max-w-7xl flex-col lg:flex-row">
         {/* Sidebar (desktop) / top bar (mobile) */}
-        <aside className="border-b border-border lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-64 lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r lg:overflow-hidden">
-          <div className="flex items-center justify-between gap-3 px-5 py-3.5 lg:py-4">
-            <Logo href="/workspace" />
+        <aside
+          className={`border-b border-border transition-[width] duration-200 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r lg:overflow-hidden ${
+            sidebarCollapsed ? 'lg:w-[4.5rem]' : 'lg:w-64'
+          }`}
+        >
+          <div
+            className={`flex items-center gap-2 py-3.5 lg:py-4 ${
+              sidebarCollapsed ? 'justify-between px-5 lg:justify-center lg:px-2' : 'justify-between px-5'
+            }`}
+          >
+            <div className={sidebarCollapsed ? 'lg:hidden' : ''}>
+              <Logo href="/workspace" />
+            </div>
             <span className="rounded-full border border-border px-2 py-1 font-mono text-[8px] uppercase tracking-[0.12em] text-muted-foreground lg:hidden">
               Workspace
             </span>
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!sidebarCollapsed}
+              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              className="hidden size-8 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground lg:grid"
+            >
+              {sidebarCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+            </button>
           </div>
 
-          {isPlatformAdmin && (
+          {isPlatformAdmin && !sidebarCollapsed && (
             <div className="mx-3 mb-2 rounded-xl border border-accent/25 bg-accent-soft p-2.5 text-xs text-accent">
               <div className="flex items-center gap-1.5 font-semibold">
                 <Shield className="size-3.5" />
@@ -191,7 +236,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
 
           <nav
             aria-label="Workspace"
-            className="flex gap-1 overflow-x-auto px-3 pb-2 no-scrollbar lg:mt-1 lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-y-auto"
+            className={`flex gap-1 overflow-x-auto pb-2 no-scrollbar lg:mt-1 lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-y-auto ${
+              sidebarCollapsed ? 'px-3 lg:px-2' : 'px-3'
+            }`}
           >
             {items.map((n) => {
               const Icon = n.icon
@@ -201,13 +248,17 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                   key={n.href}
                   href={n.href}
                   aria-current={on ? 'page' : undefined}
+                  title={sidebarCollapsed ? n.label : undefined}
                   className={`flex items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors lg:text-[13px] ${
+                    sidebarCollapsed ? 'lg:justify-center lg:px-0 lg:py-2' : ''
+                  } ${
                     on
                       ? 'bg-primary text-primary-foreground font-semibold'
                       : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground'
                   }`}
                 >
-                  <Icon className="size-4 shrink-0" /> <span>{n.label}</span>
+                  <Icon className="size-4 shrink-0" />
+                  <span className={sidebarCollapsed ? 'lg:sr-only' : ''}>{n.label}</span>
                 </Link>
               )
             })}
@@ -244,8 +295,22 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
             </button>
           </div>
 
-          <div className="hidden px-3 pb-3 lg:block lg:shrink-0">
+          <div className={`hidden pb-3 lg:block lg:shrink-0 ${sidebarCollapsed ? 'px-2' : 'px-3'}`}>
             <div className="mx-2 mb-2.5 h-px bg-border" />
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center gap-2">
+                <ThemeToggle variant="segmented" compact />
+                <button
+                  type="button"
+                  onClick={logout}
+                  aria-label={t('logout')}
+                  title={t('logout')}
+                  className="grid size-8 place-items-center rounded-lg border border-border text-danger transition-colors hover:bg-danger-soft"
+                >
+                  <LogOut className="size-3.5" />
+                </button>
+              </div>
+            ) : (
             <div className="rounded-xl border border-border bg-surface p-2.5 text-xs">
               <p className="truncate text-xs font-semibold text-foreground">{user.full_name || user.email}</p>
               <p className="mt-0.5 truncate text-[11px] capitalize text-muted-foreground">
@@ -282,6 +347,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
                 </button>
               </div>
             </div>
+            )}
           </div>
         </aside>
 
