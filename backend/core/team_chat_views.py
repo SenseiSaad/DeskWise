@@ -367,13 +367,18 @@ def team_chat_message_react(request, msg_id: int):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@rate_limit("team_chat_summarize", rate=10, per_seconds=60, key="user")
 def team_chat_room_summarize(request, room_id: int):
     """Summarize recent room messages into key highlights, questions, and action items."""
+    from .team_chat import _plan_quota_exceeded
     guard = _require_company(request)
     if guard:
         return guard
     if not getattr(request.user.company, "enable_ai_chat", True):
         return Response({"detail": "AI assistant is disabled for your company."}, status=403)
+    quota_err = _plan_quota_exceeded(request.user.company)
+    if quota_err:
+        return Response({"detail": quota_err}, status=402)
     room, err = _get_accessible_room_or_error(request.user, room_id)
     if err:
         return err

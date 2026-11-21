@@ -152,6 +152,7 @@ class TeamChatConsumer(AsyncJsonWebsocketConsumer):
         super().__init__(*args, **kwargs)
         self.user: User | None = None
         self.company_id: int | None = None
+        self._token_version: int | None = None
         self.joined_rooms: set[int] = set()
         self._msg_timestamps: list[float] = []
         self._presence_registered = False
@@ -209,6 +210,7 @@ class TeamChatConsumer(AsyncJsonWebsocketConsumer):
 
         self.user = user
         self.company_id = user.company_id
+        self._token_version = int(getattr(user, "token_version", 1))
 
         rooms = await database_sync_to_async(accessible_rooms_for)(user)
         await self.channel_layer.group_add(company_group_name(self.company_id), self.channel_name)
@@ -267,6 +269,25 @@ class TeamChatConsumer(AsyncJsonWebsocketConsumer):
         evt_name = event.get("event")
         payload = event.get("payload") or {}
 
+        # Re-verify live session & feature flag on every broadcast so deactivated,
+        # demoted, or revoked sessions drop immediately without waiting for disconnect.
+        session_code = await self._verify_live_session()
+        if session_code:
+            await self.close(code=session_code)
+            return
+
+        # Re-check room membership for room-scoped message broadcasts.
+        msg_obj = payload.get("message") if isinstance(payload, dict) else None
+        target_rid = (
+            (msg_obj.get("room_id") if isinstance(msg_obj, dict) else None)
+            or (payload.get("room_id") if isinstance(payload, dict) else None)
+        )
+        if target_rid and evt_name not in ("room.created", "room.updated", "room.deleted", "presence.update"):
+            if not await self._check_room_access_id(int(target_rid)):
+                await self.channel_layer.group_discard(room_group_name(int(target_rid)), self.channel_name)
+                self.joined_rooms.discard(int(target_rid))
+                return
+
         # Synchronize room group subscriptions when rooms are created/updated/deleted.
         if evt_name in ("room.created", "room.updated"):
             room_data = payload.get("room") or {}
@@ -290,6 +311,25 @@ class TeamChatConsumer(AsyncJsonWebsocketConsumer):
                 self.joined_rooms.discard(rid)
 
         await self.send_json({"type": evt_name, **payload})
+
+    @database_sync_to_async
+    def _verify_live_session(self) -> int:
+        """Return 0 if session is still valid, or WS close code (4401/4403) if revoked."""
+        if not self.user or not self.company_id:
+            return 4401
+        fresh = (
+            User.objects.select_related("company", "department")
+            .filter(pk=self.user.id, is_active=True, company_id=self.company_id)
+            .first()
+        )
+        if fresh is None:
+            return 4401
+        if self._token_version is not None and int(getattr(fresh, "token_version", 1)) != self._token_version:
+            return 4401
+        if not getattr(fresh.company, "enable_team_chat", True):
+            return 4403
+        self.user = fresh
+        return 0
 
     @database_sync_to_async
     def _check_room_access_id(self, room_id: int) -> bool:
@@ -401,6 +441,11 @@ class TeamChatConsumer(AsyncJsonWebsocketConsumer):
 
         if not self.user or not self.company_id:
             await self.close(code=4401)
+            return
+
+        session_code = await self._verify_live_session()
+        if session_code:
+            await self.close(code=session_code)
             return
 
         try:

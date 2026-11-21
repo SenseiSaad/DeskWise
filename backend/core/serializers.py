@@ -88,10 +88,12 @@ class UserSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source="department.name", read_only=True, default=None)
     is_platform_admin = serializers.BooleanField(read_only=True)
     is_superuser = serializers.BooleanField(read_only=True)
+    effective_clearance = serializers.CharField(read_only=True)
 
     class Meta:
         model = User
         fields = ["id", "email", "username", "full_name", "title", "role", "is_dept_admin",
+                  "clearance", "effective_clearance",
                   "company_id", "company", "department_id", "department_name",
                   "manager", "employee_id", "join_date", "email_verified",
                   "language", "is_active", "is_platform_admin", "is_superuser"]
@@ -150,7 +152,11 @@ class AuditSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AuditLog
-        fields = ["id", "user_id", "action", "detail", "ip", "prev_hash", "entry_hash", "created_at"]
+        fields = [
+            "id", "user_id", "actor_id", "actor_email", "action", "outcome",
+            "target_type", "target_id", "detail", "ip", "hash_version",
+            "prev_hash", "entry_hash", "created_at",
+        ]
 
 
 class RegisterCompanySerializer(serializers.Serializer):
@@ -186,6 +192,10 @@ class UserCreateSerializer(serializers.Serializer):
     password = serializers.CharField(min_length=8)
     role = serializers.ChoiceField(choices=["admin", "employee", "viewer"], default="employee")
     is_dept_admin = serializers.BooleanField(required=False, default=False)
+    clearance = serializers.ChoiceField(
+        choices=["", "standard", "internal", "confidential"], required=False, allow_blank=True, default=""
+    )
+    reason = serializers.CharField(required=False, allow_blank=True, default="", max_length=300)
 
     def validate_password(self, value):
         try:

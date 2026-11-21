@@ -55,9 +55,19 @@ def _resolve_local_path(key_or_path: str, base_dir: str | None = None) -> str:
         return os.path.abspath(str(base_dir or settings.DATA_DIR))
     base = os.path.abspath(str(base_dir or settings.DATA_DIR))
     if os.path.isabs(key_or_path):
-        return key_or_path
-    if os.path.exists(key_or_path):
-        return os.path.abspath(key_or_path)
+        from django.core.exceptions import SuspiciousFileOperation
+        parts = os.path.normpath(key_or_path).split(os.sep)
+        if ".." in key_or_path.split(os.sep) or ".." in parts:
+            raise SuspiciousFileOperation(f"Path traversal detected in absolute path: {key_or_path}")
+        real_abs = os.path.realpath(key_or_path)
+        allowed_roots = [os.path.realpath(base)]
+        for root_attr in ("DATA_DIR", "MEDIA_ROOT"):
+            val = getattr(settings, root_attr, None)
+            if val:
+                allowed_roots.append(os.path.realpath(str(val)))
+        if not any(real_abs == r or real_abs.startswith(r + os.sep) for r in allowed_roots):
+            raise SuspiciousFileOperation(f"Absolute path outside storage root: {key_or_path}")
+        return real_abs
     # Strip any redundant relative base directory prefix (e.g. "./data/..." or "data/...")
     clean = key_or_path
     if clean.startswith("./"):
@@ -177,7 +187,7 @@ def object_size(key_or_path: str, base_dir: str | None = None) -> int | None:
 
 
 def generate_presigned_put(key: str, content_type: str = "application/octet-stream",
-                           expires_in: int = 900, size: int | None = None) -> str | None:
+                           expires_in: int = 300, size: int | None = None) -> str | None:
     """Generate a presigned S3 PUT URL for direct browser uploads (>4.5 MB on Vercel).
 
     When `size` is given it is signed into the request, so S3 itself rejects an

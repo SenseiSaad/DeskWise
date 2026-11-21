@@ -74,6 +74,13 @@ def create_checkout_session(
             f"Already subscribed to {plan.name}. Use the Customer Portal to manage or cancel."
         )
 
+    # Validate redirect URLs BEFORE making any outbound Stripe API calls.
+    base_url = (getattr(settings, "PUBLIC_BASE_URL", "") or "http://localhost:3000").rstrip("/")
+    default_success = f"{base_url}/workspace/usage?checkout=success&session_id={{CHECKOUT_SESSION_ID}}"
+    default_cancel = f"{base_url}/workspace/usage?checkout=cancelled"
+    success_url = _validate_redirect_url(success_url, default_success)
+    cancel_url = _validate_redirect_url(cancel_url, default_cancel)
+
     # 1. Retrieve or create Stripe customer with concurrency lock to prevent duplicates
     with transaction.atomic():
         company = Company.objects.select_for_update().get(pk=company.id)
@@ -132,12 +139,12 @@ def create_checkout_session(
             }
         ]
 
-    # 3. Success and cancel redirects
+    # 3. Success and cancel redirects (strictly validated against trusted origins)
     base_url = (getattr(settings, "PUBLIC_BASE_URL", "") or "http://localhost:3000").rstrip("/")
-    if not success_url:
-        success_url = f"{base_url}/workspace/usage?checkout=success&session_id={{CHECKOUT_SESSION_ID}}"
-    if not cancel_url:
-        cancel_url = f"{base_url}/workspace/usage?checkout=cancelled"
+    default_success = f"{base_url}/workspace/usage?checkout=success&session_id={{CHECKOUT_SESSION_ID}}"
+    default_cancel = f"{base_url}/workspace/usage?checkout=cancelled"
+    success_url = _validate_redirect_url(success_url, default_success)
+    cancel_url = _validate_redirect_url(cancel_url, default_cancel)
 
     # 4. Create Checkout Session (dynamic payment methods managed by Stripe dashboard)
     session = stripe.checkout.Session.create(
@@ -163,6 +170,28 @@ def create_checkout_session(
     return {"url": session.url, "session_id": session.id}
 
 
+def _validate_redirect_url(url: str | None, fallback: str) -> str:
+    """Ensure checkout/portal redirect URLs match our trusted PUBLIC_BASE_URL origin."""
+    if not url:
+        return fallback
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    base = urlparse((getattr(settings, "PUBLIC_BASE_URL", "") or "http://localhost:3000").rstrip("/"))
+    allowed_hosts = {base.netloc.lower()} if base.netloc else set()
+    for origin in getattr(settings, "CORS_ALLOWED_ORIGINS", []) or []:
+        o = urlparse(origin)
+        if o.netloc:
+            allowed_hosts.add(o.netloc.lower())
+    if parsed.scheme not in ("http", "https") or parsed.netloc.lower() not in allowed_hosts:
+        raise ValueError("Redirect URL must match a trusted application origin.")
+    return url
+
+
+def _is_paid_checkout(session: dict[str, Any]) -> bool:
+    ps = session.get("payment_status")
+    return ps is None or ps in ("paid", "no_payment_required")
+
+
 def create_portal_session(user: User, return_url: str | None = None) -> dict[str, str]:
     """Create a Stripe Customer Portal session so customers can manage cards & subscriptions."""
     _init_stripe()
@@ -176,8 +205,7 @@ def create_portal_session(user: User, return_url: str | None = None) -> dict[str
         raise ValueError("Company does not have a linked Stripe customer. Subscribe first.")
 
     base_url = (getattr(settings, "PUBLIC_BASE_URL", "") or "http://localhost:3000").rstrip("/")
-    if not return_url:
-        return_url = f"{base_url}/workspace/usage"
+    return_url = _validate_redirect_url(return_url, f"{base_url}/workspace/usage")
 
     portal_session = stripe.billing_portal.Session.create(
         customer=customer_id,
@@ -199,26 +227,22 @@ def handle_webhook(payload: bytes, sig_header: str | None) -> dict[str, Any]:
         logger.error("STRIPE_WEBHOOK_SECRET must be configured in production.")
         raise ValueError("Webhook secret is not configured on the server.")
 
-    if webhook_secret:
-        if not sig_header:
-            raise ValueError("Missing Stripe-Signature header.")
-        try:
-            event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
-        except Exception as exc:
-            logger.warning("Stripe webhook signature verification failed: %s", exc)
-            raise ValueError(f"Invalid webhook signature: {exc}")
-    else:
-        # Development only: parse JSON directly
-        try:
-            event = json.loads(payload.decode("utf-8"))
-        except Exception as exc:
-            raise ValueError(f"Invalid webhook JSON payload: {exc}")
+    if not sig_header:
+        raise ValueError("Missing Stripe-Signature header.")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+    except Exception as exc:
+        logger.warning("Stripe webhook signature verification failed: %s", exc)
+        raise ValueError(f"Invalid webhook signature: {exc}")
 
     event_type = event.get("type", "")
     data_object = event.get("data", {}).get("object", {})
     logger.info("Received Stripe webhook event: %s", event_type)
 
     if event_type == "checkout.session.completed":
+        if not _is_paid_checkout(data_object):
+            logger.warning("Ignoring unpaid checkout.session.completed status=%s", data_object.get("payment_status"))
+            return {"status": "ignored", "event": event_type}
         _handle_checkout_completed(data_object)
     elif event_type in ("customer.subscription.deleted", "customer.subscription.cancelled"):
         _handle_subscription_deleted(data_object)

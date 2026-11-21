@@ -1,15 +1,18 @@
 """Database tables. Every tenant-owned row carries `company` — that FK is the
 backbone of multi-tenant isolation (one company can never see another's data)."""
 import hashlib
+import json
 import os
 import secrets
 import string
+import threading
 from datetime import timedelta, timezone as dt_timezone
 
 from django.contrib.auth.models import (
     AbstractBaseUser, BaseUserManager, PermissionsMixin,
 )
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from .crypto import decrypt_secret, encrypt_secret
@@ -161,6 +164,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         null=True, blank=True,
     )
     role = models.CharField(max_length=20, choices=ROLES, default="employee")
+    CLEARANCE_LEVELS = [
+        ("standard", "Standard"),
+        ("internal", "Internal"),
+        ("confidential", "Confidential"),
+    ]
+    # Explicit sensitivity clearance. Blank derives from role:
+    # viewer -> standard, employee -> internal, admin -> confidential.
+    clearance = models.CharField(max_length=20, choices=CLEARANCE_LEVELS, blank=True, default="")
     # Delegated department sub-admin (can manage/approve docs & members inside own department only).
     is_dept_admin = models.BooleanField(default=False)
     # Bumped on password reset, deactivation, role/dept changes, or logout-all to invalidate active JWTs.
@@ -188,6 +199,16 @@ class User(AbstractBaseUser, PermissionsMixin):
     objects = UserManager()
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
+
+    @property
+    def effective_clearance(self) -> str:
+        if self.clearance in ("standard", "internal", "confidential"):
+            return self.clearance
+        if self.role == "admin":
+            return "confidential"
+        if self.role == "viewer":
+            return "standard"
+        return "internal"
 
     def __str__(self):
         return self.email
@@ -443,6 +464,7 @@ class ChatMessage(models.Model):
     role = models.CharField(max_length=10)  # "user" | "assistant"
     content = models.TextField()
     sources = models.TextField(blank=True, default="")  # JSON list of filenames
+    source_document_ids = models.TextField(blank=True, default="")  # JSON list of doc IDs for revocation masking
     # null = unrated; 1 = thumbs up; -1 = thumbs down
     rating = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -498,19 +520,38 @@ class AnnouncementAck(models.Model):
 
 
 class DocumentAccess(models.Model):
-    """An explicit per-user grant for a restricted document.
+    """An explicit per-user grant for a restricted or department document.
 
-    This is separate from DocumentShare so the same access rule works for
-    people in the owning company and for registered people in another company.
-    DocumentShare stores the collaboration/audit metadata for external grants.
+    A grant widens the document audience only; it NEVER silently raises
+    sensitivity clearance unless an admin sets `override_clearance=True` with a
+    mandatory `grant_reason` (audited).
     """
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="access_grants")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="document_access")
     can_download = models.BooleanField(default=True)
+    override_clearance = models.BooleanField(default=False)
+    grant_reason = models.CharField(max_length=300, blank=True, default="")
+    granted_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="grants_issued",
+    )
+    is_break_glass = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ("document", "user")
+
+
+class PendingUpload(models.Model):
+    """Server-side binding for presigned S3 PUT uploads so callers can only
+    confirm keys that were issued to their own user and company."""
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="pending_uploads")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="pending_uploads")
+    key = models.CharField(max_length=500, unique=True)
+    filename = models.CharField(max_length=300)
+    size = models.IntegerField(default=0)
+    expires_at = models.DateTimeField()
+    consumed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class Chunk(models.Model):
@@ -524,65 +565,246 @@ class Chunk(models.Model):
     embedding = models.BinaryField(null=True, blank=True)
 
 
+_AUDIT_LOCK_GUARD = threading.Lock()
+_AUDIT_COMPANY_LOCKS: dict[int, threading.Lock] = {}
+
+
+def _audit_lock_for(company_id: int) -> threading.Lock:
+    with _AUDIT_LOCK_GUARD:
+        lock = _AUDIT_COMPANY_LOCKS.get(company_id)
+        if lock is None:
+            lock = threading.Lock()
+            _AUDIT_COMPANY_LOCKS[company_id] = lock
+        return lock
+
+
+class AuditPurgeRecord(models.Model):
+    """Explicit, permanent record of every whole-company audit purge.
+
+    Also acts as the transaction-scoped allow flag for the SQLite BEFORE DELETE
+    trigger during `AuditLog.purge_for_company()` so no ad-hoc delete can bypass
+    the append-only guard.
+    """
+    company_id_snapshot = models.IntegerField()
+    company_slug = models.CharField(max_length=120)
+    actor_email = models.CharField(max_length=254, blank=True, default="")
+    reason = models.CharField(max_length=300)
+    purged_count = models.IntegerField(default=0)
+    head_hash = models.CharField(max_length=64, blank=True, default="")
+    in_progress = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class AuditLogQuerySet(models.QuerySet):
+    """Enforce append-only semantics on ORM bulk operations."""
+
+    def update(self, **kwargs):
+        raise PermissionError("AuditLog is tamper-evident and append-only; updates are forbidden.")
+
+    def delete(self):
+        raise PermissionError(
+            "AuditLog is tamper-evident and append-only; use AuditLog.purge_for_company() for explicit company purge."
+        )
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise PermissionError("AuditLog is tamper-evident and append-only; bulk updates are forbidden.")
+
+
+class AuditLogManager(models.Manager):
+    def get_queryset(self):
+        return AuditLogQuerySet(self.model, using=self._db)
+
+
 class AuditLog(models.Model):
-    """Append-only, hash-chained activity trail per company shown on the admin audit page."""
+    """Tamper-evident, append-only hash-chained activity trail per company."""
+    OUTCOMES = [("allowed", "Allowed"), ("denied", "Denied")]
+
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="audit")
     user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    # Immutable actor snapshot preserved in the hash even if the User row is later deleted.
+    actor_id = models.IntegerField(null=True, blank=True)
+    actor_email = models.CharField(max_length=254, blank=True, default="")
     action = models.CharField(max_length=50)
+    outcome = models.CharField(max_length=20, choices=OUTCOMES, blank=True, default="allowed")
+    target_type = models.CharField(max_length=40, blank=True, default="")
+    target_id = models.CharField(max_length=64, blank=True, default="")
     detail = models.CharField(max_length=300, blank=True, default="")
     ip = models.CharField(max_length=64, blank=True, default="")
+    hash_version = models.PositiveSmallIntegerField(default=2)
     prev_hash = models.CharField(max_length=64, blank=True, default="")
     entry_hash = models.CharField(max_length=64, blank=True, default="")
     created_at = models.DateTimeField(default=timezone.now)
 
+    objects = AuditLogManager()
+
     class Meta:
         # The audit page paginates newest-first within one company.
         indexes = [models.Index(fields=["company", "-created_at"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "prev_hash"],
+                condition=~Q(prev_hash=""),
+                name="uniq_auditlog_company_prev_hash",
+            ),
+        ]
 
     def compute_hash(self, prev_hash: str) -> str:
         ts = self.created_at
         if timezone.is_naive(ts):
             ts = timezone.make_aware(ts, dt_timezone.utc)
         ts_str = ts.astimezone(dt_timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-        payload = f"{self.company_id}|{self.action}|{self.detail}|{self.ip}|{ts_str}|{prev_hash}"
+        if int(self.hash_version or 1) == 1:
+            payload = f"{self.company_id}|{self.action}|{self.detail}|{self.ip}|{ts_str}|{prev_hash}"
+            return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        # hash_version >= 2: canonical JSON array prevents delimiter ambiguity and binds actor/outcome/target.
+        fields = [
+            int(self.hash_version or 2),
+            self.company_id,
+            self.actor_id,
+            self.actor_email or "",
+            self.action or "",
+            self.outcome or "allowed",
+            self.target_type or "",
+            str(self.target_id or ""),
+            self.detail or "",
+            self.ip or "",
+            ts_str,
+            prev_hash,
+        ]
+        payload = json.dumps(fields, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise PermissionError("AuditLog is tamper-evident and append-only; updates are forbidden.")
         if not self.created_at:
             self.created_at = timezone.now()
-        if self._state.adding and self.company_id and not self.entry_hash:
-            with transaction.atomic():
-                last = (
-                    type(self).objects
-                    .select_for_update()
-                    .filter(company_id=self.company_id)
-                    .order_by("-id")
-                    .values_list("entry_hash", flat=True)
-                    .first()
-                )
-                self.prev_hash = last or ("0" * 64)
-                self.entry_hash = self.compute_hash(self.prev_hash)
-                return super().save(*args, **kwargs)
+        if self.user_id and self.actor_id is None:
+            self.actor_id = self.user_id
+        if self.user_id and not self.actor_email:
+            email = getattr(self.user, "email", "") if self.user else ""
+            if not email:
+                email = User.objects.filter(pk=self.user_id).values_list("email", flat=True).first() or ""
+            self.actor_email = email
+        if not self.outcome:
+            self.outcome = "allowed"
+        if not self.hash_version:
+            self.hash_version = 2
+        if self.company_id and not self.entry_hash:
+            lock = _audit_lock_for(self.company_id)
+            with lock:
+                for attempt in range(5):
+                    try:
+                        with transaction.atomic():
+                            # Lock the company row on PostgreSQL so even the first audit row
+                            # for a tenant cannot race on prev_hash = "0"*64.
+                            if connection.vendor == "postgresql":
+                                Company.objects.select_for_update().filter(pk=self.company_id).first()
+                            last = (
+                                type(self).objects
+                                .filter(company_id=self.company_id)
+                                .exclude(entry_hash="")
+                                .order_by("-id")
+                                .values_list("entry_hash", flat=True)
+                                .first()
+                            )
+                            self.prev_hash = last or ("0" * 64)
+                            self.entry_hash = self.compute_hash(self.prev_hash)
+                            return super().save(*args, **kwargs)
+                    except IntegrityError:
+                        self.prev_hash = ""
+                        self.entry_hash = ""
+                        if attempt == 4:
+                            raise
         return super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        raise PermissionError(
+            "AuditLog is tamper-evident and append-only; use AuditLog.purge_for_company() for explicit company purge."
+        )
+
     @classmethod
-    def verify_chain(cls, company) -> tuple[bool, int, int | None]:
-        """Verify hash chain integrity for `company`. Returns (valid, checked_count, broken_id)."""
-        rows = list(cls.objects.filter(company=company).order_by("id"))
+    def purge_for_company(cls, company, *, actor=None, reason: str = "") -> AuditPurgeRecord:
+        """The ONLY permitted delete path for AuditLog rows (whole-company purge).
+
+        Records an AuditPurgeRecord with count and final head hash before removing rows.
+        """
+        clean_reason = (reason or "").strip()
+        if len(clean_reason) < 5:
+            raise ValueError("AuditLog.purge_for_company requires an explicit reason (at least 5 characters).")
+        company_id = company.pk if hasattr(company, "pk") else int(company)
+        company_slug = getattr(company, "slug", f"company-{company_id}")
+        actor_email = getattr(actor, "email", "") if actor is not None else ""
+        with transaction.atomic():
+            head = (
+                cls.objects.filter(company_id=company_id)
+                .exclude(entry_hash="")
+                .order_by("-id")
+                .values_list("entry_hash", flat=True)
+                .first()
+                or ""
+            )
+            count = cls.objects.filter(company_id=company_id).count()
+            rec = AuditPurgeRecord.objects.create(
+                company_id_snapshot=company_id,
+                company_slug=company_slug,
+                actor_email=actor_email,
+                reason=clean_reason[:300],
+                purged_count=count,
+                head_hash=head,
+                in_progress=True,
+            )
+            with connection.cursor() as cur:
+                if connection.vendor == "postgresql":
+                    cur.execute("SET LOCAL openvault.allow_audit_purge = '1'")
+                cur.execute("DELETE FROM core_auditlog WHERE company_id = %s", [company_id])
+            rec.in_progress = False
+            rec.save(update_fields=["in_progress"])
+            return rec
+
+    @classmethod
+    def verify_chain_report(cls, company) -> dict:
+        """Verify hash chain integrity for `company` without buffering the whole table in RAM."""
         expected_prev = "0" * 64
         checked = 0
         seen_hashed = False
-        for row in rows:
+        head_hash = ""
+        for row in cls.objects.filter(company=company).order_by("id").iterator(chunk_size=1000):
             if not row.entry_hash:
                 if seen_hashed:
-                    return False, checked, row.id
+                    return {
+                        "valid": False,
+                        "checked": checked,
+                        "broken_id": row.id,
+                        "head_hash": head_hash,
+                        "verified_at": timezone.now().isoformat(),
+                    }
                 continue
             seen_hashed = True
             checked += 1
             if row.prev_hash != expected_prev or row.entry_hash != row.compute_hash(expected_prev):
-                return False, checked, row.id
+                return {
+                    "valid": False,
+                    "checked": checked,
+                    "broken_id": row.id,
+                    "head_hash": head_hash,
+                    "verified_at": timezone.now().isoformat(),
+                }
             expected_prev = row.entry_hash
-        return True, checked, None
+            head_hash = row.entry_hash
+        return {
+            "valid": True,
+            "checked": checked,
+            "broken_id": None,
+            "head_hash": head_hash,
+            "verified_at": timezone.now().isoformat(),
+        }
+
+    @classmethod
+    def verify_chain(cls, company) -> tuple[bool, int, int | None]:
+        """Verify hash chain integrity for `company`. Returns (valid, checked_count, broken_id)."""
+        rep = cls.verify_chain_report(company)
+        return rep["valid"], rep["checked"], rep["broken_id"]
 
 
 class DocumentShare(models.Model):

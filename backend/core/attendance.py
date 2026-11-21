@@ -145,8 +145,10 @@ def evaluate_month(
         if not dry_run:
             strike.save()
             if froze:
+                from .auth import revoke_user_refresh_tokens
                 user.is_active = False
                 user.save(update_fields=["is_active"])
+                revoke_user_refresh_tokens(user)
 
         results.append({
             "user_id": user.id,

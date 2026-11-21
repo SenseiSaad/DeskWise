@@ -512,13 +512,17 @@ def delete_room(user: User, room: TeamRoom, ip: str = "") -> int:
     return room_id
 
 
-def _accessible_ref_doc(user: User, doc_id: int | None) -> Document | None:
+def _accessible_ref_doc(user: User, doc_id: int | None, room: TeamRoom | None = None) -> Document | None:
     if doc_id is None:
         return None
-    from .views import visible_documents
-    doc = visible_documents(user).filter(pk=doc_id).first()
+    from . import access
+    doc = access.accessible_documents_qs(
+        user, action="view_ask", include_unapproved=False, include_external_shares=False,
+    ).filter(pk=doc_id).first()
     if doc is None:
         raise ValidationError({"referenced_document_id": "Document not found or access denied."})
+    if room is not None and doc.id not in room_allowed_doc_ids(room):
+        raise ValidationError({"referenced_document_id": "This document cannot be referenced in a shared room with lower-clearance members."})
     return doc
 
 
@@ -547,7 +551,7 @@ def create_user_message(
         if reply_msg is None:
             raise ValidationError({"reply_to_id": "Replied message was not found in this room."})
 
-    ref_doc = _accessible_ref_doc(user, referenced_document_id)
+    ref_doc = _accessible_ref_doc(user, referenced_document_id, room=room)
 
     scan = moderation.scan(text)
     meta: dict = {}
@@ -560,7 +564,10 @@ def create_user_message(
             company=room.company,
             user=user,
             action="POLICY_VIOLATION_DETECTED",
-            detail=f"[team-chat:{room.slug}] {scan.summary()} :: {text[:100]}",
+            outcome="allowed",
+            target_type="team_room",
+            target_id=str(room.id),
+            detail=f"[team-chat:{room.slug}] {scan.summary()}",
             ip=ip,
         )
 
@@ -612,7 +619,10 @@ def edit_user_message(user: User, msg: TeamMessage, content: str, ip: str = "") 
             company=msg.company,
             user=user,
             action="POLICY_VIOLATION_DETECTED",
-            detail=f"[team-chat-edit:{msg.room.slug}] {scan.summary()} :: {text[:100]}",
+            outcome="allowed",
+            target_type="team_room",
+            target_id=str(msg.room_id),
+            detail=f"[team-chat-edit:{msg.room.slug}] {scan.summary()}",
             ip=ip,
         )
     else:
@@ -645,14 +655,16 @@ def delete_team_message(user: User, msg: TeamMessage, ip: str = "") -> tuple[int
     msg_id = msg.id
     slug = msg.room.slug
     author_label = msg.sender.email if msg.sender_id else msg.sender_type
-    snippet = msg.content[:80]
 
     with transaction.atomic():
         AuditLog.objects.create(
             company=msg.company,
             user=user,
             action="team_chat_delete",
-            detail=f"room={slug} msg={msg_id} author={author_label} :: {snippet}",
+            outcome="allowed",
+            target_type="team_message",
+            target_id=str(msg_id),
+            detail=f"room={slug} msg={msg_id} author={author_label}",
             ip=ip,
         )
         msg.delete()
@@ -740,31 +752,57 @@ def extract_deskwise_question(text: str) -> str:
 def room_allowed_doc_ids(room: TeamRoom) -> set[int]:
     """Document IDs safe to cite in a shared room without leaking private files.
 
+    Derived from the canonical permission engine (`core.access`):
     * `company` / default room: ONLY approved, `standard`-sensitivity `access_scope='company'` docs.
-    * `department` room: approved `standard` company docs + approved `standard`/`internal` department docs.
-    * `private` room: intersection of all explicit room members' accessible docs.
+    * `department` room: intersection of all active department members' accessible docs
+      (capped at non-restricted, <= internal sensitivity; if any viewer/standard-clearance
+      member belongs to the department, internal docs are excluded automatically).
+    * `private` room: intersection of all explicit active room members' canonical accessible docs.
     """
+    from . import access
+
     base = Document.objects.filter(company_id=room.company_id, status="approved")
     if room.is_default or room.scope == "company":
         return set(base.filter(access_scope="company", sensitivity="standard").values_list("id", flat=True))
     if room.scope == "department" and room.department_id:
-        return set(
+        dept_members = list(
+            User.objects.filter(
+                company_id=room.company_id, department_id=room.department_id, is_active=True,
+            ).select_related("company", "department")
+        )
+        has_standard_only = any(access.effective_clearance(u) == "standard" for u in dept_members)
+        dept_sens = ("standard",) if has_standard_only else ("standard", "internal")
+        room_cap = set(
             base.filter(
                 Q(access_scope="company", sensitivity="standard")
-                | Q(access_scope="department", department_id=room.department_id,
-                    sensitivity__in=("standard", "internal"))
+                | Q(access_scope="department", department_id=room.department_id, sensitivity__in=dept_sens)
             ).values_list("id", flat=True)
         )
+        if not dept_members:
+            return room_cap
+        shared_ids: set[int] | None = room_cap
+        for u in dept_members:
+            u_ids = set(
+                access.accessible_documents_qs(
+                    u, action="view_ask", include_unapproved=False, include_external_shares=False,
+                ).values_list("id", flat=True)
+            )
+            shared_ids = shared_ids & u_ids
+        return shared_ids or set()
     if room.scope == "private":
         members = list(
-            TeamRoomMember.objects.filter(room=room, user__is_active=True).select_related("user")
+            TeamRoomMember.objects.filter(room=room, user__is_active=True)
+            .select_related("user", "user__company", "user__department")
         )
         if not members:
             return set(base.filter(access_scope="company", sensitivity="standard").values_list("id", flat=True))
-        company_ids = set(base.values_list("id", flat=True))
-        shared_ids: set[int] | None = None
+        shared_ids = None
         for m in members:
-            u_ids = rag.accessible_doc_ids(m.user) & company_ids
+            u_ids = set(
+                access.accessible_documents_qs(
+                    m.user, action="view_ask", include_unapproved=False, include_external_shares=False,
+                ).values_list("id", flat=True)
+            )
             shared_ids = u_ids if shared_ids is None else (shared_ids & u_ids)
         return shared_ids or set()
     return set()
@@ -889,7 +927,7 @@ def generate_deskwise_reply(
         if getattr(room.company, "enable_docgen", True) and doc_plan.artifacts:
             safe_templates = [
                 tpl for tpl in docgen.collect_uploaded_templates(user, doc_plan.artifacts, include_like=True)
-                if tpl.doc_id in allowed_ids
+                if tpl.document_id in allowed_ids
             ]
             if safe_templates:
                 best = max(safe_templates, key=lambda tpl: docgen.template_match_score(question, tpl))

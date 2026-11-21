@@ -501,87 +501,14 @@ def _bm25_scores(query: str, texts: list[str], normalize: bool = True) -> list[f
 
 # ---------------------------------------------------------------- retrieval
 def accessible_documents_qs(user, *, include_unapproved: bool = False, include_external_shares: bool = True):
-    """Single source of truth for Document ACL across views, downloads, and RAG.
-
-    Enforces:
-    - Tenant boundary (`company_id`)
-    - Platform root admins with no active company see nothing
-    - Role/sensitivity clearance (`viewer` -> standard only; `employee` -> standard/internal; `admin` -> all)
-    - Department scope & delegated department sub-admin (`is_dept_admin`)
-    - Approval lifecycle (`status='approved'` required for AI and external shares)
-    - Active, unexpired cross-company `DocumentShare`s when `enable_external_sharing` is enabled
-    """
-    from .models import DocumentAccess, DocumentShare
-
-    if not user or not getattr(user, "is_authenticated", False):
-        return Document.objects.none()
-
-    is_platform = bool(getattr(user, "is_platform_admin", False) or getattr(user, "is_superuser", False))
-    company_id = getattr(user, "company_id", None)
-    if is_platform and not company_id:
-        return Document.objects.none()
-
-    q = Q(pk__in=[])
-    if company_id:
-        role = getattr(user, "role", "employee")
-        if is_platform or role == "admin":
-            own_q = Q(company_id=company_id)
-            if not include_unapproved:
-                own_q &= Q(status="approved")
-            q |= own_q
-        else:
-            allowed_sens = ["standard"] if role == "viewer" else ["standard", "internal"]
-            dept_id = getattr(user, "department_id", None)
-            is_dadmin = bool(role == "employee" and getattr(user, "is_dept_admin", False) and dept_id)
-
-            scope_q = Q(access_scope="company", sensitivity__in=allowed_sens)
-            if dept_id:
-                if is_dadmin:
-                    scope_q |= Q(access_scope="department", department_id=dept_id)
-                else:
-                    scope_q |= Q(access_scope="department", department_id=dept_id, sensitivity__in=allowed_sens)
-
-            if not include_unapproved:
-                own_doc_q = scope_q & Q(status="approved")
-                grant_q = Q(access_grants__user=user, status="approved")
-            else:
-                uploader_q = Q(uploaded_by=user, sensitivity__in=allowed_sens, status__in=("draft", "in_review", "approved"))
-                if is_dadmin:
-                    uploader_q |= Q(department_id=dept_id, status__in=("draft", "in_review", "archived"))
-                own_doc_q = (scope_q & Q(status="approved")) | uploader_q
-                grant_q = Q(access_grants__user=user) & (
-                    Q(status="approved")
-                    | Q(uploaded_by=user)
-                    | (Q(department_id=dept_id) if is_dadmin else Q(pk__in=[]))
-                )
-            q |= Q(company_id=company_id) & (own_doc_q | grant_q)
-
-    if include_external_shares:
-        now = timezone.now()
-        active_share_ids = DocumentShare.objects.filter(
-            shared_with_user=user,
-            document__status="approved",
-            document__company__enable_external_sharing=True,
-        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).values_list("document_id", flat=True)
-
-        expired_share_doc_ids = DocumentShare.objects.filter(
-            shared_with_user=user,
-            expires_at__isnull=False,
-            expires_at__lte=now,
-        ).values_list("document_id", flat=True)
-
-        ext_access_qs = DocumentAccess.objects.filter(
-            user=user,
-            document__status="approved",
-            document__company__enable_external_sharing=True,
-        )
-        if company_id:
-            ext_access_qs = ext_access_qs.exclude(document__company_id=company_id)
-        ext_access_ids = ext_access_qs.exclude(document_id__in=expired_share_doc_ids).values_list("document_id", flat=True)
-
-        q |= Q(id__in=active_share_ids) | Q(id__in=ext_access_ids)
-
-    return Document.objects.filter(q).distinct()
+    """Delegate to the single canonical ACL queryset in `core.access`."""
+    from . import access
+    return access.accessible_documents_qs(
+        user,
+        action="view_ask",
+        include_unapproved=include_unapproved,
+        include_external_shares=include_external_shares,
+    )
 
 
 def accessible_doc_ids(user) -> set:
@@ -590,6 +517,40 @@ def accessible_doc_ids(user) -> set:
         accessible_documents_qs(user, include_unapproved=False, include_external_shares=True)
         .values_list("id", flat=True)
     )
+
+
+def filter_conversation_messages_for_user(user, messages_qs):
+    """Mask assistant messages whose cited documents the user can no longer access.
+
+    Used both by GET /api/conversations/<pk> and by rag.stream_answer() when
+    building follow-up LLM history so revoked document content never leaks back.
+    """
+    allowed_ids = accessible_doc_ids(user)
+    allowed_names = set(
+        Document.objects.filter(id__in=allowed_ids).values_list("filename", flat=True)
+    ) if allowed_ids else set()
+    cleaned = []
+    for m in messages_qs:
+        masked = False
+        if m.role == "assistant":
+            doc_ids_raw = getattr(m, "source_document_ids", "") or ""
+            try:
+                doc_ids = json.loads(doc_ids_raw) if doc_ids_raw else []
+            except Exception:
+                doc_ids = []
+            if doc_ids:
+                if any(int(did) not in allowed_ids for did in doc_ids):
+                    masked = True
+            else:
+                # Legacy assistant message without stored IDs: verify all cited filenames
+                try:
+                    src_names = json.loads(m.sources) if m.sources else []
+                except Exception:
+                    src_names = []
+                if src_names and any(name not in allowed_names for name in src_names):
+                    masked = True
+        cleaned.append((m, masked))
+    return cleaned
 
 
 
@@ -613,7 +574,10 @@ def retrieve(user, question: str, k: int | None = None, doc_ids_override: set | 
     degrades to BM25 alone.
     """
     k = k or settings.TOP_K
-    ids = set(doc_ids_override) if doc_ids_override is not None else accessible_doc_ids(user)
+    allowed = accessible_doc_ids(user)
+    # Invariant: a doc_ids_override (e.g. team chat intersection) may ONLY narrow,
+    # never widen, what the asking user is permitted to read at request time.
+    ids = (set(doc_ids_override) & allowed) if doc_ids_override is not None else allowed
     if not ids:
         return []
 
@@ -937,7 +901,13 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
             "chunk_ord": c.ord,
             "snippet": snippet,
         })
-    yield json.dumps({"type": "sources", "sources": sources, "citations": citations}) + "\n"
+    source_doc_ids = sorted({c.document_id for c in chunks})
+    yield json.dumps({
+        "type": "sources",
+        "sources": sources,
+        "citations": citations,
+        "source_doc_ids": source_doc_ids,
+    }) + "\n"
 
     provider_used = ""
     chat = providers.get_chat_provider(mode=mode, provider_override=provider_override,
@@ -946,7 +916,10 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
 
     history = list(history_override or [])
     if not history and conversation is not None:
-        history = list(conversation.messages.values("role", "content"))
+        # Exclude assistant messages referencing documents the user can no longer access.
+        for msg_obj, masked in filter_conversation_messages_for_user(user, conversation.messages.all()):
+            if not masked:
+                history.append({"role": msg_obj.role, "content": msg_obj.content})
 
     redacted_cats: list[str] = []
     messages = build_messages(chunks, question, history=history,
@@ -1023,11 +996,35 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
     emitted = 0         # length of answer_buf already streamed as visible tokens
     marker_found = False
     is_local_chat = getattr(chat, "label", "") in ("ollama", "selfhosted")
+    initial_tv = int(getattr(user, "token_version", 1))
+    tok_count = 0
+
+    def _access_still_valid() -> bool:
+        if not source_doc_ids and not getattr(user, "pk", None):
+            return True
+        from .models import User as _User
+        fresh = _User.objects.select_related("company", "department").filter(pk=user.pk, is_active=True).first()
+        if fresh is None or int(getattr(fresh, "token_version", 1)) != initial_tv:
+            return False
+        if source_doc_ids:
+            live_ids = accessible_doc_ids(fresh)
+            if any(did not in live_ids for did in source_doc_ids):
+                return False
+        return True
+
     try:
         with _active_chat_guard(is_local_chat):
             for tok in chat.stream_chat(messages, chat.temperature, chat.max_tokens):
                 if not tok:
                     continue
+                tok_count += 1
+                # Re-check mid-stream so revoking access/session cuts off the response immediately.
+                if tok_count % 8 == 0 and not _access_still_valid():
+                    yield json.dumps({
+                        "type": "error",
+                        "message": "Your access to a referenced document was revoked.",
+                    }) + "\n"
+                    return
                 answer_buf += tok
                 if marker_found:
                     continue  # we're inside the trailing intent block now; just buffer it
@@ -1059,6 +1056,14 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
         except Exception:
             pass
         yield json.dumps({"type": "error", "message": f"Model error: {e}"}) + "\n"
+        return
+
+    # Final pre-flush & pre-save revocation check.
+    if not _access_still_valid():
+        yield json.dumps({
+            "type": "error",
+            "message": "Your access to a referenced document was revoked.",
+        }) + "\n"
         return
 
     # Flush any held-back visible tail. If a marker was found we parse the intent
@@ -1097,9 +1102,11 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
 
     # Persist this turn so history/analytics survive the stream.
     if conversation is not None:
+        source_doc_ids = list(dict.fromkeys(c.document_id for c in chunks))
         saved = ChatMessage.objects.create(
             conversation=conversation, role="assistant", content=visible_answer,
             sources=json.dumps(sources),
+            source_document_ids=json.dumps(source_doc_ids),
         )
         conversation.save(update_fields=["updated_at"])
         yield json.dumps({"type": "saved", "message_id": saved.id}) + "\n"

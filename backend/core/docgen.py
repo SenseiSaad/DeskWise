@@ -502,14 +502,13 @@ def collect_uploaded_templates(user, kinds: list[str], include_like: bool = Fals
     ``email_*``, ``application_*``, ``letter_*``) even when their ``is_template``
     flag was not set by an older import. Marked templates always win.
     """
-    from .models import Document
-    from .rag import accessible_doc_ids
+    from . import access
     from django.db.models import Q
 
-    allowed = accessible_doc_ids(user)
-    if not allowed:
-        return []
-    qs = Document.objects.filter(id__in=allowed)
+    # Own-company downloadable, approved templates ONLY (never external shares or view-only docs).
+    qs = access.accessible_documents_qs(
+        user, action="download", include_unapproved=False, include_external_shares=False,
+    )
     if include_like:
         qs = qs.filter(
             Q(is_template=True)
@@ -566,6 +565,9 @@ class RequestPlan:
     @property
     def artifacts_only(self) -> bool:
         return bool(self.artifacts) and not self.text_requested
+
+
+DocumentPlan = RequestPlan
 
 
 def classify(question: str, outputs: list[str] | None = None) -> RequestPlan:

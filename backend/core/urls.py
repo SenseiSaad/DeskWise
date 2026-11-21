@@ -34,6 +34,7 @@ urlpatterns = [
     path("documents/<int:pk>/versions", views.document_versions),
     path("documents/<int:pk>/versions/new", views.document_new_version),
     path("documents/<int:pk>/review", views.document_review),
+    path("documents/<int:pk>/break-glass", views.document_break_glass),
     path("search", views.unified_search),
     # cross-company collaboration (granular per-user document sharing)
     path("documents/<int:pk>/shares", views.document_shares),
@@ -75,6 +76,8 @@ urlpatterns = [
     # company admin
     path("admin/users", views.users),
     path("admin/users/<int:pk>", views.user_detail),
+    path("admin/access/explain", views.access_explain),
+    path("admin/members/<int:pk>/effective-access", views.member_effective_access),
     path("admin/audit", views.audit_log),
     path("admin/audit/verify", views.audit_verify),
     path("admin/governance", views.admin_governance),

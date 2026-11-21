@@ -34,6 +34,7 @@ from django.conf import settings
 import logging
 logger = logging.getLogger(__name__)
 
+from . import access
 from . import rag
 from . import providers
 from . import moderation
@@ -50,7 +51,7 @@ from .uploads import UploadRejected, guard_zip_archive, validate_extension, vali
 from .models import (
     Announcement, AnnouncementAck, AskLog, AuditLog, ChatConversation, ChatMessage, Company,
     Department, Document, DocumentAccess, DocumentShare, DocumentVersion, LLMConfig, Plan,
-    AttendanceRecord, TeamMessage, UserStrike, User, OneTimeToken, GeneratedArtifact,
+    AttendanceRecord, PendingUpload, TeamMessage, UserStrike, User, OneTimeToken, GeneratedArtifact,
 )
 from .permissions import IsAdmin, IsAdminOrDeptAdmin, IsEditor, IsPlatformAdmin, is_dept_admin, is_platform_admin
 from .serializers import (
@@ -145,15 +146,106 @@ def health_live(request):
     return JsonResponse({"status": "ok", "time": timezone.now().isoformat()})
 
 
-def audit(request, action, detail=""):
-    """Write one audit-trail row for the caller's company."""
-    user = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
-    company = getattr(user, "company", None)
-    if company is None:
-        return
-    AuditLog.objects.create(
-        company=company, user=user, action=action, detail=detail[:300], ip=client_ip(request)
+def _parse_bool(val, default: bool = False) -> bool:
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _safe_doc_label(doc: Document) -> str:
+    """Never place restricted document filenames in audit trail detail text."""
+    if getattr(doc, "access_scope", "") == "restricted":
+        return f"doc#{doc.id}"
+    return doc.filename
+
+
+def _masked_doc_payload(doc: Document) -> dict:
+    """Limited metadata shown to company admins for ungranted restricted docs."""
+    return {
+        "id": doc.id,
+        "filename": f"Restricted document #{doc.id}",
+        "content_type": doc.content_type,
+        "size": doc.size,
+        "category": doc.category,
+        "description": "",
+        "downloads": doc.downloads,
+        "is_okf": False,
+        "num_chunks": doc.num_chunks,
+        "access_scope": "restricted",
+        "sensitivity": doc.sensitivity,
+        "status": doc.status,
+        "reviewed_at": doc.reviewed_at.isoformat() if doc.reviewed_at else None,
+        "review_note": "",
+        "contains_pii": doc.contains_pii,
+        "legal_hold": doc.legal_hold,
+        "department": doc.department_id,
+        "department_name": doc.department.name if doc.department_id and doc.department else None,
+        "tags": [],
+        "indexing_status": doc.indexing_status,
+        "index_error": "",
+        "version": doc.version,
+        "created_at": doc.created_at.isoformat() if doc.created_at else None,
+        "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
+        "company_name": doc.company.name if doc.company_id and doc.company else None,
+        "is_template": False,
+        "template_type": "",
+        "embed_model": "",
+        "reindex_required": False,
+        "masked": True,
+        "requires_break_glass": True,
+    }
+
+
+def _csv_safe(value) -> str:
+    """Neutralise spreadsheet formula injection (=, +, -, @, tab, CR)."""
+    s = "" if value is None else str(value)
+    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + s
+    return s
+
+
+def audit(
+    request,
+    action,
+    detail="",
+    *,
+    outcome: str = "allowed",
+    target_type: str = "",
+    target_id: str = "",
+    company=None,
+    user=None,
+    fail_closed: bool = False,
+):
+    """Write one tamper-evident audit-trail row for the caller's company.
+
+    Security-sensitive callers pass `fail_closed=True` so any DB/trigger error
+    aborts the operation rather than completing unaudited.
+    """
+    actor = user if user is not None else (
+        request.user if getattr(request, "user", None) and request.user.is_authenticated else None
     )
+    target_company = company or getattr(actor, "company", None)
+    if target_company is None:
+        return
+    try:
+        AuditLog.objects.create(
+            company=target_company,
+            user=actor,
+            actor_id=getattr(actor, "id", None),
+            actor_email=getattr(actor, "email", "") or "",
+            action=action,
+            outcome=outcome,
+            target_type=target_type[:40],
+            target_id=str(target_id)[:64],
+            detail=str(detail or "")[:300],
+            ip=client_ip(request) if request is not None else "",
+        )
+    except Exception:
+        logger.exception("AuditLog write failed for action=%s", action)
+        if fail_closed:
+            raise
 
 
 def _is_platform_level(user):
@@ -209,30 +301,41 @@ def _external_sharing_disabled(request):
 
 def visible_documents(user):
     """Return only own-company documents the signed-in user is allowed to read."""
-    return rag.accessible_documents_qs(user, include_unapproved=True, include_external_shares=False)
+    return access.accessible_documents_qs(user, action="view_ask", include_unapproved=True, include_external_shares=False)
 
 
 def share_target(request):
     """Resolve a registered target user from a company code + member id.
 
-    The code is required so a caller can never probe arbitrary user ids; the
-    member must belong to the company the code resolved to.
+    Uses a single unified error message for missing or mismatched user IDs so
+    callers cannot probe whether arbitrary user IDs exist across tenants.
     """
     access_code = (request.data.get("access_code") or "").strip().upper()
     raw_user_id = request.data.get("user_id")
-    if not access_code or raw_user_id is None:
-        return None, "A company code and a member are required."
-    company = Company.objects.filter(access_code__iexact=access_code).first()
-    if not company:
-        return None, "No registered company uses that access code."
+    if raw_user_id is None:
+        return None, "A member is required."
+    if not access_code:
+        # Internal grant inside caller's own company (no access_code required)
+        company = getattr(request.user, "company", None)
+        if not company:
+            return None, "A company code and a member are required."
+    else:
+        company = Company.objects.filter(access_code__iexact=access_code).first()
+        if not company:
+            return None, "No registered company uses that access code."
+        if company.id != getattr(request.user, "company_id", None) and not getattr(company, "enable_external_sharing", True):
+            return None, "No registered company uses that access code."
     try:
-        target = User.objects.get(pk=int(raw_user_id), is_active=True)
-    except (User.DoesNotExist, TypeError, ValueError):
-        return None, "That registered member could not be found."
-    if target.company_id != company.id:
-        return None, "That member does not belong to the selected company."
-    if not target.company_id or target.role == "public":
-        return None, "Only registered enterprise members can receive documents."
+        uid = int(raw_user_id)
+    except (TypeError, ValueError):
+        return None, "That member was not found in the selected company."
+    target = (
+        User.objects.filter(pk=uid, company=company, is_active=True)
+        .exclude(role="public")
+        .first()
+    )
+    if target is None:
+        return None, "That member was not found in the selected company."
     return target, None
 
 
@@ -289,14 +392,19 @@ def register_company(request):
             website=d.get("website", ""), contact_email=d.get("contact_email", ""),
             phone=d.get("phone", ""), max_employees=d.get("max_employees"),
             plan=Plan.default(),
+            enable_team_chat=False,
+            enable_attendance=False,
         )
         user = User.objects.create_user(
             email=d["email"], password=d["password"],
             full_name=d.get("admin_name", ""), title=d.get("admin_title", ""),
             role="admin", company=company,
         )
-        AuditLog.objects.create(company=company, user=user, action="register",
-                                detail=f"company {company.name}", ip=client_ip(request))
+        AuditLog.objects.create(
+            company=company, user=user, action="register", outcome="allowed",
+            target_type="company", target_id=str(company.id),
+            detail=f"company {company.name}", ip=client_ip(request),
+        )
 
     # Email verification (no-op link when email delivery is console-backed).
     tok, raw = OneTimeToken.issue(user, "verify_email", minutes=60 * 24)
@@ -306,8 +414,13 @@ def register_company(request):
         f"{_frontend_url('/auth/verify?token=' + raw)}\n\n"
         f"If you did not create this account you can ignore this email.",
     )
-    audit(_as(request, user), "verification_email_sent")
+    audit(_as(request, user), "verification_email_sent", target_type="user", target_id=str(user.id))
 
+    if _require_email_verification(user):
+        return Response(
+            {"user": UserSerializer(user).data, "verification_required": True},
+            status=201,
+        )
     resp = Response({"user": UserSerializer(user).data}, status=201)
     return set_auth_cookies(resp, user)
 
@@ -333,8 +446,21 @@ def login(request):
     )
     user = authenticate(username=canonical_email, password=s.validated_data["password"])
     if user is None:
+        existing = User.objects.select_related("company").filter(email__iexact=raw_email).first()
+        if existing and existing.company_id:
+            audit(
+                request, "login_failed", "invalid_credentials",
+                outcome="denied", target_type="user", target_id=str(existing.id),
+                company=existing.company, user=existing,
+            )
         return Response({"detail": "Invalid email or password."}, status=401)
     if _require_email_verification(user):
+        if user.company_id:
+            audit(
+                request, "login_failed", "email_unverified",
+                outcome="denied", target_type="user", target_id=str(user.id),
+                company=user.company, user=user,
+            )
         return Response({"detail": "Please verify your email before signing in. "
                                    "Check your inbox for the verification link.",
                          "code": "email_unverified"}, status=403)
@@ -633,12 +759,20 @@ def documents(request):
           .select_related("company", "department")
           .order_by("-created_at"))
     page_data = _paginate(request, qs)
-    return Response({
+    resp_data = {
         "results": DocumentSerializer(page_data["qs"], many=True).data,
         "count": page_data["count"],
         "page": page_data["page"],
         "pages": page_data["pages"],
-    })
+    }
+    if access.is_company_admin(request.user):
+        masked_qs = (
+            access.admin_restricted_metadata_qs(request.user)
+            .select_related("company", "department")
+            .order_by("-created_at")[:100]
+        )
+        resp_data["restricted_metadata"] = [_masked_doc_payload(d) for d in masked_qs]
+    return Response(resp_data)
 
 
 def _paginate(request, qs, default_page_size=50, max_page_size=200):
@@ -659,28 +793,31 @@ def _plan_for(company):
     return company.plan or Plan.default()
 
 
-def _parse_doc_governance_fields(request, company):
+def _parse_doc_governance_fields(request, company, *, access_scope: str = "company", department_id=None):
     """Parse sensitivity and approval status for upload_document / upload_confirm."""
     sensitivity = str(request.data.get("sensitivity") or "standard").strip().lower()
     if sensitivity not in {"standard", "internal", "confidential"}:
         return None, None, Response({"detail": "sensitivity must be standard, internal or confidential."}, status=400)
-    is_admin_or_dept = bool(
-        request.user.role == "admin"
-        or _is_platform_level(request.user)
-        or is_dept_admin(request.user)
+    is_adm = access.is_company_admin(request.user)
+    is_own_dept_mgr = bool(
+        access.is_dept_manager(request.user)
+        and access_scope == "department"
+        and department_id
+        and int(department_id) == request.user.department_id
     )
-    if sensitivity == "confidential" and not is_admin_or_dept:
-        return None, None, Response({"detail": "Only admins can upload confidential documents."}, status=403)
+    if sensitivity == "confidential" and not is_adm:
+        return None, None, Response({"detail": "Only company admins can upload confidential documents."}, status=403)
 
+    can_auto_approve = is_adm or (is_own_dept_mgr and sensitivity != "confidential")
     default_status = (
         "in_review"
-        if (getattr(company, "require_doc_approval", False) and not is_admin_or_dept)
+        if (getattr(company, "require_doc_approval", False) and not can_auto_approve)
         else "approved"
     )
     doc_status = str(request.data.get("status") or default_status).strip().lower()
     if doc_status not in {"draft", "in_review", "approved"}:
         return None, None, Response({"detail": "status must be draft, in_review or approved."}, status=400)
-    if getattr(company, "require_doc_approval", False) and doc_status == "approved" and not is_admin_or_dept:
+    if getattr(company, "require_doc_approval", False) and doc_status == "approved" and not can_auto_approve:
         doc_status = "in_review"
     return sensitivity, doc_status, None
 
@@ -704,7 +841,7 @@ def upload_document(request):
     if rejected:
         return rejected
 
-    is_okf = str(request.data.get("is_okf", "")).lower() in ("1", "true", "yes", "on")
+    is_okf = _parse_bool(request.data.get("is_okf"), False)
     access_scope = (request.data.get("access_scope") or "company").strip().lower()
     if access_scope not in {"company", "restricted", "department"}:
         return Response({"detail": "access_scope must be company, department or restricted."},
@@ -712,7 +849,7 @@ def upload_document(request):
     category = request.data.get("category") or "Other"
     description = request.data.get("description") or ""
     tags = str(request.data.get("tags") or "").strip()[:300]
-    is_template = str(request.data.get("is_template", "")).lower() in ("1", "true", "yes", "on")
+    is_template = _parse_bool(request.data.get("is_template"), False)
     template_type = str(request.data.get("template_type") or "").strip().lower()
     if template_type and template_type not in dict(Document.TEMPLATE_TYPES):
         return Response({"detail": "template_type must be email, form, policy or other."},
@@ -728,12 +865,46 @@ def upload_document(request):
             status=400,
         )
 
-    sensitivity, doc_status, gov_err = _parse_doc_governance_fields(request, company)
+    plan = _plan_for(company)
+    # Department scope needs a department (default: the uploader's own).
+    department = None
+    if access_scope == "department":
+        dept_id = request.data.get("department_id")
+        if dept_id:
+            department = Department.objects.filter(pk=dept_id, company=company).first()
+            if department is None:
+                return Response({"detail": "Pick a valid department in your company."}, status=400)
+        if department is None and request.user.department_id:
+            department = request.user.department
+        if department is None:
+            return Response({"detail": "Pick a department (or join one) to use department scope."},
+                            status=400)
+        if not (plan and plan.allow_departments):
+            return Response({"detail": "Department scoping is not part of your current plan."},
+                            status=402)
+
+    sensitivity, doc_status, gov_err = _parse_doc_governance_fields(
+        request, company, access_scope=access_scope, department_id=department.id if department else None,
+    )
     if gov_err:
         return gov_err
 
+    up_dec = access.decide(
+        request.user, "upload",
+        context={
+            "access_scope": access_scope,
+            "sensitivity": sensitivity,
+            "department_id": department.id if department else None,
+            "is_okf": is_okf,
+            "is_template": is_template,
+        },
+    )
+    if not up_dec.allowed:
+        audit(request, "upload_denied", up_dec.reason_code, outcome="denied")
+        code = 402 if up_dec.reason_code == "DENY_PLAN_LIMIT" else 403
+        return Response({"detail": up_dec.rule_chain[-1], "reason_code": up_dec.reason_code}, status=code)
+
     # Plan limits: document count and storage quota (server-enforced).
-    plan = _plan_for(company)
     if plan:
         if plan.max_documents is not None and company.documents.count() >= plan.max_documents:
             return Response({"detail": f"Plan limit reached ({plan.max_documents} documents). "
@@ -743,21 +914,6 @@ def upload_document(request):
             if used + f.size > plan.storage_mb * 1024 * 1024:
                 return Response({"detail": "Storage quota for your plan is full. "
                                            "Upgrade to upload more."}, status=402)
-
-    # Department scope needs a department (default: the uploader's own).
-    department = None
-    if access_scope == "department":
-        dept_id = request.data.get("department_id")
-        if dept_id:
-            department = Department.objects.filter(pk=dept_id, company=company).first()
-        if department is None and request.user.department_id:
-            department = request.user.department
-        if department is None:
-            return Response({"detail": "Pick a department (or join one) to use department scope."},
-                            status=400)
-        if not (plan and plan.allow_departments):
-            return Response({"detail": "Department scoping is not part of your current plan."},
-                            status=402)
 
     # Django's UploadedFile.name setter silently truncates names to 255 chars,
     # so the raw-length check cannot catch long names here — validate the
@@ -781,7 +937,10 @@ def upload_document(request):
             uploaded_by=request.user, indexing_status="pending",
         )
         DocumentAccess.objects.create(document=doc, user=request.user)
-        audit(request, "upload", f"{f.name}")
+        audit(
+            request, "upload", _safe_doc_label(doc),
+            outcome="allowed", target_type="document", target_id=str(doc.id), fail_closed=True,
+        )
 
     _index_in_background(doc)
     payload = dict(DocumentSerializer(doc).data)
@@ -806,6 +965,11 @@ def upload_presign(request):
     filename = os.path.basename(str(request.data.get("filename") or "").strip())
     if not filename:
         return Response({"detail": "filename is required."}, status=400)
+    try:
+        filename = validate_filename(filename)
+        validate_extension(filename)
+    except UploadRejected as exc:
+        return Response({"detail": str(exc)}, status=400)
     size = int(request.data.get("size") or 0)
     max_size = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 50 * 1024 * 1024)
     if size > max_size:
@@ -816,6 +980,14 @@ def upload_presign(request):
     content_type = str(request.data.get("content_type") or "application/octet-stream")
     key = f"{company.slug}/{uuid.uuid4().hex}_{filename}"
     url = storage.generate_presigned_put(key, content_type=content_type, size=size)
+    PendingUpload.objects.create(
+        company=company,
+        user=request.user,
+        key=key,
+        filename=filename,
+        size=max(0, size),
+        expires_at=timezone.now() + timedelta(minutes=15),
+    )
     return Response({"upload_url": url, "key": key, "filename": filename})
 
 
@@ -838,6 +1010,19 @@ def upload_confirm(request):
         validate_extension(filename)
     except UploadRejected as exc:
         return Response({"detail": str(exc)}, status=400)
+
+    # Server-side key binding: key must match an unconsumed, unexpired PendingUpload issued to this exact user.
+    pending = (
+        PendingUpload.objects.filter(
+            key=key, company=company, user=request.user, consumed=False,
+        )
+        .filter(expires_at__gt=timezone.now())
+        .first()
+    )
+    if pending is None or Document.objects.filter(stored_path=key).exists():
+        audit(request, "upload_confirm_denied", "invalid_or_unowned_key", outcome="denied")
+        return Response({"detail": "Upload session expired or storage key is invalid."}, status=403)
+
     real_size = storage.object_size(key)
     if real_size is None:
         return Response({"detail": "Uploaded object not found in storage."}, status=404)
@@ -845,12 +1030,7 @@ def upload_confirm(request):
     if real_size <= 0 or real_size > max_size:
         return Response({"detail": "Uploaded object is empty or exceeds the size limit."}, status=400)
 
-    # The stored object is the source of truth; the browser's claimed size is
-    # ignored for quotas so a client cannot dodge storage limits by under-
-    # reporting. (S3 also enforces the signed ContentLength at PUT time.)
     size = real_size
-
-    # Plan limits apply on the direct-to-S3 path exactly like normal uploads.
     plan = _plan_for(company)
     if plan:
         if plan.max_documents is not None and company.documents.count() >= plan.max_documents:
@@ -863,14 +1043,14 @@ def upload_confirm(request):
                                            "Upgrade to upload more."}, status=402)
 
     content_type = str(request.data.get("content_type") or "")
-    is_okf = str(request.data.get("is_okf", "")).lower() in ("1", "true", "yes", "on")
+    is_okf = _parse_bool(request.data.get("is_okf"), False)
     access_scope = (request.data.get("access_scope") or "company").strip().lower()
     if access_scope not in {"company", "restricted", "department"}:
         return Response({"detail": "access_scope must be company, department or restricted."}, status=400)
     category = request.data.get("category") or "Other"
     description = request.data.get("description") or ""
     tags = str(request.data.get("tags") or "").strip()[:300]
-    is_template = str(request.data.get("is_template", "")).lower() in ("1", "true", "yes", "on")
+    is_template = _parse_bool(request.data.get("is_template"), False)
     template_type = str(request.data.get("template_type") or "").strip().lower()
     if template_type and template_type not in dict(Document.TEMPLATE_TYPES):
         return Response({"detail": "template_type must be email, form, policy or other."},
@@ -878,16 +1058,13 @@ def upload_confirm(request):
     if is_template and not template_type:
         template_type = "other"
 
-    sensitivity, doc_status, gov_err = _parse_doc_governance_fields(request, company)
-    if gov_err:
-        return gov_err
-
-    plan = _plan_for(company)
     department = None
     if access_scope == "department":
         dept_id = request.data.get("department_id")
         if dept_id:
             department = Department.objects.filter(pk=dept_id, company=company).first()
+            if department is None:
+                return Response({"detail": "Pick a valid department in your company."}, status=400)
         if department is None and request.user.department_id:
             department = request.user.department
         if department is None:
@@ -895,8 +1072,38 @@ def upload_confirm(request):
         if not (plan and plan.allow_departments):
             return Response({"detail": "Department scoping is not part of your current plan."}, status=402)
 
+    sensitivity, doc_status, gov_err = _parse_doc_governance_fields(
+        request, company, access_scope=access_scope, department_id=department.id if department else None,
+    )
+    if gov_err:
+        return gov_err
+
+    up_dec = access.decide(
+        request.user, "upload",
+        context={
+            "access_scope": access_scope,
+            "sensitivity": sensitivity,
+            "department_id": department.id if department else None,
+            "is_okf": is_okf,
+            "is_template": is_template,
+        },
+    )
+    if not up_dec.allowed:
+        audit(request, "upload_denied", up_dec.reason_code, outcome="denied")
+        code = 402 if up_dec.reason_code == "DENY_PLAN_LIMIT" else 403
+        return Response({"detail": up_dec.rule_chain[-1], "reason_code": up_dec.reason_code}, status=code)
+
     from django.db import transaction
     with transaction.atomic():
+        locked_pending = (
+            PendingUpload.objects.select_for_update()
+            .filter(pk=pending.pk, consumed=False)
+            .first()
+        )
+        if locked_pending is None:
+            return Response({"detail": "Upload key has already been confirmed."}, status=409)
+        locked_pending.consumed = True
+        locked_pending.save(update_fields=["consumed"])
         doc = Document.objects.create(
             company=company, filename=filename, stored_path=key,
             content_type=content_type, size=size,
@@ -907,7 +1114,10 @@ def upload_confirm(request):
             uploaded_by=request.user, indexing_status="pending",
         )
         DocumentAccess.objects.create(document=doc, user=request.user)
-        audit(request, "upload", filename)
+        audit(
+            request, "upload", _safe_doc_label(doc),
+            outcome="allowed", target_type="document", target_id=str(doc.id), fail_closed=True,
+        )
 
     _index_in_background(doc)
     payload = dict(DocumentSerializer(doc).data)
@@ -1005,13 +1215,58 @@ def document_reindex(request, pk):
         return _guard
     """Retry indexing for a failed/pending document."""
     doc = _get_doc(request, pk)
+    dec = access.decide(request.user, "reindex", doc)
+    if not dec.allowed:
+        read_ok = access.decide(request.user, "view_ask", doc, context={"include_unapproved": True}).allowed
+        audit(request, "reindex_denied", f"{_safe_doc_label(doc)} {dec.reason_code}",
+              outcome="denied", target_type="document", target_id=str(doc.id))
+        if not read_ok and not access.is_company_admin(request.user):
+            raise Http404
+        return Response({"detail": dec.rule_chain[-1], "reason_code": dec.reason_code}, status=403)
     if doc.indexing_status != "failed":
         return Response({"detail": "Only failed documents can be re-indexed."}, status=400)
     doc.indexing_status = "pending"
     doc.save(update_fields=["indexing_status"])
     _index_in_background(doc)
-    audit(request, "reindex", doc.filename)
+    audit(request, "reindex", _safe_doc_label(doc), target_type="document", target_id=str(doc.id))
     return Response(DocumentSerializer(doc).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAdmin])
+def document_break_glass(request, pk):
+    """Audited break-glass self-grant for a company admin on an own-company restricted document."""
+    _guard = _platform_admin_blocked(request)
+    if _guard:
+        return _guard
+    doc = _get_doc(request, pk)
+    reason = str((request.data or {}).get("reason") or "").strip()[:300]
+    dec = access.decide(request.user, "break_glass", doc, context={"reason": reason})
+    if not dec.allowed:
+        audit(
+            request, "break_glass", f"doc#{doc.id} {dec.reason_code}",
+            outcome="denied", target_type="document", target_id=str(doc.id),
+        )
+        code = 400 if dec.reason_code in ("DENY_REASON_REQUIRED", "DENY_NOT_RESTRICTED") else 403
+        return Response({"detail": dec.rule_chain[-1], "reason_code": dec.reason_code}, status=code)
+    from django.db import transaction
+    with transaction.atomic():
+        DocumentAccess.objects.update_or_create(
+            document=doc,
+            user=request.user,
+            defaults={
+                "can_download": True,
+                "override_clearance": False,
+                "grant_reason": reason,
+                "granted_by": request.user,
+                "is_break_glass": True,
+            },
+        )
+        audit(
+            request, "break_glass", f"doc#{doc.id} reason={reason[:200]}",
+            outcome="allowed", target_type="document", target_id=str(doc.id), fail_closed=True,
+        )
+    return Response(DocumentSerializer(doc).data, status=200)
 
 
 @api_view(["GET", "PATCH", "DELETE"])
@@ -1021,93 +1276,143 @@ def document_detail(request, pk):
     if _guard:
         return _guard
     """Read metadata, edit (category/description/tags/scope), or delete a doc."""
-    doc = _accessible_doc(request, pk)
     if request.method == "GET":
+        doc = _accessible_doc(request, pk)
         return Response(DocumentSerializer(doc).data)
+
+    # Mutations are strictly own-company only (external share recipients get 404).
+    doc = _get_doc(request, pk)
     if request.method == "DELETE":
-        if not _is_editor_request(request):
-            return Response({"detail": "Viewers cannot delete documents."}, status=403)
-        if not _can_manage_document(request, doc):
-            return Response({"detail": "Only admins or the uploader can delete a document."},
-                            status=403)
-        if getattr(doc, "legal_hold", False):
-            return Response({"detail": "Document is under legal hold and cannot be deleted."}, status=403)
-        # Every stored blob goes with it: the current file AND archived
-        # version files, which otherwise leak storage forever.
+        dec = access.decide(request.user, "delete", doc)
+        if not dec.allowed:
+            read_ok = access.decide(request.user, "view_ask", doc, context={"include_unapproved": True}).allowed
+            audit(request, "delete_denied", f"{_safe_doc_label(doc)} {dec.reason_code}",
+                  outcome="denied", target_type="document", target_id=str(doc.id))
+            if not read_ok and not access.is_company_admin(request.user):
+                raise Http404
+            return Response({"detail": dec.rule_chain[-1], "reason_code": dec.reason_code}, status=403)
         paths = {doc.stored_path}
         paths.update(DocumentVersion.objects.filter(document=doc)
                      .values_list("stored_path", flat=True))
         for path in paths:
             storage.delete(path, base_dir=settings.DATA_DIR)
-        name = doc.filename
-        doc.delete()
-        audit(request, "delete", name)
+        label = _safe_doc_label(doc)
+        doc_id = doc.id
+        from django.db import transaction
+        with transaction.atomic():
+            audit(
+                request, "delete", label,
+                outcome="allowed", target_type="document", target_id=str(doc_id), fail_closed=True,
+            )
+            doc.delete()
         return Response(status=204)
+
     # PATCH
-    if not _is_editor_request(request):
-        return Response({"detail": "Viewers cannot edit documents."}, status=403)
-    data = request.data
-    if any(k in data for k in ("is_template", "template_type")):
-        if not (request.user.role == "admin" or _is_platform_level(request.user)):
-            return Response({"detail": "Only admins can change template settings."}, status=403)
+    edit_dec = access.decide(request.user, "edit_metadata", doc)
+    if not edit_dec.allowed:
+        read_ok = access.decide(request.user, "view_ask", doc, context={"include_unapproved": True}).allowed
+        audit(request, "document_update_denied", f"{_safe_doc_label(doc)} {edit_dec.reason_code}",
+              outcome="denied", target_type="document", target_id=str(doc.id))
+        if not read_ok and not access.is_company_admin(request.user):
+            raise Http404
+        return Response({"detail": edit_dec.rule_chain[-1], "reason_code": edit_dec.reason_code}, status=403)
+
+    data = request.data or {}
+    before = (doc.access_scope, doc.sensitivity, doc.status, doc.legal_hold, doc.department_id)
+
+    if any(k in data for k in ("is_template", "template_type", "is_okf")):
+        if not access.is_company_admin(request.user):
+            return Response({"detail": "Only company admins can change template or OKF settings."}, status=403)
+    if "is_okf" in data:
+        doc.is_okf = _parse_bool(data.get("is_okf"), doc.is_okf)
     if "is_template" in data:
-        doc.is_template = str(data.get("is_template")).lower() in ("1", "true", "yes", "on")
+        doc.is_template = _parse_bool(data.get("is_template"), doc.is_template)
     if "template_type" in data:
         ttype = str(data.get("template_type") or "").strip().lower()
         if ttype and ttype not in dict(Document.TEMPLATE_TYPES):
             return Response({"detail": "template_type must be email, form, policy or other."},
                             status=400)
         doc.template_type = ttype
-    if "access_scope" in data and not _can_manage_document(request, doc):
-        return Response({"detail": "Only admins or the uploader can change who can access "
-                                   "this document."}, status=403)
-    if "sensitivity" in data:
-        if not _can_manage_document(request, doc):
-            return Response({"detail": "Only admins or the uploader can change document sensitivity."}, status=403)
-        sens = str(data.get("sensitivity") or "standard").strip().lower()
-        if sens not in {"standard", "internal", "confidential"}:
-            return Response({"detail": "sensitivity must be standard, internal or confidential."}, status=400)
-        if sens == "confidential" and not _can_approve_document(request.user, doc):
-            return Response({"detail": "Only admins can mark a document confidential."}, status=403)
-        if sens == "confidential" and doc.sensitivity != "confidential":
-            DocumentAccess.objects.filter(document=doc).exclude(user__role="admin").delete()
-        doc.sensitivity = sens
+
     if "legal_hold" in data:
-        if not (request.user.role == "admin" or _is_platform_level(request.user)):
+        if not access.is_company_admin(request.user):
             return Response({"detail": "Only company admins can change legal hold."}, status=403)
-        doc.legal_hold = str(data.get("legal_hold")).lower() in ("1", "true", "yes", "on")
+        doc.legal_hold = _parse_bool(data.get("legal_hold"), doc.legal_hold)
+
+    # Scope / sensitivity / department changes go through canonical decide("change_scope_sensitivity")
+    if any(k in data for k in ("access_scope", "sensitivity", "department_id")):
+        new_scope = str(data.get("access_scope") or doc.access_scope).strip().lower()
+        if new_scope not in {"company", "restricted", "department"}:
+            return Response({"detail": "access_scope must be company, department or restricted."}, status=400)
+        new_sens = str(data.get("sensitivity") or doc.sensitivity).strip().lower()
+        if new_sens not in {"standard", "internal", "confidential"}:
+            return Response({"detail": "sensitivity must be standard, internal or confidential."}, status=400)
+        new_dept = doc.department
+        if new_scope == "department":
+            dept_id = data.get("department_id", doc.department_id)
+            new_dept = Department.objects.filter(pk=dept_id, company=doc.company).first() if dept_id else None
+            if new_dept is None:
+                return Response({"detail": "Pick a valid department for department scope."}, status=400)
+        elif "department_id" in data and not data.get("department_id"):
+            new_dept = None
+
+        sc_dec = access.decide(
+            request.user, "change_scope_sensitivity", doc,
+            context={
+                "new_scope": new_scope,
+                "new_sensitivity": new_sens,
+                "new_department_id": new_dept.id if new_dept else None,
+            },
+        )
+        if not sc_dec.allowed:
+            audit(request, "document_scope_denied", f"{_safe_doc_label(doc)} {sc_dec.reason_code}",
+                  outcome="denied", target_type="document", target_id=str(doc.id))
+            code = 402 if sc_dec.reason_code == "DENY_PLAN_LIMIT" else 403
+            return Response({"detail": sc_dec.rule_chain[-1], "reason_code": sc_dec.reason_code}, status=code)
+
+        if new_sens == "confidential" and doc.sensitivity != "confidential":
+            DocumentAccess.objects.filter(document=doc, override_clearance=False).exclude(user__role="admin").delete()
+        doc.access_scope = new_scope
+        doc.sensitivity = new_sens
+        doc.department = new_dept
+
     if "status" in data:
         new_status = str(data.get("status") or "").strip().lower()
         if new_status not in {"draft", "in_review", "approved", "archived"}:
             return Response({"detail": "status must be draft, in_review, approved or archived."}, status=400)
-        if new_status in ("approved", "archived") and not _can_approve_document(request.user, doc):
-            return Response({"detail": "Only admins or department sub-admins can approve or archive documents."},
-                            status=403)
-        doc.status = new_status
-        if new_status in ("approved", "archived"):
-            doc.reviewed_by = request.user
-            doc.reviewed_at = timezone.now()
+        if new_status != doc.status:
+            if new_status == "in_review":
+                if not _can_manage_document(request, doc):
+                    return Response({"detail": "Only admins or the uploader can submit for review."}, status=403)
+            else:
+                st_action = {"approved": "approve", "archived": "archive", "draft": "reject"}[new_status]
+                st_dec = access.decide(request.user, st_action, doc)
+                if not st_dec.allowed:
+                    audit(request, f"document_{st_action}_denied", f"{_safe_doc_label(doc)} {st_dec.reason_code}",
+                          outcome="denied", target_type="document", target_id=str(doc.id))
+                    return Response({"detail": st_dec.rule_chain[-1], "reason_code": st_dec.reason_code}, status=403)
+                doc.reviewed_by = request.user
+                doc.reviewed_at = timezone.now()
+            doc.status = new_status
+
     if "category" in data:
         doc.category = str(data.get("category") or "Other")[:50]
     if "description" in data:
         doc.description = str(data.get("description") or "")[:2000]
     if "tags" in data:
         doc.tags = str(data.get("tags") or "").strip()[:300]
-    if "access_scope" in data:
-        scope = str(data.get("access_scope") or "company").lower()
-        if scope not in {"company", "restricted", "department"}:
-            return Response({"detail": "access_scope must be company, department or restricted."},
-                            status=400)
-        doc.access_scope = scope
-        if scope == "department":
-            dept_id = data.get("department_id")
-            dept = Department.objects.filter(pk=dept_id, company=doc.company).first() if dept_id else None
-            if dept is None:
-                return Response({"detail": "Pick a valid department for department scope."},
-                                status=400)
-            doc.department = dept
-    doc.save()
-    audit(request, "document_update", f"{doc.filename}")
+
+    after = (doc.access_scope, doc.sensitivity, doc.status, doc.legal_hold, doc.department_id)
+    from django.db import transaction
+    with transaction.atomic():
+        doc.save()
+        detail = _safe_doc_label(doc)
+        if before != after:
+            detail = f"{detail} scope:{before[0]}->{after[0]} sens:{before[1]}->{after[1]} status:{before[2]}->{after[2]} hold:{before[3]}->{after[3]}"
+        audit(
+            request, "document_update", detail,
+            outcome="allowed", target_type="document", target_id=str(doc.id), fail_closed=True,
+        )
     return Response(DocumentSerializer(doc).data)
 
 
@@ -1147,9 +1452,7 @@ def document_review(request, pk):
     _guard = _platform_admin_blocked(request)
     if _guard:
         return _guard
-    doc = _accessible_doc(request, pk)
-    if doc.company_id != getattr(request.user, "company_id", None):
-        raise Http404
+    doc = _get_doc(request, pk)
     data = request.data or {}
     action = str(data.get("action") or "").strip().lower()
     note = str(data.get("note") or "").strip()[:300]
@@ -1167,15 +1470,27 @@ def document_review(request, pk):
         if not _can_manage_document(request, doc):
             return Response({"detail": "Only admins or the uploader can submit for review."}, status=403)
     else:
-        if not _can_approve_document(request.user, doc):
-            return Response({"detail": "Only admins or department sub-admins can review documents."}, status=403)
+        st_action = {"approved": "approve", "archived": "archive", "draft": "reject"}[target_status]
+        dec = access.decide(request.user, st_action, doc)
+        if not dec.allowed:
+            read_ok = access.decide(request.user, "view_ask", doc, context={"include_unapproved": True}).allowed
+            audit(request, f"document_{st_action}_denied", f"{_safe_doc_label(doc)} {dec.reason_code}",
+                  outcome="denied", target_type="document", target_id=str(doc.id))
+            if not read_ok and not access.is_company_admin(request.user):
+                raise Http404
+            return Response({"detail": dec.rule_chain[-1], "reason_code": dec.reason_code}, status=403)
         doc.reviewed_by = request.user
         doc.reviewed_at = timezone.now()
         doc.review_note = note
 
-    doc.status = target_status
-    doc.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_note", "updated_at"])
-    audit(request, f"document_{action or target_status}", f"{doc.filename} ({target_status})")
+    from django.db import transaction
+    with transaction.atomic():
+        doc.status = target_status
+        doc.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_note", "updated_at"])
+        audit(
+            request, f"document_{action or target_status}", f"{_safe_doc_label(doc)} ({target_status})",
+            outcome="allowed", target_type="document", target_id=str(doc.id), fail_closed=True,
+        )
     return Response(DocumentSerializer(doc).data)
 
 
@@ -1187,11 +1502,20 @@ def document_new_version(request, pk):
         return _guard
     """Upload a new version of a document: the old file is archived to
     DocumentVersion, the new file is indexed, and `version` increments.
-    Plan-gated (allow_versions)."""
+    Plan-gated (allow_versions) and ACL/legal-hold checked via core.access."""
     doc = _get_doc(request, pk)
     company = doc.company
-    if not (_plan_for(company) and _plan_for(company).allow_versions):
-        return Response({"detail": "Version history is not part of your current plan."}, status=402)
+    dec = access.decide(request.user, "new_version", doc)
+    if not dec.allowed:
+        if dec.reason_code == "DENY_PLAN_LIMIT":
+            return Response({"detail": "Version history is not part of your current plan."}, status=402)
+        read_ok = access.decide(request.user, "view_ask", doc, context={"include_unapproved": True}).allowed
+        audit(request, "new_version_denied", f"{_safe_doc_label(doc)} {dec.reason_code}",
+              outcome="denied", target_type="document", target_id=str(doc.id))
+        if not read_ok and not access.is_company_admin(request.user):
+            raise Http404
+        return Response({"detail": dec.rule_chain[-1], "reason_code": dec.reason_code}, status=403)
+
     f = request.FILES.get("file")
     if not f:
         return Response({"detail": "No file provided."}, status=400)
@@ -1199,32 +1523,52 @@ def document_new_version(request, pk):
     if f.size > max_size:
         return Response({"detail": f"File too large. Max size is {max_size // (1024*1024)} MB."},
                         status=413)
+    plan = _plan_for(company)
+    if plan and plan.storage_mb is not None:
+        used = company.documents.aggregate(total=Sum("size"))["total"] or 0
+        if used + f.size > plan.storage_mb * 1024 * 1024:
+            return Response({"detail": "Storage quota for your plan is full. Upgrade to upload more."}, status=402)
     rejected = _upload_rejection(f)
     if rejected:
         return rejected
 
-    # Archive the current file as the previous version.
-    old_path, old_size = doc.stored_path, doc.size
-    DocumentVersion.objects.create(
-        document=doc, version_number=doc.version, stored_path=old_path,
-        filename=doc.filename, size=old_size, uploaded_by=request.user,
-    )
     safe_name = os.path.basename(f.name)
     rel_key = os.path.join(company.slug, f"{uuid.uuid4().hex}_{safe_name}")
     if len(os.path.basename(rel_key)) > 255:
         return Response({"detail": "Filename is too long. Use a name of up to 220 characters."},
                         status=400)
     stored = storage.save_uploaded_file(rel_key, f, base_dir=settings.DATA_DIR)
-    doc.stored_path = stored
-    doc.filename = safe_name
-    doc.content_type = f.content_type or ""
-    doc.size = f.size
-    doc.version += 1
-    doc.indexing_status = "pending"
-    doc.preview_text = ""  # cached text belongs to the old file; re-index refills it
-    doc.save()
+
+    # Re-require approval on new version uploads from non-approvers when enabled.
+    is_adm = access.is_company_admin(request.user)
+    is_own_dept_mgr = bool(
+        access.is_dept_manager(request.user)
+        and doc.department_id == request.user.department_id
+        and doc.access_scope != "restricted"
+        and doc.sensitivity != "confidential"
+    )
+    from django.db import transaction
+    with transaction.atomic():
+        old_path, old_size = doc.stored_path, doc.size
+        DocumentVersion.objects.create(
+            document=doc, version_number=doc.version, stored_path=old_path,
+            filename=doc.filename, size=old_size, uploaded_by=request.user,
+        )
+        doc.stored_path = stored
+        doc.filename = safe_name
+        doc.content_type = f.content_type or ""
+        doc.size = f.size
+        doc.version += 1
+        doc.indexing_status = "pending"
+        doc.preview_text = ""  # cached text belongs to the old file; re-index refills it
+        if getattr(company, "require_doc_approval", False) and not (is_adm or is_own_dept_mgr):
+            doc.status = "in_review"
+        doc.save()
+        audit(
+            request, "new_version", f"{_safe_doc_label(doc)} -> v{doc.version}",
+            outcome="allowed", target_type="document", target_id=str(doc.id), fail_closed=True,
+        )
     _index_in_background(doc)
-    audit(request, "new_version", f"{doc.filename} -> v{doc.version}")
     return Response(DocumentSerializer(doc).data, status=201)
 
 
@@ -1234,8 +1578,10 @@ def document_versions(request, pk):
     _guard = _platform_admin_blocked(request)
     if _guard:
         return _guard
-    """Version history for a document (plan-gated at upload time; viewable always)."""
+    """Version history for a document (own-company readers only; never external share recipients)."""
     doc = _accessible_doc(request, pk)
+    if doc.company_id != getattr(request.user, "company_id", None):
+        raise Http404
     versions = doc.versions.all()
     return Response(DocumentVersionSerializer(versions, many=True).data)
 
@@ -1251,41 +1597,34 @@ def _get_doc(request, pk):
 
 
 def _accessible_doc(request, pk):
-    """Resolve a document only when its ACL grants this exact user access."""
+    """Resolve a document only when the canonical ACL grants this exact user access.
+
+    Records a metadata-only denial audit event inside the caller's company while
+    still returning 404 so document existence is never leaked to unauthorized callers.
+    """
     doc = (
-        rag.accessible_documents_qs(
-            request.user, include_unapproved=True, include_external_shares=True,
+        access.accessible_documents_qs(
+            request.user, action="view_ask", include_unapproved=True, include_external_shares=True,
         )
         .filter(pk=pk)
         .first()
     )
     if doc is None:
+        if getattr(request.user, "company_id", None) and Document.objects.filter(pk=pk, company_id=request.user.company_id).exists():
+            audit(
+                request, "document_access_denied", f"doc#{pk}",
+                outcome="denied", target_type="document", target_id=str(pk),
+            )
         raise Http404
     return doc
 
 
 def _can_download(request, doc):
-    """Enforce download permission server-side, not just in the UI."""
-    u = request.user
-    if doc.company_id == getattr(u, "company_id", None):
-        if doc.access_scope in ("company", "department"):
-            return True
-        grant = DocumentAccess.objects.filter(document=doc, user=u).first()
-        return bool(grant and grant.can_download)
-    if not getattr(doc.company, "enable_external_sharing", True) or doc.status != "approved":
-        return False
-    now = timezone.now()
-    share = (
-        DocumentShare.objects.filter(document=doc, shared_with_user=u)
-        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
-        .first()
-    )
-    if share:
-        return share.can_download
-    if DocumentShare.objects.filter(document=doc, shared_with_user=u, expires_at__lte=now).exists():
-        return False
-    grant = DocumentAccess.objects.filter(document=doc, user=u).first()
-    return bool(grant and grant.can_download)
+    """Enforce download permission server-side via canonical `access.decide()`."""
+    return access.decide(
+        request.user, "download", doc,
+        context={"include_unapproved": True, "include_external_shares": True},
+    ).allowed
 
 
 @api_view(["GET"])
@@ -1295,13 +1634,19 @@ def download_document(request, pk):
     if _guard:
         return _guard
     doc = _accessible_doc(request, pk)
-    if not _can_download(request, doc):
-        return Response({"detail": "Download is disabled for this document."}, status=403)
+    dec = access.decide(
+        request.user, "download", doc,
+        context={"include_unapproved": True, "include_external_shares": True},
+    )
+    if not dec.allowed:
+        audit(request, "download_denied", f"{_safe_doc_label(doc)} {dec.reason_code}",
+              outcome="denied", target_type="document", target_id=str(doc.id))
+        return Response({"detail": "Download is disabled for this document.", "reason_code": dec.reason_code}, status=403)
     if not doc.stored_path or not storage.exists(doc.stored_path, base_dir=settings.DATA_DIR):
         raise Http404
     doc.downloads += 1
     doc.save(update_fields=["downloads"])
-    audit(request, "download", doc.filename)
+    audit(request, "download", _safe_doc_label(doc), target_type="document", target_id=str(doc.id))
     return FileResponse(
         storage.open_stream(doc.stored_path, base_dir=settings.DATA_DIR),
         as_attachment=True,
@@ -1315,11 +1660,7 @@ def document_preview(request, pk):
     _guard = _platform_admin_blocked(request)
     if _guard:
         return _guard
-    """Return extracted plain text for in-browser preview (ACL-checked).
-
-    Uses the text cached at index time; falls back to a fresh extraction (and
-    caches it) only for documents indexed before the cache existed.
-    """
+    """Return extracted plain text for in-browser preview (ACL-checked)."""
     doc = _accessible_doc(request, pk)
     text = doc.preview_text
     if not text:
@@ -1335,7 +1676,7 @@ def document_preview(request, pk):
     is_external = doc.company_id != getattr(request.user, "company_id", None)
     if is_external and doc.contains_pii:
         text, _ = moderation.redact_pii(text)
-    audit(request, "preview", doc.filename)
+    audit(request, "preview", _safe_doc_label(doc), target_type="document", target_id=str(doc.id))
     return Response({
         "id": doc.id, "filename": doc.filename, "content_type": doc.content_type,
         "size": doc.size, "num_chunks": doc.num_chunks, "text": text[:200000],
@@ -1365,7 +1706,7 @@ def ask(request):
     conversation_id = s.validated_data.get("conversation_id")
 
     if moderation.is_exfiltration_attempt(question):
-        audit(request, "POLICY_VIOLATION_DETECTED", f"exfiltration_blocked :: {question[:120]}")
+        audit(request, "POLICY_VIOLATION_DETECTED", "exfiltration_blocked", outcome="denied")
         return Response(
             {"detail": "Bulk verbatim extraction of documents is blocked by workspace security policy."},
             status=403,
@@ -1375,8 +1716,7 @@ def ask(request):
     moderation_flags = None
     if scan.flagged:
         moderation_flags = scan.labels
-        audit(request, "POLICY_VIOLATION_DETECTED",
-              f"{scan.summary()} :: {question[:120]}")
+        audit(request, "POLICY_VIOLATION_DETECTED", f"{scan.summary()}", outcome="allowed")
 
     # Output routing: a policy question gets ONLY the grounded text answer, a
     # form/email request gets ONLY the finished document(s), and a mixed
@@ -1384,7 +1724,7 @@ def ask(request):
     # deterministic (no model call, no Bedrock, no invented facts).
     company = getattr(request.user, "company", None)
     if company and not getattr(company, "enable_docgen", True):
-        doc_plan = docgen.DocumentPlan(artifacts=[], wants_text=True)
+        doc_plan = docgen.RequestPlan(outputs=["text"], text_requested=True, artifacts=[])
     else:
         doc_plan = docgen.classify(question, outputs=s.validated_data.get("outputs"))
     overrides = s.validated_data.get("fields") or {}
@@ -1412,9 +1752,6 @@ def ask(request):
             return Response({"detail": f"Monthly question limit reached ({plan.monthly_ask_limit}). "
                                        "Upgrade your plan for more."}, status=402)
 
-    # Truncate what the audit trail keeps: signal without storing full PII text.
-    audit(request, "ask", f"[{mode or 'default'}] {question[:120]}")
-
     conversation = None
     if request.user.company_id:
         if conversation_id:
@@ -1435,6 +1772,7 @@ def ask(request):
         """Generate the requested documents and stream them as NDJSON events."""
         import time as _time
         rendered = docgen.build_artifacts(request.user, question, doc_plan, overrides)
+        source_tpl_ids = sorted({r["source_template_id"] for r in rendered if r.get("source_template_id")})
         for r in rendered:
             art = docgen.save_artifact(request.user, r)
             payload = {
@@ -1459,9 +1797,12 @@ def ask(request):
                 ChatMessage.objects.create(conversation=conversation, role="user",
                                            content=question)
                 summary = "\n\n---\n\n".join(r["content_md"] for r in rendered)
-                ChatMessage.objects.create(conversation=conversation, role="assistant",
-                                           content=summary[:20000])
+                ChatMessage.objects.create(
+                    conversation=conversation, role="assistant",
+                    content=summary[:20000], source_document_ids=json.dumps(source_tpl_ids),
+                )
         if emit_done:
+            audit(request, "ask", f"mode={mode or 'default'} templates={source_tpl_ids}")
             yield json.dumps({"type": "done"}) + "\n"
 
     def stream():
@@ -1473,11 +1814,24 @@ def ask(request):
             return
         template_rules = (docgen.TEMPLATE_SYSTEM_RULES
                           if (template_text and doc_plan.artifacts) else "")
-        yield from rag.stream_answer(
+        audited_ask = False
+        for line in rag.stream_answer(
             request.user, question, mode=mode, provider_override=provider,
             moderation_flags=moderation_flags, conversation=conversation,
             template_text=template_text, template_rules=template_rules,
-        )
+        ):
+            if not audited_ask:
+                try:
+                    evt = json.loads(line)
+                    if evt.get("type") == "sources":
+                        src_ids = evt.get("source_doc_ids") or []
+                        audit(request, "ask", f"mode={mode or 'default'} sources={src_ids}")
+                        audited_ask = True
+                except Exception:
+                    pass
+            yield line
+        if not audited_ask:
+            audit(request, "ask", f"mode={mode or 'default'} sources=[]")
         if doc_plan.artifacts:
             yield from artifact_events(False)
 
@@ -1529,9 +1883,20 @@ def conversation_detail(request, pk):
         conv.title = str((request.data or {}).get("title") or conv.title)[:120]
         conv.save(update_fields=["title"])
         return Response(ChatConversationSerializer(conv).data)
+    # Mask assistant messages whose cited source documents the user can no longer access.
+    serialized_msgs = []
+    for m, masked in rag.filter_conversation_messages_for_user(request.user, conv.messages.all()):
+        item = dict(ChatMessageSerializer(m).data)
+        if masked:
+            item["content"] = "[This answer referenced a document you no longer have access to.]"
+            item["sources"] = []
+            item["masked"] = True
+        else:
+            item["masked"] = False
+        serialized_msgs.append(item)
     return Response({
         "conversation": ChatConversationSerializer(conv).data,
-        "messages": ChatMessageSerializer(conv.messages.all(), many=True).data,
+        "messages": serialized_msgs,
     })
 
 
@@ -1615,9 +1980,19 @@ def users(request):
     s = UserCreateSerializer(data=request.data)
     s.is_valid(raise_exception=True)
     d = s.validated_data
-    if not full_admin:
-        if d["role"] == "admin" or d.get("is_dept_admin"):
-            return Response({"detail": "Department sub-admins cannot create admins."}, status=403)
+    raw_clearance = (d.get("clearance") or "").strip().lower()
+    dec = access.decide(
+        request.user, "manage_members",
+        context={
+            "new_role": d["role"],
+            "new_is_dept_admin": bool(d.get("is_dept_admin")),
+            "new_clearance": raw_clearance or None,
+            "new_department_id": d.get("department_id"),
+        },
+    )
+    if not dec.allowed:
+        audit(request, "add_user_denied", dec.reason_code, outcome="denied")
+        return Response({"detail": dec.rule_chain[-1], "reason_code": dec.reason_code}, status=403)
     if User.objects.filter(email__iexact=d["email"].strip()).exists():
         return Response(
             {"detail": "This email is already registered in Deskwise. Please enter a unique work "
@@ -1648,66 +2023,133 @@ def users(request):
     if is_dadmin and (d["role"] != "employee" or department is None):
         return Response({"detail": "Department sub-admins must have role='employee' and a department."}, status=400)
 
-    user = User.objects.create_user(
-        email=d["email"], password=d["password"],
-        full_name=d.get("full_name", ""), title=d.get("title", ""),
-        role=d["role"], is_dept_admin=is_dadmin, company=company, department=department,
-    )
+    reason = str(d.get("reason") or "").strip()[:200]
+    from django.db import transaction
+    with transaction.atomic():
+        user = User.objects.create_user(
+            email=d["email"], password=d["password"],
+            full_name=d.get("full_name", ""), title=d.get("title", ""),
+            role=d["role"], is_dept_admin=is_dadmin, clearance=raw_clearance,
+            company=company, department=department,
+        )
+        detail = f"{user.email} role={user.role} clearance={user.effective_clearance}"
+        if reason:
+            detail += f" reason={reason}"
+        audit(
+            request, "add_user", detail,
+            outcome="allowed", target_type="user", target_id=str(user.id), fail_closed=True,
+        )
     # New members verify on first sign-in flow; send them a welcome+verify mail.
     tok, raw = OneTimeToken.issue(user, "verify_email", minutes=60 * 24 * 3)
     _email_user(user, "Welcome to Deskwise",
                 f"Your workspace account is ready.\n\nVerify your email:\n"
                 f"{_frontend_url('/auth/verify?token=' + raw)}\n\n"
                 f"Then sign in with the email address your administrator provided.")
-    audit(request, "add_user", f"{user.email} ({user.role})")
     return Response(UserSerializer(user, context={"request": request}).data, status=201)
 
 
 @api_view(["PATCH", "DELETE"])
 @permission_classes([IsAdminOrDeptAdmin])
 def user_detail(request, pk):
-    """Edit (role/department/name/title/password) or remove a company member."""
+    """Edit (role/department/clearance/name/title/password/active) or remove a company member."""
     if pk == request.user.id and request.method == "DELETE":
         return Response({"detail": "You can't remove yourself."}, status=400)
     try:
         user = User.objects.get(pk=pk, company=request.user.company)
     except User.DoesNotExist:
         raise Http404
-    full_admin = bool(request.user.role == "admin" or _is_platform_level(request.user))
+    full_admin = access.is_company_admin(request.user)
     if not full_admin:
-        if user.department_id != request.user.department_id or user.role == "admin" or user.is_dept_admin:
-            return Response({"detail": "Department sub-admins can only manage non-admin members in their own department."},
+        if user.id == request.user.id or user.department_id != request.user.department_id or user.role == "admin" or user.is_dept_admin:
+            audit(request, "update_user_denied", f"user#{user.id} DENY_OUTSIDE_DEPARTMENT",
+                  outcome="denied", target_type="user", target_id=str(user.id))
+            return Response({"detail": "Department managers can only manage non-admin members in their own department."},
                             status=403)
+
+    def _is_last_active_admin(target_u: User) -> bool:
+        if target_u.role != "admin" or not target_u.is_active:
+            return False
+        other_admins = User.objects.filter(
+            company=request.user.company, role="admin", is_active=True,
+        ).exclude(pk=target_u.pk).count()
+        return other_admins == 0
+
     if request.method == "DELETE":
+        if _is_last_active_admin(user):
+            return Response({"detail": "Cannot remove the last active admin."}, status=400)
         email = user.email
-        user.delete()
-        audit(request, "remove_user", email)
+        uid = user.id
+        from django.db import transaction
+        with transaction.atomic():
+            audit(
+                request, "remove_user", email,
+                outcome="allowed", target_type="user", target_id=str(uid), fail_closed=True,
+            )
+            user.delete()
         return Response(status=204)
-    data = request.data
-    prev_role, prev_dept, prev_dadmin = user.role, user.department_id, user.is_dept_admin
+
+    data = request.data or {}
+    prev_role, prev_dept, prev_dadmin, prev_clr, prev_active = (
+        user.role, user.department_id, user.is_dept_admin, user.effective_clearance, user.is_active,
+    )
+
+    new_role = data.get("role") if "role" in data else user.role
+    if "role" in data and new_role not in ("admin", "employee", "viewer"):
+        return Response({"detail": "Invalid role."}, status=400)
+
+    new_clearance = user.clearance
+    if "clearance" in data:
+        raw_clr = str(data.get("clearance") or "").strip().lower()
+        if raw_clr not in ("", "standard", "internal", "confidential"):
+            return Response({"detail": "clearance must be standard, internal, confidential, or blank."}, status=400)
+        new_clearance = raw_clr
+
+    new_is_active = _parse_bool(data.get("is_active"), user.is_active) if "is_active" in data else user.is_active
+    new_dept_id = data.get("department_id") if "department_id" in data else user.department_id
+    new_is_dadmin = _parse_bool(data.get("is_dept_admin"), user.is_dept_admin) if "is_dept_admin" in data else user.is_dept_admin
+
+    # Guardrail: canonical access decision for member role/clearance/dept edits.
+    dec = access.decide(
+        request.user, "change_roles",
+        context={
+            "target_user": user,
+            "new_role": new_role if "role" in data else None,
+            "new_is_dept_admin": new_is_dadmin if "is_dept_admin" in data else None,
+            "new_clearance": new_clearance if ("clearance" in data and new_clearance) else None,
+            "new_department_id": new_dept_id if "department_id" in data else None,
+            "deactivate": (not new_is_active) if "is_active" in data else False,
+        },
+    )
+    if not dec.allowed:
+        audit(request, "update_user_denied", f"user#{user.id} {dec.reason_code}",
+              outcome="denied", target_type="user", target_id=str(user.id))
+        code = 400 if dec.reason_code == "DENY_SELF_DEMOTION" else 403
+        return Response({"detail": dec.rule_chain[-1], "reason_code": dec.reason_code}, status=code)
+
+    # Guardrail: cannot demote or deactivate the last active admin.
+    if _is_last_active_admin(user) and (new_role != "admin" or not new_is_active):
+        return Response({"detail": "Cannot demote or deactivate the last active admin."}, status=400)
+
     if "role" in data:
-        role = data.get("role")
-        if role not in ("admin", "employee", "viewer"):
-            return Response({"detail": "Invalid role."}, status=400)
-        if not full_admin and role == "admin":
-            return Response({"detail": "Department sub-admins cannot promote users to admin."}, status=403)
-        if user.id == request.user.id and role != "admin":
-            return Response({"detail": "You can't demote yourself."}, status=400)
-        user.role = role
+        user.role = new_role
+        if user.role != "employee":
+            user.is_dept_admin = False
     if "department_id" in data:
-        if not full_admin:
-            return Response({"detail": "Department sub-admins cannot reassign departments."}, status=403)
         dept_id = data.get("department_id")
-        user.department = (Department.objects.filter(pk=dept_id, company=request.user.company).first()
-                           if dept_id else None)
+        if dept_id:
+            dept = Department.objects.filter(pk=dept_id, company=request.user.company).first()
+            if dept is None:
+                return Response({"detail": "Department not found in this company."}, status=400)
+            user.department = dept
+        else:
+            user.department = None
+            user.is_dept_admin = False
     if "is_dept_admin" in data:
-        if not full_admin:
-            return Response({"detail": "Only company admins can assign department sub-admins."}, status=403)
-        val = data.get("is_dept_admin")
-        flag = val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes", "on")
-        if flag and (user.role != "employee" or user.department_id is None):
-            return Response({"detail": "Department sub-admins must be employees assigned to a department."}, status=400)
-        user.is_dept_admin = flag
+        if new_is_dadmin and (user.role != "employee" or user.department_id is None):
+            return Response({"detail": "Department managers must be employees assigned to a department."}, status=400)
+        user.is_dept_admin = new_is_dadmin
+    if "clearance" in data:
+        user.clearance = new_clearance
     if "full_name" in data:
         user.full_name = str(data.get("full_name") or "")[:200]
     if "title" in data:
@@ -1718,36 +2160,232 @@ def user_detail(request, pk):
             return Response({"detail": err}, status=400)
         user.set_password(str(data["password"]))
     if "is_active" in data:
-        user.is_active = bool(data.get("is_active"))
-    user.save()
+        user.is_active = new_is_active
+
+    reason = str(data.get("reason") or "").strip()[:200]
+    after_clr = user.effective_clearance
+    changes = []
+    if user.role != prev_role:
+        changes.append(f"role:{prev_role}->{user.role}")
+    if user.department_id != prev_dept:
+        changes.append(f"dept:{prev_dept}->{user.department_id}")
+    if user.is_dept_admin != prev_dadmin:
+        changes.append(f"dept_mgr:{prev_dadmin}->{user.is_dept_admin}")
+    if after_clr != prev_clr:
+        changes.append(f"clearance:{prev_clr}->{after_clr}")
+    if user.is_active != prev_active:
+        changes.append(f"active:{prev_active}->{user.is_active}")
+    if reason:
+        changes.append(f"reason={reason}")
+
+    from django.db import transaction
+    with transaction.atomic():
+        user.save()
+        detail = f"{user.email}" + (f" ({', '.join(changes)})" if changes else "")
+        audit(
+            request, "update_user", detail,
+            outcome="allowed", target_type="user", target_id=str(user.id), fail_closed=True,
+        )
+
     privilege_changed = (
         user.role != prev_role
         or user.department_id != prev_dept
         or user.is_dept_admin != prev_dadmin
+        or after_clr != prev_clr
+        or user.is_active != prev_active
     )
-    if data.get("password") or data.get("is_active") is False or privilege_changed:
+    if data.get("password") or not user.is_active or privilege_changed:
         revoke_user_refresh_tokens(user)
-    audit(request, "update_user", f"{user.email}")
     return Response(UserSerializer(user, context={"request": request}).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminOrDeptAdmin])
+def access_explain(request):
+    """Explain why a user can or cannot perform an action on a document.
+
+    Allowed for company admins (any user/doc in company) and department managers
+    (within their own department, non-restricted <= internal docs). Every call is audited.
+    """
+    _guard = _platform_admin_blocked(request)
+    if _guard:
+        return _guard
+    company = request.user.company
+    try:
+        user_id = int(request.query_params.get("user_id") or 0)
+        doc_id = int(request.query_params.get("document_id") or 0)
+    except (TypeError, ValueError):
+        return Response({"detail": "user_id and document_id integers are required."}, status=400)
+    action = str(request.query_params.get("action") or "view_ask").strip().lower()
+    include_unapproved = _parse_bool(request.query_params.get("include_unapproved"), False)
+
+    target_user = User.objects.select_related("company", "department").filter(pk=user_id, company=company).first()
+    doc = Document.objects.select_related("company", "department").filter(pk=doc_id, company=company).first()
+    if target_user is None or doc is None:
+        raise Http404
+
+    gate = access.decide(
+        request.user, "explain_access",
+        context={"target_user": target_user, "document": doc},
+    )
+    if not gate.allowed:
+        audit(
+            request, "access_explain", f"user#{user_id} doc#{doc_id} {gate.reason_code}",
+            outcome="denied", target_type="document", target_id=str(doc.id),
+        )
+        return Response({"detail": gate.rule_chain[-1], "reason_code": gate.reason_code}, status=403)
+
+    dec = access.decide(
+        target_user, action, doc,
+        context={"include_unapproved": include_unapproved, "include_external_shares": False},
+    )
+    audit(
+        request, "access_explain",
+        f"subject={target_user.email} action={action} doc#{doc.id} -> {dec.reason_code}",
+        outcome="allowed", target_type="document", target_id=str(doc.id), fail_closed=True,
+    )
+    caller_can_read_doc = access.decide(
+        request.user, "view_ask", doc, context={"include_unapproved": True},
+    ).allowed
+    return Response({
+        "user": {
+            "id": target_user.id,
+            "email": target_user.email,
+            "full_name": target_user.full_name,
+            "role": target_user.role,
+            "is_dept_admin": target_user.is_dept_admin,
+            "department_name": target_user.department.name if target_user.department_id else None,
+            "clearance": target_user.effective_clearance,
+        },
+        "document": {
+            "id": doc.id,
+            "filename": doc.filename if caller_can_read_doc else f"Restricted document #{doc.id}",
+            "access_scope": doc.access_scope,
+            "sensitivity": doc.sensitivity,
+            "status": doc.status,
+            "department_name": doc.department.name if doc.department_id else None,
+            "masked": not caller_can_read_doc,
+        },
+        "action": action,
+        **dec.to_dict(),
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminOrDeptAdmin])
+def member_effective_access(request, pk):
+    """Return effective document counts and lists for one member (read-only preview)."""
+    _guard = _platform_admin_blocked(request)
+    if _guard:
+        return _guard
+    company = request.user.company
+    target_user = User.objects.select_related("company", "department").filter(pk=pk, company=company).first()
+    if target_user is None:
+        raise Http404
+    gate = access.decide(request.user, "explain_access", context={"target_user": target_user})
+    if not gate.allowed:
+        audit(
+            request, "effective_access_view", f"user#{pk} {gate.reason_code}",
+            outcome="denied", target_type="user", target_id=str(pk),
+        )
+        return Response({"detail": gate.rule_chain[-1], "reason_code": gate.reason_code}, status=403)
+
+    total_docs = Document.objects.filter(company=company).count()
+    total_approved = Document.objects.filter(company=company, status="approved").count()
+    searchable_qs = access.accessible_documents_qs(
+        target_user, action="view_ask", include_unapproved=False, include_external_shares=False,
+    ).select_related("department")
+    workspace_qs = access.accessible_documents_qs(
+        target_user, action="view_ask", include_unapproved=True, include_external_shares=False,
+    ).select_related("department")
+    downloadable_ids = set(
+        access.accessible_documents_qs(
+            target_user, action="download", include_unapproved=True, include_external_shares=False,
+        ).values_list("id", flat=True)
+    )
+    searchable_ids = set(searchable_qs.values_list("id", flat=True))
+    caller_readable_ids = set(
+        access.accessible_documents_qs(
+            request.user, action="view_ask", include_unapproved=True, include_external_shares=False,
+        ).values_list("id", flat=True)
+    )
+
+    docs_list = []
+    for doc in workspace_qs.order_by("-updated_at")[:100]:
+        masked = doc.id not in caller_readable_ids
+        docs_list.append({
+            "id": doc.id,
+            "filename": f"Restricted document #{doc.id}" if masked else doc.filename,
+            "masked": masked,
+            "access_scope": doc.access_scope,
+            "sensitivity": doc.sensitivity,
+            "status": doc.status,
+            "department_name": doc.department.name if doc.department_id else None,
+            "can_search": doc.id in searchable_ids,
+            "can_download": doc.id in downloadable_ids,
+        })
+
+    audit(
+        request, "effective_access_view",
+        f"subject={target_user.email} searchable={len(searchable_ids)}/{total_approved}",
+        outcome="allowed", target_type="user", target_id=str(target_user.id),
+    )
+    return Response({
+        "user": UserSerializer(target_user, context={"request": request}).data,
+        "summary": {
+            "total_documents": total_docs,
+            "total_approved": total_approved,
+            "searchable_count": len(searchable_ids),
+            "workspace_visible_count": workspace_qs.count(),
+            "downloadable_count": len(downloadable_ids),
+        },
+        "documents": docs_list,
+    })
 
 
 @api_view(["GET"])
 @permission_classes([IsAdmin])
 def audit_log(request):
-    """The company's audit entries, paginated, with CSV export (?export=csv)."""
-    qs = AuditLog.objects.filter(company=request.user.company).order_by("-created_at")
+    """The company's tamper-evident audit entries, paginated, with streaming CSV export (?export=csv)."""
+    company = request.user.company
+    qs = AuditLog.objects.filter(company=company).order_by("-created_at", "-id")
     if request.query_params.get("export") == "csv":
         import csv as _csv
-        buf = io.StringIO()
-        w = _csv.writer(buf)
-        w.writerow(["created_at", "action", "detail", "ip", "user_id", "prev_hash", "entry_hash"])
-        for row in qs[:5000]:
-            w.writerow([
-                row.created_at.isoformat(), row.action, row.detail, row.ip,
-                row.user_id, row.prev_hash, row.entry_hash,
-            ])
-        resp = FileResponse(io.BytesIO(buf.getvalue().encode("utf-8")), as_attachment=True,
-                            filename=f"deskwise-audit-{timezone.localdate().isoformat()}.csv")
+
+        audit(
+            request, "audit_export", "csv",
+            outcome="allowed", target_type="company", target_id=str(company.id), fail_closed=True,
+        )
+
+        class _Echo:
+            def write(self, value):
+                return value
+
+        def _row_stream():
+            writer = _csv.writer(_Echo())
+            yield writer.writerow([
+                "created_at", "action", "outcome", "actor_id", "actor_email",
+                "target_type", "target_id", "detail", "ip", "hash_version",
+                "prev_hash", "entry_hash",
+            ]).encode("utf-8")
+            for row in qs.iterator(chunk_size=1000):
+                yield writer.writerow([
+                    row.created_at.isoformat(),
+                    _csv_safe(row.action),
+                    _csv_safe(row.outcome),
+                    row.actor_id if row.actor_id is not None else (row.user_id or ""),
+                    _csv_safe(row.actor_email),
+                    _csv_safe(row.target_type),
+                    _csv_safe(row.target_id),
+                    _csv_safe(row.detail),
+                    _csv_safe(row.ip),
+                    row.hash_version,
+                    row.prev_hash,
+                    row.entry_hash,
+                ]).encode("utf-8")
+
+        resp = StreamingHttpResponse(_row_stream(), content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = f'attachment; filename="deskwise-audit-{timezone.localdate().isoformat()}.csv"'
         return resp
     page = _paginate(request, qs, default_page_size=100)
     return Response({
@@ -1759,9 +2397,34 @@ def audit_log(request):
 @api_view(["GET"])
 @permission_classes([IsAdmin])
 def audit_verify(request):
-    """Verify tamper-evident SHA-256 hash chain across the company's audit log."""
-    valid, checked, broken_id = AuditLog.verify_chain(request.user.company)
-    return Response({"valid": valid, "checked": checked, "broken_id": broken_id})
+    """Verify tamper-evident SHA-256 hash chain across the company's audit log.
+
+    Pass `?format=certificate` to download a signed-metadata JSON verification certificate.
+    """
+    company = request.user.company
+    report = AuditLog.verify_chain_report(company)
+    payload = {
+        "valid": report["valid"],
+        "checked": report["checked"],
+        "broken_id": report["broken_id"],
+        "head_hash": report["head_hash"],
+        "verified_at": report["verified_at"],
+        "company_id": company.id,
+        "company_name": company.name,
+        "guarantee_note": (
+            "Tamper-evident, append-only SHA-256 hash chain with database triggers. "
+            "A database superuser with direct host access could still alter rows, "
+            "but verification fails unless the entire chain is recomputed; "
+            "external anchoring of head_hash provides independent verification."
+        ),
+    }
+    if _parse_bool(request.query_params.get("certificate"), False) or request.query_params.get("download") == "certificate":
+        resp = Response(payload)
+        resp["Content-Disposition"] = (
+            f'attachment; filename="deskwise-audit-certificate-{timezone.localdate().isoformat()}.json"'
+        )
+        return resp
+    return Response(payload)
 
 
 # --------------------------------------------------------- company settings
@@ -1875,7 +2538,7 @@ def platform_reports(request):
 
 # --------------------------------------------------------- company directory
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsEditor])
 @rate_limit("company_search", rate=20, per_seconds=60, key="ip")
 def company_search(request):
     _guard = _platform_admin_blocked(request) or _external_sharing_disabled(request)
@@ -1886,13 +2549,13 @@ def company_search(request):
     if not code:
         return Response({"detail": "Enter a company access code."}, status=400)
     company = Company.objects.filter(access_code__iexact=code).first()
-    if not company:
+    if not company or (company.id != request.user.company_id and not getattr(company, "enable_external_sharing", True)):
         return Response({"detail": "No registered company uses that access code."}, status=404)
     return Response(CompanyDirectorySerializer(company).data)
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsEditor])
 @rate_limit("company_members", rate=20, per_seconds=60, key="ip")
 def company_members(request, access_code):
     _guard = _platform_admin_blocked(request) or _external_sharing_disabled(request)
@@ -1901,7 +2564,7 @@ def company_members(request, access_code):
     """List selectable enterprise members for a company found by access code.
     Rate-limited so the directory cannot be enumerated at speed."""
     company = Company.objects.filter(access_code__iexact=access_code.strip()).first()
-    if not company:
+    if not company or (company.id != request.user.company_id and not getattr(company, "enable_external_sharing", True)):
         return Response({"detail": "No registered company uses that access code."}, status=404)
     users = User.objects.filter(company=company, is_active=True).exclude(role="public").order_by("full_name", "email")
     return Response(MemberDirectorySerializer(users, many=True).data)
@@ -1914,23 +2577,116 @@ def document_shares(request, pk):
     _guard = _platform_admin_blocked(request)
     if _guard:
         return _guard
-    """List (GET) or grant (POST {access_code, user_id}) access to ONE document
-    for ONE user. Only the owning company can manage a document's shares."""
+    """List (GET) or grant (POST) access to ONE document for ONE user.
+
+    Only the owning company's authorized document manager (uploader, own-dept manager,
+    or admin with break-glass on restricted docs) may list or create grants/shares.
+    """
     doc = _get_doc(request, pk)
+    read_ok = access.decide(request.user, "view_ask", doc, context={"include_unapproved": True}).allowed
+    mgmt_dec = access.decide(request.user, "manage_grants", doc)
+    if not mgmt_dec.allowed:
+        audit(request, "share_denied", f"{_safe_doc_label(doc)} {mgmt_dec.reason_code}",
+              outcome="denied", target_type="document", target_id=str(doc.id))
+        if not read_ok and not access.is_company_admin(request.user):
+            raise Http404
+        return Response({"detail": mgmt_dec.rule_chain[-1], "reason_code": mgmt_dec.reason_code}, status=403)
+
     if request.method == "GET":
         shares = DocumentShare.objects.filter(document=doc).select_related(
             "shared_with_user", "shared_with_user__company"
         )
-        return Response(DocumentShareSerializer(shares, many=True).data)
+        data = DocumentShareSerializer(shares, many=True).data
+        if _parse_bool(request.query_params.get("include_internal"), False):
+            grants = DocumentAccess.objects.filter(
+                document=doc, user__company_id=doc.company_id,
+            ).select_related("user", "granted_by")
+            return Response({
+                "external_shares": data,
+                "internal_grants": [
+                    {
+                        "id": g.id,
+                        "user_id": g.user_id,
+                        "email": g.user.email,
+                        "full_name": g.user.full_name,
+                        "role": g.user.role,
+                        "clearance": g.user.effective_clearance,
+                        "can_download": g.can_download,
+                        "override_clearance": g.override_clearance,
+                        "grant_reason": g.grant_reason,
+                        "is_break_glass": g.is_break_glass,
+                        "granted_by": g.granted_by.email if g.granted_by_id else None,
+                    }
+                    for g in grants
+                ],
+            })
+        return Response(data)
 
+    target, error = share_target(request)
+    if error:
+        return Response({"detail": error}, status=400)
+
+    can_download = _parse_bool(request.data.get("can_download"), True)
+
+    # Branch A: Internal access grant (same company -> DocumentAccess only)
+    if target.company_id == doc.company_id:
+        override_clr = _parse_bool(request.data.get("override_clearance"), False)
+        grant_reason = str(request.data.get("grant_reason") or request.data.get("reason") or "").strip()[:300]
+        grant_dec = access.decide(
+            request.user, "manage_grants", doc,
+            context={"override_clearance": override_clr, "grant_reason": grant_reason},
+        )
+        if not grant_dec.allowed:
+            audit(request, "grant_access_denied", f"{_safe_doc_label(doc)} {grant_dec.reason_code}",
+                  outcome="denied", target_type="document", target_id=str(doc.id))
+            code = 400 if grant_dec.reason_code == "DENY_REASON_REQUIRED" else 403
+            return Response({"detail": grant_dec.rule_chain[-1], "reason_code": grant_dec.reason_code}, status=code)
+        from django.db import transaction
+        with transaction.atomic():
+            grant_obj, _ = DocumentAccess.objects.update_or_create(
+                document=doc,
+                user=target,
+                defaults={
+                    "can_download": can_download,
+                    "override_clearance": override_clr,
+                    "grant_reason": grant_reason,
+                    "granted_by": request.user,
+                },
+            )
+            detail = (
+                f"{_safe_doc_label(doc)} -> {target.email} "
+                f"(download={can_download}, override_clearance={override_clr}"
+                + (f", reason={grant_reason[:120]}" if grant_reason else "")
+                + ")"
+            )
+            audit(
+                request, "grant_access", detail,
+                outcome="allowed", target_type="document", target_id=str(doc.id), fail_closed=True,
+            )
+        return Response({
+            "id": grant_obj.id,
+            "user_id": target.id,
+            "email": target.email,
+            "full_name": target.full_name,
+            "can_download": grant_obj.can_download,
+            "override_clearance": grant_obj.override_clearance,
+            "grant_reason": grant_obj.grant_reason,
+            "internal": True,
+        }, status=201)
+
+    # Branch B: External share (different company -> DocumentShare only)
     ext_guard = _external_sharing_disabled(request)
     if ext_guard:
         return ext_guard
-    if doc.status != "approved":
-        return Response({"detail": "Only approved documents can be shared externally."}, status=400)
-    allow_pii_raw = request.data.get("allow_pii", False)
-    allow_pii = allow_pii_raw if isinstance(allow_pii_raw, bool) else str(allow_pii_raw).lower() in ("1", "true", "yes", "on")
-    if doc.contains_pii and not (request.user.role == "admin" and allow_pii):
+    ext_dec = access.decide(request.user, "share_externally", doc)
+    if not ext_dec.allowed:
+        audit(request, "share_denied", f"{_safe_doc_label(doc)} {ext_dec.reason_code}",
+              outcome="denied", target_type="document", target_id=str(doc.id))
+        code = 400 if ext_dec.reason_code == "DENY_UNAPPROVED_STATUS" else 403
+        return Response({"detail": ext_dec.rule_chain[-1], "reason_code": ext_dec.reason_code}, status=code)
+
+    allow_pii = _parse_bool(request.data.get("allow_pii"), False)
+    if doc.contains_pii and not (access.is_company_admin(request.user) and allow_pii):
         return Response(
             {"detail": "Document contains sensitive PII/credentials; an admin must confirm allow_pii=true to share externally."},
             status=403,
@@ -1955,24 +2711,20 @@ def document_shares(request, pk):
             return Response({"detail": "expires_at must be in the future."}, status=400)
         expires_at = parsed
 
-    target, error = share_target(request)
-    if error:
-        return Response({"detail": error}, status=400)
-    can_download_raw = request.data.get("can_download", True)
-    can_download = can_download_raw if isinstance(can_download_raw, bool) else str(can_download_raw).lower() in ("1", "true", "yes", "on")
-    access, _ = DocumentAccess.objects.update_or_create(
-        document=doc, user=target,
-        defaults={"can_download": can_download},
-    )
-    share, _ = DocumentShare.objects.update_or_create(
-        document=doc, shared_with_user=target,
-        defaults={
-            "shared_by": request.user,
-            "can_download": access.can_download,
-            "expires_at": expires_at,
-        },
-    )
-    audit(request, "share", f"{doc.filename} -> {target.email} ({target.company.name})")
+    from django.db import transaction
+    with transaction.atomic():
+        share, _ = DocumentShare.objects.update_or_create(
+            document=doc, shared_with_user=target,
+            defaults={
+                "shared_by": request.user,
+                "can_download": can_download,
+                "expires_at": expires_at,
+            },
+        )
+        audit(
+            request, "share", f"{_safe_doc_label(doc)} -> {target.email} ({target.company.name})",
+            outcome="allowed", target_type="document", target_id=str(doc.id), fail_closed=True,
+        )
     return Response(DocumentShareSerializer(share).data, status=201)
 
 
@@ -1982,11 +2734,24 @@ def document_share_detail(request, pk, user_id):
     _guard = _platform_admin_blocked(request)
     if _guard:
         return _guard
-    """Revoke one user's access to a document."""
+    """Revoke one user's access grant or external share on a document."""
     doc = _get_doc(request, pk)
-    DocumentShare.objects.filter(document=doc, shared_with_user_id=user_id).delete()
-    DocumentAccess.objects.filter(document=doc, user_id=user_id).delete()
-    audit(request, "unshare", f"{doc.filename} (user {user_id})")
+    read_ok = access.decide(request.user, "view_ask", doc, context={"include_unapproved": True}).allowed
+    mgmt_dec = access.decide(request.user, "manage_grants", doc)
+    if not mgmt_dec.allowed:
+        audit(request, "unshare_denied", f"{_safe_doc_label(doc)} {mgmt_dec.reason_code}",
+              outcome="denied", target_type="document", target_id=str(doc.id))
+        if not read_ok and not access.is_company_admin(request.user):
+            raise Http404
+        return Response({"detail": mgmt_dec.rule_chain[-1], "reason_code": mgmt_dec.reason_code}, status=403)
+    from django.db import transaction
+    with transaction.atomic():
+        DocumentShare.objects.filter(document=doc, shared_with_user_id=user_id).delete()
+        DocumentAccess.objects.filter(document=doc, user_id=user_id).delete()
+        audit(
+            request, "unshare", f"{_safe_doc_label(doc)} (user {user_id})",
+            outcome="allowed", target_type="document", target_id=str(doc.id), fail_closed=True,
+        )
     return Response(status=204)
 
 
@@ -1998,14 +2763,21 @@ def shared_with_me(request):
         return _guard
     """Documents from OTHER companies that were shared with the current user."""
     now = timezone.now()
+    allowed_ext_ids = set(
+        access.accessible_documents_qs(
+            request.user, action="view_ask", include_unapproved=False, include_external_shares=True,
+        )
+        .exclude(company_id=request.user.company_id)
+        .values_list("id", flat=True)
+    )
+    if not allowed_ext_ids:
+        return Response([])
     shares = (
         DocumentShare.objects.filter(
             shared_with_user=request.user,
-            document__status="approved",
-            document__company__enable_external_sharing=True,
+            document_id__in=allowed_ext_ids,
         )
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
-        .exclude(document__company=request.user.company)
         .select_related("document", "document__company", "shared_by")
         .order_by("-created_at")
     )
@@ -2071,19 +2843,22 @@ def llm_config(request):
                 "has_api_key": effective["key_source"] in ("platform_env", "row", "company"),
             })
         return Response(data)
-    if request.method == "DELETE" and is_override:
+    if request.method == "DELETE":
+        if not is_override:
+            return Response({"detail": "Platform default LLM configuration cannot be deleted."}, status=400)
         cfg.delete()
-        audit(request, "llm_config_reset", "company override removed")
+        audit(request, "llm_config_reset", "company override removed", fail_closed=True)
         return Response(LLMConfigSerializer(LLMConfig.load()).data)
     s = LLMConfigSerializer(cfg, data=request.data, partial=True)
     s.is_valid(raise_exception=True)
     s.save()
-    audit(request, "llm_config", f"{'company' if is_override else 'platform'} provider={cfg.provider} model={cfg.chat_model}")
+    audit(request, "llm_config", f"{'company' if is_override else 'platform'} provider={cfg.provider} model={cfg.chat_model}", fail_closed=True)
     return Response(LLMConfigSerializer(cfg).data)
 
 
 @api_view(["POST"])
 @permission_classes([IsAdmin])
+@rate_limit("llm_test", rate=10, per_seconds=60, key="user")
 def llm_test(request):
     """Ping the currently-configured provider with a tiny prompt."""
     company = getattr(request.user, "company", None)
@@ -2136,17 +2911,26 @@ def departments(request):
 @api_view(["DELETE"])
 @permission_classes([IsAdmin])
 def department_detail(request, pk):
-    """Delete a department; members keep working, department docs become company-wide? No —
-    they are re-scoped to 'restricted' to the uploader to stay safe."""
+    """Delete a department; department docs are re-scoped to 'restricted' (never company-wide)
+    and affected members lose department-manager status with immediate session revocation."""
     try:
         dept = Department.objects.get(pk=pk, company=request.user.company)
     except Department.DoesNotExist:
         raise Http404
     name = dept.name
-    Document.objects.filter(department=dept).update(department=None, access_scope="company")
-    User.objects.filter(department=dept).update(department=None)
-    dept.delete()
-    audit(request, "department_remove", name)
+    dept_id = dept.id
+    affected_users = list(User.objects.filter(department=dept))
+    from django.db import transaction
+    with transaction.atomic():
+        Document.objects.filter(department=dept).update(department=None, access_scope="restricted")
+        User.objects.filter(department=dept).update(department=None, is_dept_admin=False)
+        dept.delete()
+        audit(
+            request, "department_remove", name,
+            outcome="allowed", target_type="department", target_id=str(dept_id), fail_closed=True,
+        )
+    for u in affected_users:
+        revoke_user_refresh_tokens(u)
     return Response(status=204)
 
 
@@ -2279,9 +3063,14 @@ def analytics(request):
         "down": ChatMessage.objects.filter(
             conversation__company=company, rating=-1, created_at__gte=since).count(),
     }
-    top_docs = list(
-        company.documents.order_by("-downloads").values("filename", "downloads")[:10]
-    )
+    readable_ids = set(visible_documents(request.user).values_list("id", flat=True))
+    top_docs = [
+        {
+            "filename": d.filename if d.id in readable_ids else f"Restricted document #{d.id}",
+            "downloads": d.downloads,
+        }
+        for d in company.documents.order_by("-downloads")[:10]
+    ]
     # Monthly ask usage vs the plan quota (for the usage meter).
     month_start = timezone.localtime().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     month_asks = logs.filter(created_at__gte=month_start).count()
@@ -2385,12 +3174,13 @@ def plans(request):
 def billing_status(request):
     """Return Stripe setup status and company's current subscription."""
     company = getattr(request.user, "company", None)
+    is_adm = access.is_company_admin(request.user)
     return Response({
         "has_stripe": billing.is_stripe_configured(),
-        "stripe_publishable_key": getattr(settings, "STRIPE_PUBLISHABLE_KEY", ""),
+        "stripe_publishable_key": getattr(settings, "STRIPE_PUBLISHABLE_KEY", "") if is_adm else "",
         "plan": PlanSerializer(company.plan).data if company and company.plan else None,
-        "stripe_customer_id": company.stripe_customer_id if company else "",
-        "stripe_subscription_id": company.stripe_subscription_id if company else "",
+        "stripe_customer_id": (company.stripe_customer_id if (company and is_adm) else ""),
+        "stripe_subscription_id": (company.stripe_subscription_id if (company and is_adm) else ""),
         "is_subscribed": bool(company and company.stripe_subscription_id),
     })
 
@@ -2627,7 +3417,7 @@ def attendance_me(request):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAdmin])
 def attendance_qr(request):
     """Return the attendance check-in target plus an inline SVG QR when the
     optional `qrcode` library is installed.
@@ -2826,11 +3616,19 @@ def _artifact_payload(art):
 
 
 def _owned_artifact(request, pk):
-    """Artifacts are private to the user who generated them and their tenant."""
+    """Artifacts are private to the user who generated them and require live access
+    to any uploaded source template used to generate them."""
     try:
-        return GeneratedArtifact.objects.get(pk=pk, user=request.user)
+        art = GeneratedArtifact.objects.get(pk=pk, user=request.user)
     except GeneratedArtifact.DoesNotExist:
         raise Http404
+    if art.source_template_id:
+        still_allowed = access.accessible_documents_qs(
+            request.user, action="view_ask", include_unapproved=False, include_external_shares=False,
+        ).filter(pk=art.source_template_id).exists()
+        if not still_allowed:
+            raise Http404
+    return art
 
 
 @api_view(["GET"])
@@ -2991,12 +3789,21 @@ def unified_search(request):
 
     artifact_hits = []
     if company and getattr(company, "enable_docgen", True):
+        live_doc_ids = set(
+            access.accessible_documents_qs(
+                request.user, action="view_ask", include_unapproved=False, include_external_shares=False,
+            ).values_list("id", flat=True)
+        )
         arts = (
             GeneratedArtifact.objects.filter(company=company, user=request.user)
             .filter(Q(title__icontains=q) | Q(content_md__icontains=q))
             .order_by("-created_at")[:20]
         )
-        artifact_hits = [_artifact_payload(a) for a in arts]
+        artifact_hits = [
+            _artifact_payload(a)
+            for a in arts
+            if not a.source_template_id or a.source_template_id in live_doc_ids
+        ]
 
     return Response({
         "query": q,
@@ -3048,17 +3855,24 @@ def admin_governance(request):
         })
 
     chain_valid, chain_checked, chain_broken_id = AuditLog.verify_chain(company)
+    readable_ids = set(visible_documents(request.user).values_list("id", flat=True))
+
+    def _safe_doc_list(qs_docs):
+        return [
+            DocumentSerializer(d).data if d.id in readable_ids else _masked_doc_payload(d)
+            for d in qs_docs
+        ]
 
     return Response({
         "pending_review_count": Document.objects.filter(company=company, status="in_review").count(),
-        "pending_reviews": DocumentSerializer(pending_docs, many=True).data,
+        "pending_reviews": _safe_doc_list(pending_docs),
         "pii_document_count": Document.objects.filter(company=company, contains_pii=True).count(),
-        "pii_documents": DocumentSerializer(pii_docs, many=True).data,
+        "pii_documents": _safe_doc_list(pii_docs),
         "legal_hold_count": Document.objects.filter(company=company, legal_hold=True).count(),
-        "legal_hold_documents": DocumentSerializer(held_docs, many=True).data,
+        "legal_hold_documents": _safe_doc_list(held_docs),
         "stale_threshold_days": stale_days,
         "stale_document_count": Document.objects.filter(company=company, status="approved", updated_at__lt=stale_cutoff).count(),
-        "stale_documents": DocumentSerializer(stale_docs, many=True).data,
+        "stale_documents": _safe_doc_list(stale_docs),
         "expiring_shares": DocumentShareSerializer(expiring_shares, many=True).data,
         "expired_share_count": expired_count,
         "mandatory_announcements": mandatory_anns,

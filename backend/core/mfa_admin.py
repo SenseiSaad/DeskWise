@@ -7,9 +7,26 @@ member whose session has not completed the TOTP check to /admin/mfa-verify/
 below are plain Django views with session CSRF, registered before
 admin.site.urls so they win the /admin/mfa-* paths.
 """
+from django.core.cache import cache
+from django.http import HttpResponse
 from django.shortcuts import redirect, render
 
 from . import mfa
+from .ratelimit import _client_ip
+
+
+def _mfa_rate_limited(request, scope: str, limit: int = 8, window: int = 300) -> bool:
+    """Rate-limit POST attempts against Django /admin/mfa-* endpoints."""
+    from django.conf import settings
+    if not getattr(settings, "RATELIMIT_ENABLED", True):
+        return False
+    key = f"rl:admin_mfa:{scope}:{_client_ip(request)}:{getattr(request.user, 'pk', 'anon')}"
+    try:
+        count = cache.get(key, 0) + 1
+        cache.set(key, count, timeout=window)
+        return count > limit
+    except Exception:
+        return False
 
 
 class AdminMFAMiddleware:
@@ -53,6 +70,8 @@ def admin_mfa_enroll(request):
     if user.mfa_enabled:
         return redirect("/admin/mfa-verify/")
     if request.method == "POST":
+        if _mfa_rate_limited(request, "enroll"):
+            return HttpResponse("Too many verification attempts. Please wait a few minutes.", status=429)
         secret = request.session.get("mfa_enroll_secret", "")
         if secret and mfa.verify_code(secret, request.POST.get("code", "")):
             user.mfa_secret = secret
@@ -81,6 +100,8 @@ def admin_mfa_verify(request):
         return redirect("/admin/mfa-enroll/")
     error = ""
     if request.method == "POST":
+        if _mfa_rate_limited(request, "verify"):
+            return HttpResponse("Too many verification attempts. Please wait a few minutes.", status=429)
         if mfa.verify_code(user.mfa_secret, request.POST.get("code", "")):
             return _finish(request, request.GET.get("next"))
         error = "That code did not match. Wait for the next code and try again."

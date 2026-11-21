@@ -73,9 +73,23 @@ class ChunkAdmin(admin.ModelAdmin):
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "company", "user", "action", "detail", "ip")
-    list_filter = ("action", "company")
-    search_fields = ("detail",)
+    list_display = ("created_at", "company", "actor_email", "action", "outcome", "target_type", "target_id", "ip")
+    list_filter = ("action", "outcome", "company")
+    search_fields = ("actor_email", "detail", "target_id")
+    readonly_fields = (
+        "company", "user", "actor_id", "actor_email", "action", "outcome",
+        "target_type", "target_id", "detail", "ip", "hash_version",
+        "prev_hash", "entry_hash", "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(AskLog)
@@ -83,7 +97,7 @@ class AskLogAdmin(admin.ModelAdmin):
     list_display = ("created_at", "company", "user", "mode", "provider",
                     "chunks_found", "answered", "flagged")
     list_filter = ("company", "mode", "flagged")
-    search_fields = ("question",)
+    exclude = ("question",)
 
 
 @admin.register(ChatConversation)
