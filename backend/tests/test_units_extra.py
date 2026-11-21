@@ -160,7 +160,7 @@ def test_storage_save_uploaded_file_returns_path(tmp_path):
     path = storage.save_uploaded_file("co/file.txt",
                                       SimpleUploadedFile("file.txt", b"data"),
                                       base_dir=str(tmp_path))
-    assert storage.exists(path)
+    assert storage.exists(path, base_dir=str(tmp_path))
 
 
 # ------------------------------------------------------------------- rag

@@ -33,13 +33,16 @@ def test_s3_client_configuration(settings):
 
     with patch("boto3.client") as mock_boto:
         storage._s3_client()
-        mock_boto.assert_called_once_with(
-            "s3",
-            region_name="eu-west-1",
-            endpoint_url="https://s3.custom.endpoint",
-            aws_access_key_id="test-key",
-            aws_secret_access_key="test-secret",
-        )
+        mock_boto.assert_called_once()
+        args, kwargs = mock_boto.call_args
+        assert args == ("s3",)
+        assert kwargs["region_name"] == "eu-west-1"
+        assert kwargs["endpoint_url"] == "https://s3.custom.endpoint"
+        assert kwargs["aws_access_key_id"] == "test-key"
+        assert kwargs["aws_secret_access_key"] == "test-secret"
+        # Custom S3 endpoints (Neon/R2/MinIO) attach SigV4 path-style Config (Decision D-08).
+        assert kwargs["config"].signature_version == "s3v4"
+        assert kwargs["config"].s3 == {"addressing_style": "path"}
 
 
 def test_resolve_local_path_empty(settings, tmp_path):
@@ -151,7 +154,7 @@ def test_generate_presigned_put(settings):
         mock_s3.generate_presigned_url.assert_called_once_with(
             "put_object",
             Params={"Bucket": "deskwise-bucket", "Key": "uploads/bigfile.bin", "ContentType": "application/pdf", "ContentLength": 5000000},
-            ExpiresIn=900,
+            ExpiresIn=300,
         )
 
 

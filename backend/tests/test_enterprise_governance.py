@@ -401,9 +401,51 @@ class EnterpriseGovernanceScenariosTest(APITestCase):
         csv_body = b"".join(csv_res.streaming_content).decode("utf-8")
         self.assertIn("prev_hash,entry_hash", csv_body)
 
-        # Simulate rogue SQL tampering on an audit row
+        # ORM update is blocked by Phase F append-only enforcement; simulate a rogue DB
+        # superuser bypassing the trigger directly in SQL (Decision D-07) to confirm hash verification catches it.
         target_row = AuditLog.objects.filter(company=self.medcore).order_by("id").first()
-        AuditLog.objects.filter(pk=target_row.pk).update(detail="TAMPERED_BY_ROGUE_ADMIN")
+        with self.assertRaises(PermissionError):
+            AuditLog.objects.filter(pk=target_row.pk).update(detail="BLOCKED_BY_ORM")
+        with connection.cursor() as cur:
+            if connection.vendor == "sqlite":
+                cur.execute("DROP TRIGGER IF EXISTS core_auditlog_no_update;")
+                cur.execute(
+                    "UPDATE core_auditlog SET detail = %s WHERE id = %s",
+                    ["TAMPERED_BY_ROGUE_ADMIN", target_row.pk],
+                )
+                cur.execute(
+                    """
+                    CREATE TRIGGER core_auditlog_no_update
+                    BEFORE UPDATE ON core_auditlog
+                    FOR EACH ROW
+                    WHEN NOT (
+                        OLD.user_id IS NOT NULL AND NEW.user_id IS NULL
+                        AND OLD.company_id = NEW.company_id
+                        AND OLD.actor_id IS NEW.actor_id
+                        AND OLD.actor_email = NEW.actor_email
+                        AND OLD.action = NEW.action
+                        AND OLD.outcome = NEW.outcome
+                        AND OLD.target_type = NEW.target_type
+                        AND OLD.target_id = NEW.target_id
+                        AND OLD.detail = NEW.detail
+                        AND OLD.ip = NEW.ip
+                        AND OLD.hash_version = NEW.hash_version
+                        AND OLD.prev_hash = NEW.prev_hash
+                        AND OLD.entry_hash = NEW.entry_hash
+                        AND OLD.created_at = NEW.created_at
+                    )
+                    BEGIN
+                        SELECT RAISE(ABORT, 'AuditLog is append-only; updates are forbidden');
+                    END;
+                    """
+                )
+            else:
+                cur.execute("ALTER TABLE core_auditlog DISABLE TRIGGER core_auditlog_no_update;")
+                cur.execute(
+                    "UPDATE core_auditlog SET detail = %s WHERE id = %s",
+                    ["TAMPERED_BY_ROGUE_ADMIN", target_row.pk],
+                )
+                cur.execute("ALTER TABLE core_auditlog ENABLE TRIGGER core_auditlog_no_update;")
 
         v_bad = adm.get("/api/admin/audit/verify").json()
         self.assertFalse(v_bad["valid"])

@@ -25,6 +25,20 @@ def _isolated_storage(settings, tmp_path):
     (tmp_path / "staticfiles").mkdir(parents=True, exist_ok=True)
 
 
+@pytest.fixture(autouse=True)
+def _purge_audit_before_transactional_flush(request):
+    """Purge AuditLog rows via the official AuditLog.purge_for_company() path before
+    Django's TransactionTestCase flush runs so the append-only SQLite/Postgres trigger
+    remains strictly enforced without blocking pytest transactional_db teardown."""
+    yield
+    marker = request.node.get_closest_marker("django_db")
+    if marker and (marker.kwargs.get("transaction") or "transactional_db" in request.fixturenames):
+        from core.models import AuditLog, Company
+        for company in Company.objects.all():
+            if AuditLog.objects.filter(company=company).exists():
+                AuditLog.purge_for_company(company, reason="pytest transactional_db teardown")
+
+
 @pytest.fixture
 def api():
     return APIClient()

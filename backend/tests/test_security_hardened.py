@@ -215,14 +215,15 @@ def test_scope_change_and_delete_need_admin_or_uploader(auth_client, make_compan
                                   format="json").status_code == 403
     assert colleague_client.delete(f"/api/documents/{doc.id}").status_code == 403
 
-    # The uploader (an employee) CAN manage their own document.
+    # The uploader (an employee) CAN tighten their own document (company -> restricted),
+    # but per D-05 widening back (restricted -> company) requires a manager or admin.
     uploader_client = auth_client(uploader)
     assert uploader_client.patch(f"/api/documents/{doc.id}", {"access_scope": "restricted"},
                                  format="json").status_code == 200
     assert uploader_client.patch(f"/api/documents/{doc.id}", {"access_scope": "company"},
-                                 format="json").status_code == 200
+                                 format="json").status_code == 403
 
-    # Admins can do both; viewers can do neither.
+    # Admins can widen via break-glass and delete; viewers can do neither.
     assert auth_client(admin).delete(f"/api/documents/{doc.id}").status_code == 204
 
 

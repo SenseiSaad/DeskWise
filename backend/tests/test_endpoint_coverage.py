@@ -111,7 +111,8 @@ def test_departments_crud_and_delete_rescopes(company_admin):
                                   department_id=dept_id)
     assert client.delete(f"/api/admin/departments/{dept_id}").status_code == 204
     doc.refresh_from_db()
-    assert doc.access_scope == "company" and doc.department_id is None
+    # Decision D-11 / F-05: deleting a department MUST restrict its docs, never widen to company-wide.
+    assert doc.access_scope == "restricted" and doc.department_id is None
 
 
 def test_announcements_crud(company_admin):

@@ -94,14 +94,14 @@ def test_handle_webhook_invalid_signature(settings):
 
 
 def test_handle_webhook_dev_json_parse(settings):
+    # Decision D-12 / F-15: unsigned webhooks are ALWAYS rejected even without STRIPE_WEBHOOK_SECRET.
     settings.STRIPE_SECRET_KEY = "sk_test_123"
     settings.STRIPE_WEBHOOK_SECRET = ""
 
-    # Invalid JSON
-    with pytest.raises(ValueError, match="Invalid webhook JSON payload"):
+    with pytest.raises(ValueError, match="Missing Stripe-Signature header"):
         billing.handle_webhook(b"not-json", sig_header=None)
 
-    # Valid JSON, subscription updated
+    # Signed subscription updated event succeeds
     company = Company.objects.create(name="Sub Update Co", slug="sub-update-co", stripe_subscription_id="sub_live_999")
     payload = {
         "type": "customer.subscription.updated",
@@ -113,14 +113,15 @@ def test_handle_webhook_dev_json_parse(settings):
             }
         },
     }
-    res = billing.handle_webhook(json.dumps(payload).encode("utf-8"), sig_header=None)
+    with patch("stripe.Webhook.construct_event", return_value=payload):
+        res = billing.handle_webhook(json.dumps(payload).encode("utf-8"), sig_header="t=1,v1=ok")
     assert res["status"] == "success"
     assert res["event"] == "customer.subscription.updated"
 
 
 def test_handle_webhook_missing_company(settings):
     settings.STRIPE_SECRET_KEY = "sk_test_123"
-    settings.STRIPE_WEBHOOK_SECRET = ""
+    settings.STRIPE_WEBHOOK_SECRET = "whsec_test"
     payload = {
         "type": "checkout.session.completed",
         "data": {
@@ -130,5 +131,6 @@ def test_handle_webhook_missing_company(settings):
             }
         },
     }
-    res = billing.handle_webhook(json.dumps(payload).encode("utf-8"), sig_header=None)
+    with patch("stripe.Webhook.construct_event", return_value=payload):
+        res = billing.handle_webhook(json.dumps(payload).encode("utf-8"), sig_header="t=1,v1=ok")
     assert res["status"] == "success"
