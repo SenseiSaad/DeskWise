@@ -3,6 +3,9 @@ import { ShieldCheck } from 'lucide-react'
 import { Logo } from './logo'
 import { ThemeToggle } from './theme-toggle'
 
+// Set NEXT_PUBLIC_RELEASE_STAGE=ga in Vercel/env to hide the beta badge without code changes.
+const IS_BETA = (process.env.NEXT_PUBLIC_RELEASE_STAGE ?? 'beta').toLowerCase() !== 'ga'
+
 const COLUMNS: { title: string; links: { href: string; label: string }[] }[] = [
   {
     title: 'Platform',
@@ -49,6 +52,11 @@ export function SiteFooter() {
               </span>
               <span className="rounded-full border border-border px-2.5 py-1">USD pricing</span>
               <span className="rounded-full border border-border px-2.5 py-1">Local AI ready</span>
+              {IS_BETA && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-1 font-medium text-accent">
+                  <span className="size-1.5 rounded-full bg-accent" aria-hidden /> Public Beta · Iterating
+                </span>
+              )}
             </div>
           </div>
 

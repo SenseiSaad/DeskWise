@@ -5,6 +5,9 @@ import Link from 'next/link'
 import { ArrowRight, Check, Sparkles } from 'lucide-react'
 import { ChatMockup } from './mockups'
 
+// Set NEXT_PUBLIC_RELEASE_STAGE=ga in Vercel/env to hide the beta badge without code changes.
+const IS_BETA = (process.env.NEXT_PUBLIC_RELEASE_STAGE ?? 'beta').toLowerCase() !== 'ga'
+
 export function Hero() {
   const [step, setStep] = useState(3)
   const [isVisible, setIsVisible] = useState(false)
@@ -43,11 +46,21 @@ export function Hero() {
       <div className="container-page relative">
         <div className="grid items-center gap-16 lg:grid-cols-2 lg:gap-20">
           <div className="max-w-2xl">
-            <div className={`transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+            <div className={`flex flex-wrap items-center gap-2.5 transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
               <div className="eyebrow">
                 <Sparkles className="size-3.5" aria-hidden />
                 AI assistant for your company documents
               </div>
+              {IS_BETA && (
+                <span
+                  role="status"
+                  title="Deskwise is in final beta testing and actively iterating based on early feedback."
+                  className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent"
+                >
+                  <span className="size-1.5 rounded-full bg-accent" aria-hidden />
+                  Public Beta · Final testing
+                </span>
+              )}
             </div>
             
             <h1 
