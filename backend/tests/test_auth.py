@@ -246,7 +246,7 @@ def test_email_case_insensitive_login_and_duplicate_workspace_block(api):
     assert "unique work email" in dup.json()["detail"].lower()
 
 
-def test_join_via_access_code_and_invite_token(api, register_company, mailoutbox):
+def test_join_rejects_public_access_code_and_accepts_email_bound_invite_token(api, register_company, mailoutbox):
     from rest_framework.test import APIClient
     from core.models import OneTimeToken
 
@@ -254,27 +254,17 @@ def test_join_via_access_code_and_invite_token(api, register_company, mailoutbox
     assert reg.status_code == 201
     company = Company.objects.get(name="Joinable Co")
 
-    # 1. Join via invalid access code -> 404
+    # 1. Public self-join via leaked company access_code is rejected (400)
     c1 = APIClient()
-    bad_code = c1.post(
+    leaked_code_attempt = c1.post(
         "/api/auth/join",
-        {"access_code": "BADCODE9", "full_name": "Bob", "email": "bob@joinable.test", "password": PASSWORD},
+        {"access_code": company.access_code, "full_name": "Stranger", "email": "stranger@joinable.test", "password": PASSWORD},
         format="json",
     )
-    assert bad_code.status_code == 404
+    assert leaked_code_attempt.status_code == 400
+    assert not User.objects.filter(email="stranger@joinable.test").exists()
 
-    # 2. Join via valid access code -> 201 employee
-    ok_code = c1.post(
-        "/api/auth/join",
-        {"access_code": company.access_code, "full_name": "Bob Employee", "email": "bob@joinable.test", "password": PASSWORD},
-        format="json",
-    )
-    assert ok_code.status_code == 201
-    bob = User.objects.get(email="bob@joinable.test")
-    assert bob.company_id == company.id
-    assert bob.role == "employee"
-
-    # 3. Admin creates invite without password -> issues 7-day email-bound invite token
+    # 2. Admin creates invite without password -> issues 7-day email-bound invite token
     inv_create = api.post(
         "/api/admin/users",
         {"email": "carol@joinable.test", "full_name": "Carol", "role": "viewer"},

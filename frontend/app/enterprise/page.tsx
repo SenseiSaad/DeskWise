@@ -55,48 +55,44 @@ type AuthLang = 'en' | 'ur'
 const COPY: Record<AuthLang, Record<string, string>> = {
   en: {
     signInTab: 'Sign in',
-    createTab: 'Create a company',
-    joinTab: 'Join a company',
+    createTab: 'Create an organization',
     welcomeBack: 'Welcome back.',
     startOrg: 'Start your organization.',
-    joinOrg: 'Join your team.',
-    onboardTitle: 'Finish setting up your workspace.',
-    signInSub: 'Sign in with your work email or Google account.',
-    createSub: 'Create a private company workspace and become its admin.',
-    joinSub: 'Join an existing workspace with a company join code or admin invite link.',
-    onboardSub: 'Your Google account is verified. Create a new company or enter a team join code to continue.',
-    fullName: 'Full name',
+    inviteTitle: 'Accept your invitation.',
+    onboardTitle: 'Name your organization.',
+    signInSub: 'Sign in with Google or the work email registered for your workspace.',
+    createSub: 'Create a private company workspace and become its administrator.',
+    inviteSub: 'Confirm your invited email address and choose a password to join your team.',
+    onboardSub: 'Your Google account is verified. Enter your company name to launch your workspace.',
     companyName: 'Company name',
     workEmail: 'Work email',
+    adminEmail: 'Admin email',
     password: 'Password',
-    joinCode: 'Company join code (8 characters)',
     signInBtn: 'Sign in',
-    createBtn: 'Create company',
-    joinBtn: 'Join company',
+    createBtn: 'Create organization',
+    acceptBtn: 'Join workspace',
     forgotPassword: 'Forgot password?',
     resendVerify: 'Resend verification email',
     wakingUp: 'Server is waking up, retrying automatically…',
   },
   ur: {
     signInTab: 'Sign in karein',
-    createTab: 'Company banayein',
-    joinTab: 'Company join karein',
+    createTab: 'Organization banayein',
     welcomeBack: 'Khush aamdeed.',
     startOrg: 'Apni organization shuru karein.',
-    joinOrg: 'Apni team join karein.',
-    onboardTitle: 'Apna workspace mukammal karein.',
-    signInSub: 'Apne work email ya Google account se sign in karein.',
+    inviteTitle: 'Apni dawat qabool karein.',
+    onboardTitle: 'Apni company ka naam rakhein.',
+    signInSub: 'Google ya apne work email se workspace mein sign in karein.',
     createSub: 'Apni company ka private workspace banayein aur admin banein.',
-    joinSub: 'Company join code ya admin invite link se workspace join karein.',
-    onboardSub: 'Aapka Google email verify ho chuka hai. Nayi company banayein ya join code darj karein.',
-    fullName: 'Poora naam',
+    inviteSub: 'Apna invited email confirm karein aur password chunein.',
+    onboardSub: 'Aapka Google account verify ho chuka hai. Company ka naam darj karein.',
     companyName: 'Company ka naam',
     workEmail: 'Work email',
+    adminEmail: 'Admin email',
     password: 'Password',
-    joinCode: 'Company join code (8 huroof)',
     signInBtn: 'Sign in karein',
-    createBtn: 'Company banayein',
-    joinBtn: 'Company join karein',
+    createBtn: 'Organization banayein',
+    acceptBtn: 'Workspace join karein',
     forgotPassword: 'Password bhool gaye?',
     resendVerify: 'Verification email dobara bhejein',
     wakingUp: 'Server jaag raha hai, dobara koshish ho rahi hai…',
@@ -148,7 +144,6 @@ function EnterpriseInner() {
   const router = useRouter()
   const params = useSearchParams()
   const {
-    user,
     needsOnboarding,
     enterpriseLogin,
     enterpriseRegister,
@@ -162,11 +157,11 @@ function EnterpriseInner() {
   const emailParam = (params.get('email') || '').trim()
   const rawTab = params.get('tab')
 
-  const [tab, setTab] = useState<'signin' | 'create' | 'join' | 'onboard'>(
+  const [tab, setTab] = useState<'signin' | 'create' | 'invite' | 'onboard'>(
     rawTab === 'onboard'
       ? 'onboard'
-      : rawTab === 'join' || inviteParam
-        ? 'join'
+      : inviteParam
+        ? 'invite'
         : rawTab === 'create'
           ? 'create'
           : 'signin',
@@ -189,12 +184,11 @@ function EnterpriseInner() {
 
   const [showSignInPassword, setShowSignInPassword] = useState(false)
   const [showCreatePassword, setShowCreatePassword] = useState(false)
-  const [showJoinPassword, setShowJoinPassword] = useState(false)
+  const [showInvitePassword, setShowInvitePassword] = useState(false)
   const [createPassword, setCreatePassword] = useState('')
   const [createEmail, setCreateEmail] = useState('')
-  const [joinPassword, setJoinPassword] = useState('')
-  const [joinEmail, setJoinEmail] = useState(emailParam)
-  const [onboardMode, setOnboardMode] = useState<'create' | 'join'>('create')
+  const [invitePassword, setInvitePassword] = useState('')
+  const [inviteEmail, setInviteEmail] = useState(emailParam)
   const [mfa, setMfa] = useState<MfaStep | null>(null)
 
   const googleBtnRef = useRef<HTMLDivElement>(null)
@@ -238,7 +232,7 @@ function EnterpriseInner() {
     }
   }, [])
 
-  // Google Identity Services initialization
+  // Google Identity Services initialization (shown on Sign in & Create an organization)
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) {
       if (process.env.NODE_ENV !== 'production') {
@@ -246,7 +240,7 @@ function EnterpriseInner() {
       }
       return
     }
-    if (tab === 'onboard' || mfa) return
+    if (tab === 'onboard' || tab === 'invite' || mfa) return
 
     let cancelled = false
     const initGoogle = () => {
@@ -397,7 +391,6 @@ function EnterpriseInner() {
     const email = String(f.get('email') || '').trim()
     try {
       const res = await enterpriseRegister({
-        admin_name: String(f.get('admin_name') || '').trim(),
         company_name: String(f.get('company_name') || '').trim(),
         email,
         password: String(f.get('password') || ''),
@@ -419,35 +412,22 @@ function EnterpriseInner() {
     }
   }
 
-  async function onJoin(e: FormEvent<HTMLFormElement>) {
+  async function onAcceptInvite(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (busy || rateLimitCountdown > 0) return
     setError('')
     setErrorCode('')
     setFieldErrors({})
-    setVerifyNotice('')
-    setExpiredNotice(false)
     setBusy(true)
     const f = new FormData(e.currentTarget)
     const email = String(f.get('email') || '').trim()
     try {
-      const res = await joinCompany({
-        access_code: String(f.get('access_code') || '').trim().toUpperCase(),
-        invite_token: inviteParam || undefined,
-        full_name: String(f.get('full_name') || '').trim(),
+      await joinCompany({
+        invite_token: inviteParam,
         email,
         password: String(f.get('password') || ''),
       })
-      if (res.verification_required) {
-        setUnverifiedEmail(email)
-        setResendCooldown(60)
-        setVerifyNotice(
-          `Account created! We sent a verification link to ${email}. Verify your email, then sign in below.`,
-        )
-        setTab('signin')
-      } else {
-        router.push(next)
-      }
+      router.push(next)
     } catch (err) {
       applyError(err, email)
     } finally {
@@ -464,10 +444,8 @@ function EnterpriseInner() {
     const f = new FormData(e.currentTarget)
     try {
       await onboardCompany({
-        action: onboardMode,
-        company_name: onboardMode === 'create' ? String(f.get('company_name') || '').trim() : undefined,
-        access_code: onboardMode === 'join' ? String(f.get('access_code') || '').trim().toUpperCase() : undefined,
-        full_name: String(f.get('full_name') || '').trim() || undefined,
+        action: 'create',
+        company_name: String(f.get('company_name') || '').trim(),
       })
       router.push(next)
     } catch (err) {
@@ -480,7 +458,7 @@ function EnterpriseInner() {
   const labelClass = 'text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground'
 
   function tabClass(active: boolean) {
-    return `relative pb-3 text-[12.5px] font-medium transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-px ${
+    return `relative pb-3 text-[13px] font-medium transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-px ${
       active
         ? 'text-foreground after:bg-accent'
         : 'text-muted-foreground after:bg-transparent hover:text-foreground'
@@ -512,6 +490,7 @@ function EnterpriseInner() {
             </h1>
             <p className="mt-5 max-w-sm text-[13px] leading-relaxed text-[#f3efe5]/55">
               Bring your organization&apos;s policies, contracts, and forms into one permission-locked workspace.
+              Team members are invited directly by their company administrator.
             </p>
 
             <ul className="mt-8 hidden flex-col gap-3 sm:flex">
@@ -530,14 +509,14 @@ function EnterpriseInner() {
           <div className="relative mt-12 hidden items-center gap-3 border-t border-white/10 pt-5 lg:flex">
             <ShieldCheck className="size-4 shrink-0 text-[#d9a75f]" aria-hidden />
             <p className="text-[10.5px] leading-relaxed text-[#f3efe5]/40">
-              Tenant-isolated by design. No public library, no cross-company data access.
+              Invite-only tenant isolation. No public join codes, no cross-company data access.
             </p>
           </div>
         </aside>
 
         {/* Access panel */}
         <section className="flex flex-col px-5 py-7 sm:px-8 lg:px-12 lg:py-12">
-          <div className="mx-auto flex w-full max-w-[30rem] flex-1 flex-col">
+          <div className="mx-auto flex w-full max-w-[28rem] flex-1 flex-col">
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -556,28 +535,29 @@ function EnterpriseInner() {
                 <h2 className="display-md mt-3">
                   {tab === 'onboard'
                     ? c.onboardTitle
-                    : tab === 'create'
-                      ? c.startOrg
-                      : tab === 'join'
-                        ? c.joinOrg
+                    : tab === 'invite'
+                      ? c.inviteTitle
+                      : tab === 'create'
+                        ? c.startOrg
                         : c.welcomeBack}
                 </h2>
                 <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
                   {tab === 'onboard'
                     ? c.onboardSub
-                    : tab === 'create'
-                      ? c.createSub
-                      : tab === 'join'
-                        ? c.joinSub
+                    : tab === 'invite'
+                      ? c.inviteSub
+                      : tab === 'create'
+                        ? c.createSub
                         : c.signInSub}
                 </p>
               </div>
 
-              {tab !== 'onboard' && (
+              {/* Clean 2-tab selector: Sign in | Create an organization */}
+              {tab !== 'onboard' && tab !== 'invite' && (
                 <div
                   role="tablist"
                   aria-label="Enterprise access"
-                  className="mt-6 flex gap-5 border-b border-border"
+                  className="mt-6 flex gap-6 border-b border-border"
                 >
                   <button
                     type="button"
@@ -606,20 +586,6 @@ function EnterpriseInner() {
                     className={tabClass(tab === 'create')}
                   >
                     {c.createTab}
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    id="tab-join"
-                    aria-selected={tab === 'join'}
-                    onClick={() => {
-                      setTab('join')
-                      setError('')
-                      setErrorCode('')
-                    }}
-                    className={tabClass(tab === 'join')}
-                  >
-                    {c.joinTab}
                   </button>
                 </div>
               )}
@@ -712,8 +678,8 @@ function EnterpriseInner() {
                 </div>
               )}
 
-              {/* Continue with Google button (rendered whenever NEXT_PUBLIC_GOOGLE_CLIENT_ID is configured) */}
-              {GOOGLE_CLIENT_ID && tab !== 'onboard' && !mfa && (
+              {/* Continue with Google button */}
+              {GOOGLE_CLIENT_ID && (tab === 'signin' || tab === 'create') && !mfa && (
                 <div className="mt-6">
                   <div ref={googleBtnRef} className="flex min-h-[42px] justify-center" />
                   <div className="relative my-4 flex items-center justify-center">
@@ -728,11 +694,7 @@ function EnterpriseInner() {
 
               {/* Tab 1: Sign in / MFA */}
               {tab === 'signin' && mfa ? (
-                <form
-                  id="panel-mfa"
-                  className="mt-6 flex flex-col gap-4"
-                  onSubmit={onMfaCode}
-                >
+                <form id="panel-mfa" className="mt-6 flex flex-col gap-4" onSubmit={onMfaCode}>
                   <p className="text-[13px] leading-relaxed text-muted-foreground">
                     Two-factor verification. Enter the 6-digit code from your authenticator app.
                   </p>
@@ -837,7 +799,7 @@ function EnterpriseInner() {
                 </form>
               ) : null}
 
-              {/* Tab 2: Create a company (Owner signup — Path A) */}
+              {/* Tab 2: Create an organization (3 required fields: Company name, Admin email, Password) */}
               {tab === 'create' && (
                 <form
                   id="panel-create"
@@ -847,21 +809,6 @@ function EnterpriseInner() {
                   onSubmit={onCreate}
                 >
                   <div>
-                    <label htmlFor="create-name" className={labelClass}>
-                      {c.fullName}
-                    </label>
-                    <input
-                      id="create-name"
-                      name="admin_name"
-                      type="text"
-                      required
-                      autoFocus
-                      placeholder="Ada Lovelace"
-                      autoComplete="name"
-                      className="field mt-1.5"
-                    />
-                  </div>
-                  <div>
                     <label htmlFor="create-company" className={labelClass}>
                       {c.companyName}
                     </label>
@@ -870,6 +817,7 @@ function EnterpriseInner() {
                       name="company_name"
                       type="text"
                       required
+                      autoFocus
                       placeholder="Northstar Labs"
                       autoComplete="organization"
                       className="field mt-1.5"
@@ -877,7 +825,7 @@ function EnterpriseInner() {
                   </div>
                   <div>
                     <label htmlFor="create-email" className={labelClass}>
-                      {c.workEmail}
+                      {c.adminEmail}
                     </label>
                     <input
                       id="create-email"
@@ -933,93 +881,53 @@ function EnterpriseInner() {
                 </form>
               )}
 
-              {/* Tab 3: Join a company (Employee signup — Path B) */}
-              {tab === 'join' && (
-                <form
-                  id="panel-join"
-                  role="tabpanel"
-                  aria-labelledby="tab-join"
-                  className="mt-4 flex flex-col gap-4"
-                  onSubmit={onJoin}
-                >
-                  {inviteParam ? (
-                    <p className="rounded-lg border border-accent/30 bg-accent/10 px-3.5 py-2.5 text-[12px] text-accent">
-                      Invitation link detected. Confirm your email and choose a password to join your team.
-                    </p>
-                  ) : (
-                    <div>
-                      <label htmlFor="join-code" className={labelClass}>
-                        {c.joinCode}
-                      </label>
-                      <input
-                        id="join-code"
-                        name="access_code"
-                        type="text"
-                        required
-                        maxLength={8}
-                        autoFocus
-                        placeholder="e.g. 7K9P2M4Q"
-                        className="field mt-1.5 font-mono uppercase tracking-widest"
-                      />
-                    </div>
-                  )}
+              {/* Emailed Invite Acceptance (?invite=<token>&email=<email>) */}
+              {tab === 'invite' && (
+                <form className="mt-6 flex flex-col gap-4" onSubmit={onAcceptInvite}>
                   <div>
-                    <label htmlFor="join-name" className={labelClass}>
-                      {c.fullName}
-                    </label>
-                    <input
-                      id="join-name"
-                      name="full_name"
-                      type="text"
-                      required
-                      placeholder="Ada Lovelace"
-                      autoComplete="name"
-                      className="field mt-1.5"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="join-email" className={labelClass}>
+                    <label htmlFor="invite-email" className={labelClass}>
                       {c.workEmail}
                     </label>
                     <input
-                      id="join-email"
+                      id="invite-email"
                       name="email"
                       type="email"
                       required
-                      value={joinEmail}
-                      onChange={(e) => setJoinEmail(e.target.value)}
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
                       placeholder="you@company.com"
                       autoComplete="email"
                       className="field mt-1.5"
                     />
                   </div>
                   <div>
-                    <label htmlFor="join-password" className={labelClass}>
+                    <label htmlFor="invite-password" className={labelClass}>
                       {c.password}
                     </label>
                     <div className="relative mt-1.5">
                       <input
-                        id="join-password"
+                        id="invite-password"
                         name="password"
-                        type={showJoinPassword ? 'text' : 'password'}
+                        type={showInvitePassword ? 'text' : 'password'}
                         required
                         minLength={10}
-                        value={joinPassword}
-                        onChange={(e) => setJoinPassword(e.target.value)}
+                        autoFocus
+                        value={invitePassword}
+                        onChange={(e) => setInvitePassword(e.target.value)}
                         placeholder="At least 10 characters"
                         autoComplete="new-password"
                         className="field pr-11"
                       />
                       <button
                         type="button"
-                        onClick={() => setShowJoinPassword((v) => !v)}
-                        aria-label={showJoinPassword ? 'Hide password' : 'Show password'}
+                        onClick={() => setShowInvitePassword((v) => !v)}
+                        aria-label={showInvitePassword ? 'Hide password' : 'Show password'}
                         className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                       >
-                        {showJoinPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                        {showInvitePassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                       </button>
                     </div>
-                    <PasswordChecklist password={joinPassword} email={joinEmail} />
+                    <PasswordChecklist password={invitePassword} email={inviteEmail} />
                   </div>
                   <button
                     type="submit"
@@ -1027,94 +935,35 @@ function EnterpriseInner() {
                     className="btn btn-primary mt-1 w-full disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-                    {c.joinBtn} {!busy && <ArrowRight className="size-4" aria-hidden />}
+                    {c.acceptBtn} {!busy && <ArrowRight className="size-4" aria-hidden />}
                   </button>
                 </form>
               )}
 
-              {/* Tab 4: Post-Google Onboarding (Create a company OR Enter join code) */}
+              {/* Post-Google Onboarding (1 required field: Company name) */}
               {tab === 'onboard' && (
                 <form className="mt-6 flex flex-col gap-4" onSubmit={onOnboard}>
-                  <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-surface p-1">
-                    <button
-                      type="button"
-                      onClick={() => setOnboardMode('create')}
-                      className={`rounded-lg py-2 text-xs font-semibold transition-colors ${
-                        onboardMode === 'create'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {c.createTab}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setOnboardMode('join')}
-                      className={`rounded-lg py-2 text-xs font-semibold transition-colors ${
-                        onboardMode === 'join'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {c.joinTab}
-                    </button>
-                  </div>
-
                   <div>
-                    <label htmlFor="onboard-name" className={labelClass}>
-                      {c.fullName}
+                    <label htmlFor="onboard-company" className={labelClass}>
+                      {c.companyName}
                     </label>
                     <input
-                      id="onboard-name"
-                      name="full_name"
+                      id="onboard-company"
+                      name="company_name"
                       type="text"
-                      defaultValue={user?.full_name || ''}
-                      placeholder="Ada Lovelace"
-                      autoComplete="name"
+                      required
+                      autoFocus
+                      placeholder="Northstar Labs"
                       className="field mt-1.5"
                     />
                   </div>
-
-                  {onboardMode === 'create' ? (
-                    <div>
-                      <label htmlFor="onboard-company" className={labelClass}>
-                        {c.companyName}
-                      </label>
-                      <input
-                        id="onboard-company"
-                        name="company_name"
-                        type="text"
-                        required
-                        autoFocus
-                        placeholder="Northstar Labs"
-                        className="field mt-1.5"
-                      />
-                    </div>
-                  ) : (
-                    <div>
-                      <label htmlFor="onboard-code" className={labelClass}>
-                        {c.joinCode}
-                      </label>
-                      <input
-                        id="onboard-code"
-                        name="access_code"
-                        type="text"
-                        required
-                        maxLength={8}
-                        autoFocus
-                        placeholder="e.g. 7K9P2M4Q"
-                        className="field mt-1.5 font-mono uppercase tracking-widest"
-                      />
-                    </div>
-                  )}
-
                   <button
                     type="submit"
                     disabled={busy}
                     className="btn btn-primary mt-1 w-full disabled:opacity-60"
                   >
                     {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-                    {onboardMode === 'create' ? c.createBtn : c.joinBtn}
+                    {c.createBtn} {!busy && <ArrowRight className="size-4" aria-hidden />}
                   </button>
                 </form>
               )}
@@ -1122,9 +971,13 @@ function EnterpriseInner() {
               <div className="mt-7 flex items-start gap-2 border-t border-border pt-4">
                 <Sparkles className="mt-0.5 size-3 shrink-0 text-accent" aria-hidden />
                 <p className="text-[10px] leading-relaxed text-muted-foreground">
-                  By continuing you agree to the{' '}
+                  By continuing you agree to our{' '}
+                  <Link href="/terms" className="text-foreground underline underline-offset-4">
+                    Terms of Service
+                  </Link>{' '}
+                  and{' '}
                   <Link href="/policy" className="text-foreground underline underline-offset-4">
-                    privacy and security model
+                    Privacy Policy
                   </Link>
                   . Your workspace is isolated from every other organization.
                 </p>

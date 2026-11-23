@@ -13,66 +13,59 @@ export const metadata: Metadata = {
 
 const POLICIES = [
   {
-    title: 'Private by default',
-    body: 'Deskwise does not expose a public browse, publisher, or free-user area. Documents are available only after enterprise authentication and only through the current user’s permissions.',
+    title: 'Information we collect',
+    body: 'We collect your work email address, full name (if provided), organization name, role/department assignment, uploaded company documents, AI chat queries, and security audit events required to operate your workspace.',
   },
   {
-    title: 'Tenant isolation',
-    body: 'Every document, indexed chunk, member, and audit event is scoped to its owning company. A member cannot use another company’s code to see files unless a specific document grant exists.',
+    title: 'Google Sign-In & OAuth data',
+    body: 'When you use "Continue with Google", we verify your Google ID token and receive only your basic profile (email address, email verification status, and display name) to authenticate your Deskwise account. We never access your Gmail, Google Drive, or contacts, and never sell or share Google user data with third parties for advertising.',
   },
   {
-    title: 'Least privilege',
-    body: 'Company-wide documents are readable by active members of the owning company. Restricted documents require an explicit per-person grant. External sharing is always one document to one registered person at a time.',
+    title: 'Private by default & tenant isolation',
+    body: 'Every document, indexed chunk, member, and audit event is scoped to its owning company. Deskwise enforces pre-retrieval role, department, and clearance checks so users only receive answers from documents they are authorized to read.',
   },
   {
-    title: 'Permission-aware AI',
-    body: 'The retrieval layer filters documents before they reach the assistant. A user cannot ask the AI to reveal a file that their account cannot access.',
+    title: 'AI processing & PII redaction',
+    body: 'When a user asks a question, only the permitted document excerpts and prompt are sent to the configured AI provider (or processed locally via Ollama/self-hosted models) to generate a cited answer. Optional PII redaction masks sensitive patterns before external LLM calls.',
   },
   {
-    title: 'Auditability',
-    body: 'Sign-ins, uploads, downloads, member changes, share grants, revocations, and AI questions are recorded in the employer audit trail for review and CPA or compliance workflows.',
+    title: 'Cookies & session security',
+    body: 'Deskwise uses strictly necessary HttpOnly, secure session cookies (access and rotating refresh tokens) to keep you signed in and protect against XSS. We do not use third-party advertising trackers.',
   },
   {
-    title: 'Responsible use',
-    body: 'Employers are responsible for inviting the right people, assigning accurate titles and roles, protecting credentials, and revoking access when a person or partner no longer needs it.',
+    title: 'Audit trail, retention & deletion',
+    body: 'Sign-ins, uploads, downloads, permission changes, break-glass events, and AI queries are recorded in your organization’s tamper-evident, append-only audit log. Workspace administrators can delete documents (unless under legal hold) or request full workspace deletion by contacting support.',
   },
 ]
 
 const SERVICES = [
   {
-    name: 'AWS Amplify',
-    role: 'Web delivery',
-    location: 'AWS edge network',
+    name: 'Vercel',
+    role: 'Web & API hosting',
+    location: 'Global edge / United States',
     detail:
-      'Builds and serves the statically exported frontend. It does not receive uploaded documents or chat content.',
+      'Serves the Next.js web application and serverless API endpoints over TLS.',
   },
   {
-    name: 'Amazon Bedrock',
+    name: 'Managed PostgreSQL & Object Storage',
+    role: 'Database & encrypted document chunks',
+    location: 'United States / Regional cloud',
+    detail:
+      'Stores tenant-isolated relational data, encrypted document chunks, vector embeddings, and uploaded files.',
+  },
+  {
+    name: 'Configured AI Provider (Gemini / OpenAI / Ollama)',
     role: 'AI inference',
-    location: 'AWS Asia Pacific (Mumbai)',
+    location: 'Per workspace configuration',
     detail:
-      'Receives only the question and the passages the asking user is permitted to see. Claude 3.5 Haiku generates the answer; Titan Text Embeddings V2 creates the vectors used for retrieval.',
+      'Receives only the question and the passages the asking user is permitted to see to generate cited answers.',
   },
   {
-    name: 'Render',
-    role: 'API, database, files',
-    location: 'Oregon, United States',
+    name: 'Google Identity Services & Transactional SMTP',
+    role: 'Authentication & email delivery',
+    location: 'Global',
     detail:
-      'Runs the Django API and PostgreSQL database and stores uploaded documents and generated forms on a persistent disk during the private beta.',
-  },
-  {
-    name: 'Cloudflare',
-    role: 'DNS',
-    location: 'Global anycast network',
-    detail:
-      'Provides authoritative DNS for the Deskwise custom domains. It does not receive document or chat content.',
-  },
-  {
-    name: 'Vercel Analytics',
-    role: 'Public-site analytics',
-    location: 'United States',
-    detail:
-      'Measures aggregate page views on the public marketing site. It does not receive uploaded documents, chat content, or account credentials.',
+      'Verifies Google Sign-In tokens and delivers account verification, invitation, and password-reset emails.',
   },
 ]
 

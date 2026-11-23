@@ -905,116 +905,65 @@ def google_auth(request):
 @permission_classes([AllowAny])
 @rate_limit("join", rate=8, per_seconds=300, key="ip")
 def join_company(request):
-    """Employee signup (Path B): join an existing company via 7-day email-bound
-    invite token OR company access_code."""
+    """Accept a 7-day email-bound single-use admin invitation token.
+
+    Public self-join via company access_code is intentionally disabled so a
+    leaked company code can never let an uninvited person join a workspace.
+    """
     import hashlib
     import hmac
-    from django.db import transaction
     from . import email_service
 
     data = request.data or {}
     invite_raw = str(data.get("invite_token") or "").strip()
-    access_code = str(data.get("access_code") or "").strip().upper()
     email = str(data.get("email") or "").strip().lower()
     password = str(data.get("password") or "")
     full_name = str(data.get("full_name") or "").strip()[:200]
 
+    if not invite_raw:
+        return Response(
+            {"detail": "Joining a workspace requires a personal invitation link from your company administrator."},
+            status=400,
+        )
     if not email or "@" not in email:
         return Response({"detail": "A valid work email is required."}, status=400)
 
-    # Path B2: 7-day email-bound single-use admin invite token
-    if invite_raw:
-        token_hash = hashlib.sha256(invite_raw.encode()).hexdigest()
-        tok = OneTimeToken.objects.select_related("user", "user__company").filter(
-            token_hash=token_hash, purpose="invite"
-        ).first()
-        if not tok or not tok.is_valid():
-            return Response({"detail": "This invitation link is invalid or has expired."}, status=400)
-        target_user = tok.user
-        if not hmac.compare_digest(target_user.email.lower(), email.lower()):
-            return Response(
-                {"detail": "This invitation link was issued for a different email address."},
-                status=400,
-            )
-        err = _password_error(password, target_user)
-        if err:
-            return Response({"detail": err}, status=400)
-        consumed = OneTimeToken.consume(invite_raw, "invite")
-        if not consumed:
-            return Response({"detail": "This invitation link has already been used."}, status=400)
-        target_user.set_password(password)
-        target_user.email_verified = True
-        if full_name:
-            target_user.full_name = full_name
-        target_user.save(update_fields=["password", "email_verified", "full_name"])
-        if target_user.company_id:
-            audit(_as(request, target_user), "invite_accepted", target_user.email)
-            email_service.send_auth_email(
-                target_user, "welcome", company_name=target_user.company.name
-            )
-        resp = Response({"user": UserSerializer(target_user).data}, status=200)
-        return set_auth_cookies(resp, target_user)
-
-    # Path B1: Join via company access_code
-    if not access_code:
-        return Response({"detail": "Enter a company join code or open your invitation link."}, status=400)
-    company = Company.objects.filter(access_code__iexact=access_code).first()
-    if not company:
-        return Response({"detail": "No company matches that join code. Check the 8-character code with your admin."}, status=404)
-    if User.objects.filter(email__iexact=email).exists():
+    token_hash = hashlib.sha256(invite_raw.encode()).hexdigest()
+    tok = OneTimeToken.objects.select_related("user", "user__company").filter(
+        token_hash=token_hash, purpose="invite"
+    ).first()
+    if not tok or not tok.is_valid():
+        return Response({"detail": "This invitation link is invalid or has expired."}, status=400)
+    target_user = tok.user
+    if not hmac.compare_digest(target_user.email.lower(), email.lower()):
         return Response(
-            {"detail": "This email is already registered. Try signing in or reset your password."},
-            status=409,
+            {"detail": "This invitation link was issued for a different email address."},
+            status=400,
         )
-
-    plan = _plan_for(company)
-    seat_caps = [c for c in (company.max_employees, plan.max_members if plan else None) if c]
-    if seat_caps and company.users.count() >= min(seat_caps):
-        return Response({"detail": "This company has reached its member seat limit."}, status=400)
-
-    probe_user = User(email=email, full_name=full_name)
-    err = _password_error(password, probe_user)
+    err = _password_error(password, target_user)
     if err:
         return Response({"detail": err}, status=400)
-
-    with transaction.atomic():
-        user = User.objects.create_user(
-            email=email,
-            password=password,
-            full_name=full_name,
-            role="employee",
-            company=company,
+    consumed = OneTimeToken.consume(invite_raw, "invite")
+    if not consumed:
+        return Response({"detail": "This invitation link has already been used."}, status=400)
+    target_user.set_password(password)
+    target_user.email_verified = True
+    if full_name:
+        target_user.full_name = full_name
+    target_user.save(update_fields=["password", "email_verified", "full_name"])
+    if target_user.company_id:
+        audit(_as(request, target_user), "invite_accepted", target_user.email)
+        email_service.send_auth_email(
+            target_user, "welcome", company_name=target_user.company.name
         )
-        audit(
-            _as(request, user),
-            "member_joined",
-            f"{user.email} via access_code",
-            outcome="allowed",
-            target_type="user",
-            target_id=str(user.id),
-        )
-
-    _, raw_v = OneTimeToken.issue(user, "verify_email", minutes=60 * 24)
-    email_service.send_auth_email(
-        user,
-        "verify",
-        company_name=company.name,
-        url=_frontend_url("/auth/verify?token=" + raw_v),
-    )
-    if _require_email_verification(user):
-        return Response(
-            {"user": UserSerializer(user).data, "verification_required": True},
-            status=201,
-        )
-    resp = Response({"user": UserSerializer(user).data}, status=201)
-    return set_auth_cookies(resp, user)
+    resp = Response({"user": UserSerializer(target_user).data}, status=200)
+    return set_auth_cookies(resp, target_user)
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def onboard_company(request):
-    """Complete post-Google onboarding: either create a new company (become admin)
-    or join an existing company by access_code."""
+    """Complete post-Google organization creation (becomes company admin)."""
     from django.db import transaction
     from . import email_service
 
@@ -1023,73 +972,42 @@ def onboard_company(request):
         return Response({"user": UserSerializer(user).data, "onboarding_required": False})
 
     data = request.data or {}
-    action = str(data.get("action") or "create").strip().lower()
     full_name = str(data.get("full_name") or "").strip()[:200]
     if full_name and not user.full_name:
         user.full_name = full_name
 
-    if action == "create":
-        company_name = str(data.get("company_name") or "").strip()[:200]
-        if not company_name:
-            return Response({"detail": "Company name is required."}, status=400)
-        base = slugify(company_name) or "company"
-        slug, n = base, 1
-        while Company.objects.filter(slug=slug).exists():
-            n += 1
-            slug = f"{base}-{n}"
-        with transaction.atomic():
-            company = Company.objects.create(
-                name=company_name,
-                slug=slug,
-                plan=Plan.default(),
-                enable_team_chat=False,
-                enable_attendance=False,
-            )
-            user.company = company
-            user.role = "admin"
-            user.save(update_fields=["company", "role", "full_name"])
-            AuditLog.objects.create(
-                company=company,
-                user=user,
-                action="register",
-                outcome="allowed",
-                target_type="company",
-                target_id=str(company.id),
-                detail=f"company {company.name} (google)",
-                ip=client_ip(request),
-            )
-        email_service.send_auth_email(user, "welcome", company_name=company.name)
-        resp = Response({"user": UserSerializer(user).data, "onboarding_required": False}, status=201)
-        return set_auth_cookies(resp, user)
-
-    if action == "join":
-        access_code = str(data.get("access_code") or "").strip().upper()
-        if not access_code:
-            return Response({"detail": "Company join code is required."}, status=400)
-        company = Company.objects.filter(access_code__iexact=access_code).first()
-        if not company:
-            return Response({"detail": "No company matches that join code."}, status=404)
-        plan = _plan_for(company)
-        seat_caps = [c for c in (company.max_employees, plan.max_members if plan else None) if c]
-        if seat_caps and company.users.count() >= min(seat_caps):
-            return Response({"detail": "This company has reached its member seat limit."}, status=400)
-        with transaction.atomic():
-            user.company = company
-            user.role = "employee"
-            user.save(update_fields=["company", "role", "full_name"])
-            audit(
-                request,
-                "member_joined",
-                f"{user.email} via google+access_code",
-                outcome="allowed",
-                target_type="user",
-                target_id=str(user.id),
-            )
-        email_service.send_auth_email(user, "welcome", company_name=company.name)
-        resp = Response({"user": UserSerializer(user).data, "onboarding_required": False}, status=200)
-        return set_auth_cookies(resp, user)
-
-    return Response({"detail": "action must be 'create' or 'join'."}, status=400)
+    company_name = str(data.get("company_name") or "").strip()[:200]
+    if not company_name:
+        return Response({"detail": "Company name is required."}, status=400)
+    base = slugify(company_name) or "company"
+    slug, n = base, 1
+    while Company.objects.filter(slug=slug).exists():
+        n += 1
+        slug = f"{base}-{n}"
+    with transaction.atomic():
+        company = Company.objects.create(
+            name=company_name,
+            slug=slug,
+            plan=Plan.default(),
+            enable_team_chat=False,
+            enable_attendance=False,
+        )
+        user.company = company
+        user.role = "admin"
+        user.save(update_fields=["company", "role", "full_name"])
+        AuditLog.objects.create(
+            company=company,
+            user=user,
+            action="register",
+            outcome="allowed",
+            target_type="company",
+            target_id=str(company.id),
+            detail=f"company {company.name} (google)",
+            ip=client_ip(request),
+        )
+    email_service.send_auth_email(user, "welcome", company_name=company.name)
+    resp = Response({"user": UserSerializer(user).data, "onboarding_required": False}, status=201)
+    return set_auth_cookies(resp, user)
 
 
 # --------------------------------------------------------------- documents

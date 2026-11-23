@@ -167,14 +167,14 @@ def run_smoke() -> int:
         f"login={r_login.status_code}, refresh={r_ref.status_code}, replay={r_replay.status_code}",
     )
 
-    # 8. Path B1: Employee joins company via company access_code
+    # 8. Public self-join via company access_code is blocked (no leaked-code joins)
     comp = Company.objects.get(name="Acme Smoke")
     c_emp = APIClient()
     r_join_code = c_emp.post(
         "/api/auth/join",
         {
             "access_code": comp.access_code,
-            "full_name": "Bob Joiner",
+            "full_name": "Bob Stranger",
             "email": "bob@acmesmoke.test",
             "password": "StrongPassword!2026",
         },
@@ -182,9 +182,9 @@ def run_smoke() -> int:
     )
     u_bob = User.objects.filter(email="bob@acmesmoke.test").first()
     record(
-        "8. Path B1: Employee signup via company access_code",
-        r_join_code.status_code == 201 and u_bob is not None and u_bob.company_id == comp.id and u_bob.role == "employee",
-        f"HTTP {r_join_code.status_code}, company_match={getattr(u_bob, 'company_id', None) == comp.id}",
+        "8. Leaked company access_code cannot be used for public self-join (400)",
+        r_join_code.status_code == 400 and u_bob is None,
+        f"HTTP {r_join_code.status_code}, user_created={u_bob is not None}",
     )
 
     # 9. Path B2: Admin invite link (email-bound, 7-day expiry, single-use)
