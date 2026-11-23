@@ -31,7 +31,7 @@ interface AuthContextValue {
     max_employees?: number | null
     email: string
     password: string
-  }) => Promise<User>
+  }) => Promise<{ user: User; verification_required?: boolean }>
   completeMfa: (step: MfaStep, code: string) => Promise<User>
   refreshUser: () => Promise<User | null>
   logout: () => Promise<void>
@@ -109,7 +109,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       max_employees?: number | null
       email: string
       password: string
-    }) => authApi.enterpriseRegister(p).then(apply),
+    }) =>
+      authApi.enterpriseRegister(p).then((res) => {
+        if (!res.verification_required) {
+          apply(res)
+        }
+        return res
+      }),
     [apply],
   )
   const refreshUser = useCallback(() => {

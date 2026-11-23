@@ -409,6 +409,7 @@ let _directUploadEnabled: boolean | null = null
 
 export interface AuthResponse {
   user: User
+  verification_required?: boolean
 }
 
 // Platform-admin sign-ins stop after the password and return this instead —

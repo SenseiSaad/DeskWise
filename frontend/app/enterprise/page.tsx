@@ -16,7 +16,7 @@ import {
 import { Logo } from '@/components/logo'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { useAuth, type MfaStep } from '@/lib/auth'
-import { JOB_TITLES, type MfaLoginResponse } from '@/lib/api'
+import type { MfaLoginResponse } from '@/lib/api'
 
 function EnterpriseInner() {
   const router = useRouter()
@@ -31,6 +31,7 @@ function EnterpriseInner() {
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [verifyNotice, setVerifyNotice] = useState('')
   const [expiredNotice, setExpiredNotice] = useState(params.get('expired') === '1')
   const [showSignInPassword, setShowSignInPassword] = useState(false)
   const [showCreatePassword, setShowCreatePassword] = useState(false)
@@ -85,23 +86,25 @@ function EnterpriseInner() {
   async function onCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError('')
+    setVerifyNotice('')
     setExpiredNotice(false)
     setBusy(true)
     const f = new FormData(e.currentTarget)
+    const email = String(f.get('email') || '').trim()
     try {
-      const maxRaw = String(f.get('max_employees') || '').trim()
-      await enterpriseRegister({
+      const res = await enterpriseRegister({
         company_name: String(f.get('company_name') || '').trim(),
-        admin_name: String(f.get('admin_name') || '').trim(),
-        admin_title: String(f.get('admin_title') || '').trim(),
-        website: String(f.get('website') || '').trim(),
-        contact_email: String(f.get('contact_email') || '').trim(),
-        phone: String(f.get('phone') || '').trim(),
-        max_employees: maxRaw ? Number(maxRaw) : null,
-        email: String(f.get('email') || '').trim(),
+        email,
         password: String(f.get('password') || ''),
       })
-      router.push(next)
+      if (res.verification_required) {
+        setVerifyNotice(
+          `Organization created. We sent a verification link to ${email} — verify your email, then sign in below.`,
+        )
+        setTab('signin')
+      } else {
+        router.push(next)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.')
     } finally {
@@ -239,6 +242,15 @@ function EnterpriseInner() {
                 Create an organization
               </button>
             </div>
+
+            {!error && !mfa && verifyNotice && (
+              <p
+                role="status"
+                className="mt-5 rounded-lg border border-ok/30 bg-ok-soft px-3.5 py-2.5 text-[12px] text-ok"
+              >
+                {verifyNotice}
+              </p>
+            )}
 
             {!error && !mfa && expiredNotice && (
               <p
@@ -405,179 +417,74 @@ function EnterpriseInner() {
                 id="panel-create"
                 role="tabpanel"
                 aria-labelledby="tab-create"
-                className="mt-6 flex flex-col gap-6"
+                className="mt-6 flex flex-col gap-4"
                 onSubmit={onCreate}
               >
-                <fieldset className="flex flex-col gap-4">
-                  <legend className="mb-1 flex items-center gap-2 text-[10.5px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
-                    <span className="grid size-5 place-items-center rounded-full border border-border text-[8px] text-accent">
-                      01
-                    </span>
-                    The company
-                  </legend>
-                  <div>
-                    <label htmlFor="create-company" className={labelClass}>
-                      Company name
-                    </label>
+                <div>
+                  <label htmlFor="create-company" className={labelClass}>
+                    Company name
+                  </label>
+                  <input
+                    id="create-company"
+                    name="company_name"
+                    type="text"
+                    required
+                    placeholder="Northstar Labs"
+                    className="field mt-1.5"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="create-email" className={labelClass}>
+                    Admin email
+                  </label>
+                  <input
+                    id="create-email"
+                    name="email"
+                    type="email"
+                    required
+                    placeholder="you@company.com"
+                    autoComplete="email"
+                    className="field mt-1.5"
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Each organization uses a unique work email for strict tenant isolation.
+                  </p>
+                </div>
+                <div>
+                  <label htmlFor="create-password" className={labelClass}>
+                    Password
+                  </label>
+                  <div className="relative mt-1.5">
                     <input
-                      id="create-company"
-                      name="company_name"
-                      type="text"
+                      id="create-password"
+                      name="password"
+                      type={showCreatePassword ? 'text' : 'password'}
                       required
-                      placeholder="Northstar Labs"
-                      className="field mt-1.5"
+                      minLength={8}
+                      placeholder="At least 8 characters"
+                      autoComplete="new-password"
+                      className="field pr-11"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowCreatePassword((value) => !value)}
+                      aria-label={showCreatePassword ? 'Hide password' : 'Show password'}
+                      className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
+                    >
+                      {showCreatePassword ? (
+                        <EyeOff className="size-3.5" aria-hidden />
+                      ) : (
+                        <Eye className="size-3.5" aria-hidden />
+                      )}
+                    </button>
                   </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label htmlFor="create-website" className={labelClass}>
-                        Website <span className="normal-case tracking-normal">(optional)</span>
-                      </label>
-                      <input
-                        id="create-website"
-                        name="website"
-                        type="text"
-                        placeholder="northstar.pk"
-                        autoComplete="url"
-                        className="field mt-1.5"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="create-phone" className={labelClass}>
-                        Phone <span className="normal-case tracking-normal">(optional)</span>
-                      </label>
-                      <input
-                        id="create-phone"
-                        name="phone"
-                        type="tel"
-                        placeholder="+92 300 0000000"
-                        autoComplete="tel"
-                        className="field mt-1.5"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label htmlFor="create-contact" className={labelClass}>
-                        Contact email <span className="normal-case tracking-normal">(optional)</span>
-                      </label>
-                      <input
-                        id="create-contact"
-                        name="contact_email"
-                        type="email"
-                        placeholder="hello@company.com"
-                        className="field mt-1.5"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="create-max" className={labelClass}>
-                        Maximum members
-                      </label>
-                      <input
-                        id="create-max"
-                        name="max_employees"
-                        type="number"
-                        min={1}
-                        placeholder="Leave blank for unlimited"
-                        className="field mt-1.5"
-                      />
-                    </div>
-                  </div>
-                </fieldset>
-
-                <fieldset className="flex flex-col gap-4 border-t border-border pt-5">
-                  <legend className="mb-1 flex items-center gap-2 text-[10.5px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
-                    <span className="grid size-5 place-items-center rounded-full border border-border text-[8px] text-accent">
-                      02
-                    </span>
-                    Your admin account
-                  </legend>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label htmlFor="create-name" className={labelClass}>
-                        Your name
-                      </label>
-                      <input
-                        id="create-name"
-                        name="admin_name"
-                        type="text"
-                        placeholder="Saad Ahmed"
-                        autoComplete="name"
-                        className="field mt-1.5"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="create-title" className={labelClass}>
-                        Your title
-                      </label>
-                      <select
-                        id="create-title"
-                        name="admin_title"
-                        defaultValue=""
-                        className="field mt-1.5"
-                      >
-                        <option value="">Select a title</option>
-                        {JOB_TITLES.map((title) => (
-                          <option key={title} value={title}>
-                            {title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="create-email" className={labelClass}>
-                      Admin email
-                    </label>
-                    <input
-                      id="create-email"
-                      name="email"
-                      type="email"
-                      required
-                      placeholder="you@company.com"
-                      autoComplete="email"
-                      className="field mt-1.5"
-                    />
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      Each organization uses a unique work email for strict tenant isolation.
-                    </p>
-                  </div>
-                  <div>
-                    <label htmlFor="create-password" className={labelClass}>
-                      Password
-                    </label>
-                    <div className="relative mt-1.5">
-                      <input
-                        id="create-password"
-                        name="password"
-                        type={showCreatePassword ? 'text' : 'password'}
-                        required
-                        minLength={8}
-                        placeholder="At least 8 characters"
-                        autoComplete="new-password"
-                        className="field pr-11"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowCreatePassword((value) => !value)}
-                        aria-label={showCreatePassword ? 'Hide password' : 'Show password'}
-                        className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
-                      >
-                        {showCreatePassword ? (
-                          <EyeOff className="size-3.5" aria-hidden />
-                        ) : (
-                          <Eye className="size-3.5" aria-hidden />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </fieldset>
+                </div>
 
                 <button
                   type="submit"
                   disabled={busy}
                   aria-busy={busy}
-                  className="btn btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
+                  className="btn btn-primary mt-1 w-full disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
                   Create organization {!busy && <ArrowRight className="size-4" aria-hidden />}
