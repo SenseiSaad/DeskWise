@@ -9,6 +9,9 @@ urlpatterns = [
     path("cron/maintenance", views.cron_maintenance),
     # auth (cookie-based; header still accepted)
     path("auth/register", views.register_company),
+    path("auth/join", views.join_company),
+    path("auth/google", views.google_auth),
+    path("auth/onboard", views.onboard_company),
     path("auth/login", views.login),
     path("auth/mfa/activate", views.mfa_activate),
     path("auth/mfa/verify", views.mfa_verify),

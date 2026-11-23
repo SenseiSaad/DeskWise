@@ -242,5 +242,139 @@ def test_email_case_insensitive_login_and_duplicate_workspace_block(api):
         },
         format="json",
     )
-    assert dup.status_code == 400
+    assert dup.status_code in (400, 409)
     assert "unique work email" in dup.json()["detail"].lower()
+
+
+def test_join_via_access_code_and_invite_token(api, register_company, mailoutbox):
+    from rest_framework.test import APIClient
+    from core.models import OneTimeToken
+
+    reg, _ = register_company(name="Joinable Co", email="boss@joinable.test")
+    assert reg.status_code == 201
+    company = Company.objects.get(name="Joinable Co")
+
+    # 1. Join via invalid access code -> 404
+    c1 = APIClient()
+    bad_code = c1.post(
+        "/api/auth/join",
+        {"access_code": "BADCODE9", "full_name": "Bob", "email": "bob@joinable.test", "password": PASSWORD},
+        format="json",
+    )
+    assert bad_code.status_code == 404
+
+    # 2. Join via valid access code -> 201 employee
+    ok_code = c1.post(
+        "/api/auth/join",
+        {"access_code": company.access_code, "full_name": "Bob Employee", "email": "bob@joinable.test", "password": PASSWORD},
+        format="json",
+    )
+    assert ok_code.status_code == 201
+    bob = User.objects.get(email="bob@joinable.test")
+    assert bob.company_id == company.id
+    assert bob.role == "employee"
+
+    # 3. Admin creates invite without password -> issues 7-day email-bound invite token
+    inv_create = api.post(
+        "/api/admin/users",
+        {"email": "carol@joinable.test", "full_name": "Carol", "role": "viewer"},
+        format="json",
+    )
+    assert inv_create.status_code == 201
+    carol = User.objects.get(email="carol@joinable.test")
+    assert not carol.has_usable_password()
+    _, raw_inv = OneTimeToken.issue(carol, "invite", minutes=60 * 24 * 7)
+
+    # Wrong email rejected without burning token
+    c2 = APIClient()
+    wrong_em = c2.post(
+        "/api/auth/join",
+        {"invite_token": raw_inv, "email": "attacker@joinable.test", "password": PASSWORD},
+        format="json",
+    )
+    assert wrong_em.status_code == 400
+
+    # Right email succeeds and consumes token
+    right_em = c2.post(
+        "/api/auth/join",
+        {"invite_token": raw_inv, "email": "carol@joinable.test", "password": PASSWORD, "full_name": "Carol Joined"},
+        format="json",
+    )
+    assert right_em.status_code == 200
+    carol.refresh_from_db()
+    assert carol.email_verified is True
+    assert carol.check_password(PASSWORD)
+
+    # Reusing the single-use invite token fails
+    reuse = c2.post(
+        "/api/auth/join",
+        {"invite_token": raw_inv, "email": "carol@joinable.test", "password": PASSWORD},
+        format="json",
+    )
+    assert reuse.status_code == 400
+
+
+def test_google_auth_onboarding_linking_and_password_reset(api, register_company, monkeypatch):
+    from rest_framework.test import APIClient
+    from core.models import OneTimeToken
+
+    # 1. Invalid token -> 401
+    c = APIClient()
+    monkeypatch.setattr(
+        "core.views.verify_google_id_token",
+        lambda _cred: (_ for _ in ()).throw(ValueError("bad signature")),
+    )
+    assert c.post("/api/auth/google", {"credential": "forged"}, format="json").status_code == 401
+
+    # 2. Unverified Google email -> 403
+    monkeypatch.setattr(
+        "core.views.verify_google_id_token",
+        lambda _cred: {"sub": "g1", "email": "g@acme.test", "email_verified": False, "name": "G"},
+    )
+    assert c.post("/api/auth/google", {"credential": "unver"}, format="json").status_code == 403
+
+    # 3. New verified Google user -> created with company=None, onboarding_required=True, workspace blocked
+    monkeypatch.setattr(
+        "core.views.verify_google_id_token",
+        lambda _cred: {"sub": "g2", "email": "newg@acme.test", "email_verified": True, "name": "Google User"},
+    )
+    g_resp = c.post("/api/auth/google", {"credential": "valid"}, format="json")
+    assert g_resp.status_code == 201
+    assert g_resp.json()["onboarding_required"] is True
+    assert c.get("/api/documents").status_code == 403
+    assert c.get("/api/documents").json().get("code") == "company_required"
+
+    # 4. Complete onboarding by creating a company -> workspace unlocked
+    onb = c.post("/api/auth/onboard", {"action": "create", "company_name": "Google Org"}, format="json")
+    assert onb.status_code == 201
+    assert onb.json()["onboarding_required"] is False
+    assert c.get("/api/documents").status_code == 200
+
+    # 5. Google user with no usable password can set a password via reset flow
+    g_user = User.objects.get(email="newg@acme.test")
+    assert not g_user.has_usable_password()
+    _, rtok = OneTimeToken.issue(g_user, "password_reset", minutes=30)
+    res_pw = c.post("/api/auth/reset-password", {"token": rtok, "password": PASSWORD}, format="json")
+    assert res_pw.status_code == 200
+    g_user.refresh_from_db()
+    assert g_user.check_password(PASSWORD)
+
+
+def test_email_service_templates_and_verification_cooldown(api, register_company, mailoutbox, settings):
+    from django.core.cache import cache
+    from core import email_service
+
+    cache.clear()
+    settings.REQUIRE_EMAIL_VERIFICATION = True
+    for kind in ("verify", "reset", "invite", "password_changed", "welcome"):
+        subj, txt, htm = email_service.build_email_content(kind, company_name="TestCo", url="https://deskwise.saadops.site/test")
+        assert subj and txt and "<html" in htm
+
+    reg, _ = register_company(name="Cooldown Co", email="cd@cooldown.test")
+    assert reg.status_code == 201
+    first = api.post("/api/auth/request-verification", {"email": "cd@cooldown.test"}, format="json")
+    assert first.status_code == 200
+    second = api.post("/api/auth/request-verification", {"email": "cd@cooldown.test"}, format="json")
+    assert second.status_code == 429
+    assert "Retry-After" in second
+

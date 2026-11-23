@@ -88,8 +88,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     if (!loading && !isEnterprise) {
       const nextParam = encodeURIComponent(pathname || '/workspace')
       router.replace(`/enterprise?next=${nextParam}${sessionExpired ? '&expired=1' : ''}`)
+    } else if (!loading && user && !isPlatformAdmin && !user.company_id) {
+      router.replace('/enterprise?tab=onboard')
     }
-  }, [loading, isEnterprise, sessionExpired, router, pathname])
+  }, [loading, isEnterprise, sessionExpired, router, pathname, user, isPlatformAdmin])
 
   useEffect(() => {
     const titles: Record<string, string> = {

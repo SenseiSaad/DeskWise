@@ -169,7 +169,7 @@ class RegisterCompanySerializer(serializers.Serializer):
     phone = serializers.CharField(required=False, allow_blank=True, default="")
     max_employees = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     email = serializers.EmailField()
-    password = serializers.CharField(min_length=8)
+    password = serializers.CharField(min_length=10)
 
     def validate_password(self, value):
         try:
@@ -189,7 +189,7 @@ class UserCreateSerializer(serializers.Serializer):
     title = serializers.CharField(required=False, allow_blank=True, default="")
     department_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     email = serializers.EmailField()
-    password = serializers.CharField(min_length=8)
+    password = serializers.CharField(required=False, allow_blank=True, default="")
     role = serializers.ChoiceField(choices=["admin", "employee", "viewer"], default="employee")
     is_dept_admin = serializers.BooleanField(required=False, default=False)
     clearance = serializers.ChoiceField(
@@ -198,6 +198,8 @@ class UserCreateSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, default="", max_length=300)
 
     def validate_password(self, value):
+        if not value:
+            return ""
         try:
             validate_password(value)
         except DjangoValidationError as exc:

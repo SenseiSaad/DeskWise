@@ -656,16 +656,15 @@ function MembersAdmin({ currentUser, isCompanyAdmin }: { currentUser: User; isCo
                 </div>
                 <div>
                   <label htmlFor="m-password" className={labelClass}>
-                    Temporary password
+                    Temporary password <span className="font-normal text-muted-foreground">(optional — leave blank to email invite link)</span>
                   </label>
                   <input
                     id="m-password"
                     type="password"
-                    required
-                    minLength={8}
+                    minLength={10}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
+                    placeholder="Leave blank for 7-day invite link, or 10+ chars"
                     className={inputClass}
                     disabled={submitting}
                   />

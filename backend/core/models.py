@@ -272,6 +272,7 @@ class Plan(models.Model):
 class OneTimeToken(models.Model):
     """Single-purpose, expiring, hashed token for email verification and
     password resets. The raw token only ever exists in the emailed link."""
+    # "invite" is also issued/consumed for 7-day email-bound member invitations.
     PURPOSES = [("verify_email", "verify_email"), ("password_reset", "password_reset")]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="one_time_tokens")

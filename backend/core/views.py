@@ -256,16 +256,19 @@ def _is_platform_level(user):
 
 
 def _platform_admin_blocked(request):
-    """403 for a platform/root admin trying to touch tenant-scoped data.
-
-    Root admins have no `company` by design: they see platform reports
-    (/api/admin/reports) and platform config only, never a tenant's documents,
-    chat history, member directory or generated artifacts.
+    """403 for a platform/root admin trying to touch tenant-scoped data, or an
+    authenticated user who has not yet finished company onboarding.
     """
-    if _is_platform_level(request.user) and not getattr(request.user, "company_id", None):
+    if not getattr(request.user, "company_id", None):
+        if _is_platform_level(request.user):
+            return Response(
+                {"detail": "Platform admins cannot access company data. "
+                           "Use /api/admin/reports for platform analytics."},
+                status=403,
+            )
         return Response(
-            {"detail": "Platform admins cannot access company data. "
-                       "Use /api/admin/reports for platform analytics."},
+            {"detail": "Please complete onboarding by creating or joining a company.",
+             "code": "company_required"},
             status=403,
         )
     return None
@@ -340,21 +343,21 @@ def share_target(request):
 
 
 # ------------------------------------------------------------------ helpers
-def _email_user(user, subject, body):
-    """Send a transactional email; console backend in dev, never raises."""
-    from django.core.mail import send_mail
-    try:
-        send_mail(subject=subject, message=body,
-                  from_email=settings.DEFAULT_FROM_EMAIL, recipient_list=[user.email],
-                  fail_silently=True)
-        return True
-    except Exception:
+def _email_user(user, subject, body, html_body=None):
+    """Send a transactional email; uses email_service with HTML + plain text, never raises."""
+    from . import email_service
+    to_email = user.email if hasattr(user, "email") else str(user or "").strip()
+    if not to_email:
         return False
+    rendered_html = html_body or email_service._render_html_shell(
+        subject, body, "", "", "Deskwise notification."
+    )
+    return email_service._deliver_now(to_email, subject, body, rendered_html)
 
 
 def _frontend_url(path=""):
-    base = (settings.PUBLIC_BASE_URL or "http://localhost:3000").rstrip("/")
-    return f"{base}/{path.lstrip('/')}" if path else base
+    from . import email_service
+    return email_service.frontend_url(path)
 
 
 def _require_email_verification(user):
@@ -375,8 +378,8 @@ def register_company(request):
     if User.objects.filter(email__iexact=d["email"].strip()).exists():
         return Response(
             {"detail": "This email is already registered to a workspace. Each workspace requires "
-                       "a unique work email — sign in to your existing workspace or use another email."},
-            status=400,
+                       "a unique work email — try signing in or reset your password."},
+            status=409,
         )
 
     base = slugify(d["company_name"]) or "company"
@@ -406,13 +409,14 @@ def register_company(request):
             detail=f"company {company.name}", ip=client_ip(request),
         )
 
-    # Email verification (no-op link when email delivery is console-backed).
+    # Email verification (branded HTML + plain-text template).
+    from . import email_service
     tok, raw = OneTimeToken.issue(user, "verify_email", minutes=60 * 24)
-    _email_user(
-        user, "Verify your Deskwise email",
-        f"Welcome to Deskwise.\n\nVerify your email within 24 hours:\n"
-        f"{_frontend_url('/auth/verify?token=' + raw)}\n\n"
-        f"If you did not create this account you can ignore this email.",
+    email_service.send_auth_email(
+        user,
+        "verify",
+        company_name=company.name,
+        url=_frontend_url("/auth/verify?token=" + raw),
     )
     audit(_as(request, user), "verification_email_sent", target_type="user", target_id=str(user.id))
 
@@ -678,15 +682,44 @@ def update_me(request):
 @permission_classes([AllowAny])
 @rate_limit("verify_request", rate=5, per_seconds=600, key="ip_email")
 def request_verification(request):
-    """(Re)send the email-verification link for an account."""
+    """(Re)send the email-verification link for an account with a 60s cooldown and daily cap."""
+    from django.core.cache import cache
+    from . import email_service
+
     email = str((request.data or {}).get("email") or "").strip().lower()
     user = User.objects.filter(email__iexact=email, is_active=True).first()
     if user and not user.email_verified:
+        cd_key = f"rl:verify_cd:{user.email}"
+        day_key = f"rl:verify_day:{user.email}"
+        if cache.get(cd_key):
+            resp = Response(
+                {
+                    "detail": "If that account exists, a verification link has been sent.",
+                    "cooldown": True,
+                    "retry_after": 60,
+                },
+                status=429,
+            )
+            resp["Retry-After"] = "60"
+            return resp
+        daily_sent = int(cache.get(day_key) or 0)
+        if daily_sent >= 10:
+            resp = Response(
+                {"detail": "Daily verification email limit reached. Try again tomorrow."},
+                status=429,
+            )
+            resp["Retry-After"] = "3600"
+            return resp
+        cache.set(cd_key, 1, timeout=60)
+        cache.set(day_key, daily_sent + 1, timeout=86400)
         tok, raw = OneTimeToken.issue(user, "verify_email", minutes=60 * 24)
-        _email_user(user, "Verify your Deskwise email",
-                    f"Verify your email within 24 hours:\n"
-                    f"{_frontend_url('/auth/verify?token=' + raw)}")
-    # Same response either way: never reveal whether an email exists.
+        email_service.send_auth_email(
+            user,
+            "verify",
+            company_name=user.company.name if user.company else "your workspace",
+            url=_frontend_url("/auth/verify?token=" + raw),
+        )
+    # Same response either way on initial call: never reveal whether an email exists.
     return Response({"detail": "If that account exists, a verification link has been sent."})
 
 
@@ -700,8 +733,9 @@ def verify_email(request):
     tok = OneTimeToken.consume(raw, "verify_email")
     if not tok:
         return Response({"detail": "This verification link is invalid or has expired."}, status=400)
-    tok.user.email_verified = True
-    tok.user.save(update_fields=["email_verified"])
+    if not tok.user.email_verified:
+        tok.user.email_verified = True
+        tok.user.save(update_fields=["email_verified"])
     return Response({"detail": "Email verified. You can sign in now."})
 
 
@@ -711,15 +745,16 @@ def verify_email(request):
 @rate_limit("forgot", rate=5, per_seconds=600, key="ip_email")
 def forgot_password(request):
     """Email a one-time password-reset link (never reveals account existence)."""
+    from . import email_service
+
     email = str((request.data or {}).get("email") or "").strip().lower()
     user = User.objects.filter(email__iexact=email, is_active=True).first()
     if user:
         tok, raw = OneTimeToken.issue(user, "password_reset", minutes=30)
-        _email_user(
-            user, "Reset your Deskwise password",
-            f"Reset your password within 30 minutes:\n"
-            f"{_frontend_url('/auth/reset?token=' + raw)}\n\n"
-            f"If you did not request this, ignore this email — your password is unchanged.",
+        email_service.send_auth_email(
+            user,
+            "reset",
+            url=_frontend_url("/auth/reset?token=" + raw),
         )
     return Response({"detail": "If that account exists, a reset link has been sent."})
 
@@ -730,6 +765,8 @@ def forgot_password(request):
 @rate_limit("reset_confirm", rate=10, per_seconds=600, key="ip")
 def reset_password(request):
     """Consume a reset token and set a new password."""
+    from . import email_service
+
     raw = str((request.data or {}).get("token") or "")
     password = str((request.data or {}).get("password") or "")
     tok = OneTimeToken.consume(raw, "password_reset")
@@ -742,7 +779,317 @@ def reset_password(request):
     tok.user.email_verified = True  # a working reset link proves mailbox ownership
     tok.user.save(update_fields=["password", "email_verified"])
     revoke_user_refresh_tokens(tok.user)
+    email_service.send_auth_email(tok.user, "password_changed")
     return Response({"detail": "Password updated. You can sign in now."})
+
+
+def verify_google_id_token(credential: str) -> dict:
+    """Cryptographically verify a Google ID token against Google's JWKS.
+
+    Checks RS256 signature, `aud` against `settings.GOOGLE_CLIENT_ID`, `iss`
+    (`accounts.google.com` or `https://accounts.google.com`), and `exp` with 30s
+    clock-skew leeway. Never trusts client-decoded claims.
+    """
+    import jwt
+    from jwt import PyJWKClient
+
+    client_id = getattr(settings, "GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        raise ValueError("Google Sign-In is not configured on this server (missing GOOGLE_CLIENT_ID).")
+    if not credential or not isinstance(credential, str):
+        raise ValueError("Missing Google ID token.")
+
+    jwk_client = PyJWKClient(
+        "https://www.googleapis.com/oauth2/v3/certs",
+        cache_keys=True,
+        lifespan=3600,
+    )
+    signing_key = jwk_client.get_signing_key_from_jwt(credential)
+    claims = jwt.decode(
+        credential,
+        signing_key.key,
+        algorithms=["RS256"],
+        audience=client_id,
+        issuer=["accounts.google.com", "https://accounts.google.com"],
+        leeway=30,
+    )
+    return claims
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+@rate_limit("google_auth", rate=10, per_seconds=60, key="ip")
+def google_auth(request):
+    """Sign in or sign up with a verified Google ID token (Path C).
+
+    Rules:
+      - Google must assert `email_verified == True`.
+      - Existing user with same email: links/signs in (requires active user;
+        prompts onboarding if user has no company yet).
+      - New user: creates account with unusable password + `email_verified=True`
+        and `company=None`, sets session cookies, and returns
+        `onboarding_required: True` so the frontend displays the Create/Join screen.
+    """
+    credential = str((request.data or {}).get("credential") or "").strip()
+    if not credential:
+        return Response({"detail": "Google credential token is required."}, status=400)
+    try:
+        claims = verify_google_id_token(credential)
+    except Exception as exc:
+        return Response({"detail": f"Invalid or expired Google sign-in token. ({exc})"}, status=401)
+
+    email = str(claims.get("email") or "").strip().lower()
+    email_verified = claims.get("email_verified") in (True, "true", "True", 1)
+    full_name = str(claims.get("name") or "").strip()[:200]
+    if not email or not email_verified:
+        return Response(
+            {"detail": "Your Google account email is not verified by Google."},
+            status=403,
+        )
+
+    user = User.objects.select_related("company").filter(email__iexact=email).first()
+    created_new = False
+    if user is not None:
+        if not user.is_active:
+            return Response({"detail": "This account has been deactivated. Contact your administrator."}, status=403)
+        updates = []
+        if not user.email_verified:
+            user.email_verified = True
+            updates.append("email_verified")
+        if full_name and not user.full_name:
+            user.full_name = full_name
+            updates.append("full_name")
+        if updates:
+            user.save(update_fields=updates)
+        if _is_platform_level(user):
+            from . import mfa
+            if not user.mfa_enabled:
+                secret = mfa.generate_secret()
+                return Response({
+                    "mfa_required": True,
+                    "enrollment": {
+                        "secret": secret,
+                        "uri": mfa.provisioning_uri(secret, user.email),
+                    },
+                    "challenge": mfa.issue_challenge(user.pk, "enroll", secret=secret),
+                })
+            return Response({"mfa_required": True, "challenge": mfa.issue_challenge(user.pk, "login")})
+    else:
+        created_new = True
+        user = User(
+            email=email,
+            full_name=full_name,
+            role="employee",
+            email_verified=True,
+            company=None,
+        )
+        user.set_unusable_password()
+        user.save()
+
+    needs_onboarding = not _is_platform_level(user) and user.company_id is None
+    if user.company_id:
+        audit(_as(request, user), "login_google")
+    resp = Response(
+        {
+            "user": UserSerializer(user).data,
+            "onboarding_required": needs_onboarding,
+        },
+        status=201 if created_new else 200,
+    )
+    return set_auth_cookies(resp, user)
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+@rate_limit("join", rate=8, per_seconds=300, key="ip")
+def join_company(request):
+    """Employee signup (Path B): join an existing company via 7-day email-bound
+    invite token OR company access_code."""
+    import hashlib
+    import hmac
+    from django.db import transaction
+    from . import email_service
+
+    data = request.data or {}
+    invite_raw = str(data.get("invite_token") or "").strip()
+    access_code = str(data.get("access_code") or "").strip().upper()
+    email = str(data.get("email") or "").strip().lower()
+    password = str(data.get("password") or "")
+    full_name = str(data.get("full_name") or "").strip()[:200]
+
+    if not email or "@" not in email:
+        return Response({"detail": "A valid work email is required."}, status=400)
+
+    # Path B2: 7-day email-bound single-use admin invite token
+    if invite_raw:
+        token_hash = hashlib.sha256(invite_raw.encode()).hexdigest()
+        tok = OneTimeToken.objects.select_related("user", "user__company").filter(
+            token_hash=token_hash, purpose="invite"
+        ).first()
+        if not tok or not tok.is_valid():
+            return Response({"detail": "This invitation link is invalid or has expired."}, status=400)
+        target_user = tok.user
+        if not hmac.compare_digest(target_user.email.lower(), email.lower()):
+            return Response(
+                {"detail": "This invitation link was issued for a different email address."},
+                status=400,
+            )
+        err = _password_error(password, target_user)
+        if err:
+            return Response({"detail": err}, status=400)
+        consumed = OneTimeToken.consume(invite_raw, "invite")
+        if not consumed:
+            return Response({"detail": "This invitation link has already been used."}, status=400)
+        target_user.set_password(password)
+        target_user.email_verified = True
+        if full_name:
+            target_user.full_name = full_name
+        target_user.save(update_fields=["password", "email_verified", "full_name"])
+        if target_user.company_id:
+            audit(_as(request, target_user), "invite_accepted", target_user.email)
+            email_service.send_auth_email(
+                target_user, "welcome", company_name=target_user.company.name
+            )
+        resp = Response({"user": UserSerializer(target_user).data}, status=200)
+        return set_auth_cookies(resp, target_user)
+
+    # Path B1: Join via company access_code
+    if not access_code:
+        return Response({"detail": "Enter a company join code or open your invitation link."}, status=400)
+    company = Company.objects.filter(access_code__iexact=access_code).first()
+    if not company:
+        return Response({"detail": "No company matches that join code. Check the 8-character code with your admin."}, status=404)
+    if User.objects.filter(email__iexact=email).exists():
+        return Response(
+            {"detail": "This email is already registered. Try signing in or reset your password."},
+            status=409,
+        )
+
+    plan = _plan_for(company)
+    seat_caps = [c for c in (company.max_employees, plan.max_members if plan else None) if c]
+    if seat_caps and company.users.count() >= min(seat_caps):
+        return Response({"detail": "This company has reached its member seat limit."}, status=400)
+
+    probe_user = User(email=email, full_name=full_name)
+    err = _password_error(password, probe_user)
+    if err:
+        return Response({"detail": err}, status=400)
+
+    with transaction.atomic():
+        user = User.objects.create_user(
+            email=email,
+            password=password,
+            full_name=full_name,
+            role="employee",
+            company=company,
+        )
+        audit(
+            _as(request, user),
+            "member_joined",
+            f"{user.email} via access_code",
+            outcome="allowed",
+            target_type="user",
+            target_id=str(user.id),
+        )
+
+    _, raw_v = OneTimeToken.issue(user, "verify_email", minutes=60 * 24)
+    email_service.send_auth_email(
+        user,
+        "verify",
+        company_name=company.name,
+        url=_frontend_url("/auth/verify?token=" + raw_v),
+    )
+    if _require_email_verification(user):
+        return Response(
+            {"user": UserSerializer(user).data, "verification_required": True},
+            status=201,
+        )
+    resp = Response({"user": UserSerializer(user).data}, status=201)
+    return set_auth_cookies(resp, user)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def onboard_company(request):
+    """Complete post-Google onboarding: either create a new company (become admin)
+    or join an existing company by access_code."""
+    from django.db import transaction
+    from . import email_service
+
+    user = request.user
+    if user.company_id:
+        return Response({"user": UserSerializer(user).data, "onboarding_required": False})
+
+    data = request.data or {}
+    action = str(data.get("action") or "create").strip().lower()
+    full_name = str(data.get("full_name") or "").strip()[:200]
+    if full_name and not user.full_name:
+        user.full_name = full_name
+
+    if action == "create":
+        company_name = str(data.get("company_name") or "").strip()[:200]
+        if not company_name:
+            return Response({"detail": "Company name is required."}, status=400)
+        base = slugify(company_name) or "company"
+        slug, n = base, 1
+        while Company.objects.filter(slug=slug).exists():
+            n += 1
+            slug = f"{base}-{n}"
+        with transaction.atomic():
+            company = Company.objects.create(
+                name=company_name,
+                slug=slug,
+                plan=Plan.default(),
+                enable_team_chat=False,
+                enable_attendance=False,
+            )
+            user.company = company
+            user.role = "admin"
+            user.save(update_fields=["company", "role", "full_name"])
+            AuditLog.objects.create(
+                company=company,
+                user=user,
+                action="register",
+                outcome="allowed",
+                target_type="company",
+                target_id=str(company.id),
+                detail=f"company {company.name} (google)",
+                ip=client_ip(request),
+            )
+        email_service.send_auth_email(user, "welcome", company_name=company.name)
+        resp = Response({"user": UserSerializer(user).data, "onboarding_required": False}, status=201)
+        return set_auth_cookies(resp, user)
+
+    if action == "join":
+        access_code = str(data.get("access_code") or "").strip().upper()
+        if not access_code:
+            return Response({"detail": "Company join code is required."}, status=400)
+        company = Company.objects.filter(access_code__iexact=access_code).first()
+        if not company:
+            return Response({"detail": "No company matches that join code."}, status=404)
+        plan = _plan_for(company)
+        seat_caps = [c for c in (company.max_employees, plan.max_members if plan else None) if c]
+        if seat_caps and company.users.count() >= min(seat_caps):
+            return Response({"detail": "This company has reached its member seat limit."}, status=400)
+        with transaction.atomic():
+            user.company = company
+            user.role = "employee"
+            user.save(update_fields=["company", "role", "full_name"])
+            audit(
+                request,
+                "member_joined",
+                f"{user.email} via google+access_code",
+                outcome="allowed",
+                target_type="user",
+                target_id=str(user.id),
+            )
+        email_service.send_auth_email(user, "welcome", company_name=company.name)
+        resp = Response({"user": UserSerializer(user).data, "onboarding_required": False}, status=200)
+        return set_auth_cookies(resp, user)
+
+    return Response({"detail": "action must be 'create' or 'join'."}, status=400)
 
 
 # --------------------------------------------------------------- documents
@@ -2024,10 +2371,12 @@ def users(request):
         return Response({"detail": "Department sub-admins must have role='employee' and a department."}, status=400)
 
     reason = str(d.get("reason") or "").strip()[:200]
+    raw_pw = d.get("password") or ""
     from django.db import transaction
+    from . import email_service
     with transaction.atomic():
         user = User.objects.create_user(
-            email=d["email"], password=d["password"],
+            email=d["email"], password=raw_pw if raw_pw else None,
             full_name=d.get("full_name", ""), title=d.get("title", ""),
             role=d["role"], is_dept_admin=is_dadmin, clearance=raw_clearance,
             company=company, department=department,
@@ -2039,12 +2388,22 @@ def users(request):
             request, "add_user", detail,
             outcome="allowed", target_type="user", target_id=str(user.id), fail_closed=True,
         )
-    # New members verify on first sign-in flow; send them a welcome+verify mail.
-    tok, raw = OneTimeToken.issue(user, "verify_email", minutes=60 * 24 * 3)
-    _email_user(user, "Welcome to Deskwise",
-                f"Your workspace account is ready.\n\nVerify your email:\n"
-                f"{_frontend_url('/auth/verify?token=' + raw)}\n\n"
-                f"Then sign in with the email address your administrator provided.")
+    if not raw_pw:
+        _, raw_inv = OneTimeToken.issue(user, "invite", minutes=60 * 24 * 7)
+        email_service.send_auth_email(
+            user,
+            "invite",
+            company_name=company.name,
+            url=_frontend_url(f"/enterprise?tab=join&invite={raw_inv}&email={user.email}"),
+        )
+    else:
+        _, raw = OneTimeToken.issue(user, "verify_email", minutes=60 * 24 * 3)
+        email_service.send_auth_email(
+            user,
+            "verify",
+            company_name=company.name,
+            url=_frontend_url("/auth/verify?token=" + raw),
+        )
     return Response(UserSerializer(user, context={"request": request}).data, status=201)
 
 

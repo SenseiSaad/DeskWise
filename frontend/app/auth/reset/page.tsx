@@ -27,8 +27,8 @@ function ResetForm() {
       setError('Passwords do not match.')
       return
     }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
+    if (password.length < 10) {
+      setError('Password must be at least 10 characters.')
       return
     }
     setBusy(true)
@@ -69,7 +69,7 @@ function ResetForm() {
       </span>
       <h1 className="mt-5 text-[1.35rem] font-medium tracking-[-0.03em]">Choose a new password</h1>
       <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
-        Use at least eight characters. You&apos;ll sign in again with your work email.
+        Use at least 10 characters. Choosing a new password signs out all other active devices.
       </p>
 
       <form onSubmit={submit} className="mt-6 space-y-4">
@@ -82,7 +82,8 @@ function ResetForm() {
               id="rp-new"
               type={showPassword ? 'text' : 'password'}
               required
-              minLength={8}
+              minLength={10}
+              autoFocus
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="new-password"
@@ -107,7 +108,7 @@ function ResetForm() {
               id="rp-confirm"
               type={showConfirm ? 'text' : 'password'}
               required
-              minLength={8}
+              minLength={10}
               value={confirm}
               onChange={(event) => setConfirm(event.target.value)}
               autoComplete="new-password"
@@ -125,12 +126,18 @@ function ResetForm() {
         </div>
 
         {error && (
-          <p
+          <div
             role="alert"
             className="rounded-lg border border-danger/25 bg-danger-soft px-3.5 py-2.5 text-[12px] text-danger"
           >
-            {error}
-          </p>
+            <p>{error}</p>
+            <Link
+              href="/auth/forgot"
+              className="mt-1.5 inline-block text-[11px] font-semibold underline underline-offset-4"
+            >
+              Request a new reset link
+            </Link>
+          </div>
         )}
 
         <button

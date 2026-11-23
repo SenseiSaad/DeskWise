@@ -18,6 +18,7 @@ interface AuthContextValue {
   sessionExpired: boolean
   isEnterprise: boolean
   isPlatformAdmin: boolean
+  needsOnboarding: boolean
   language: UiLanguage
   setLanguage: (lang: UiLanguage) => Promise<void>
   enterpriseLogin: (email: string, password: string) => Promise<User>
@@ -31,7 +32,21 @@ interface AuthContextValue {
     max_employees?: number | null
     email: string
     password: string
-  }) => Promise<{ user: User; verification_required?: boolean }>
+  }) => Promise<AuthResponse>
+  joinCompany: (p: {
+    access_code?: string
+    invite_token?: string
+    full_name?: string
+    email: string
+    password: string
+  }) => Promise<AuthResponse>
+  googleLogin: (credential: string) => Promise<AuthResponse>
+  onboardCompany: (p: {
+    action: 'create' | 'join'
+    company_name?: string
+    access_code?: string
+    full_name?: string
+  }) => Promise<AuthResponse>
   completeMfa: (step: MfaStep, code: string) => Promise<User>
   refreshUser: () => Promise<User | null>
   logout: () => Promise<void>
@@ -67,7 +82,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
-    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'deskwise:logout-at') {
+        setSessionExpired(false)
+        setUser(null)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
+      window.removeEventListener('storage', onStorage)
+    }
   }, [])
 
   const apply = useCallback((res: AuthResponse) => {
@@ -118,6 +143,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }),
     [apply],
   )
+
+  const joinCompany = useCallback(
+    (p: {
+      access_code?: string
+      invite_token?: string
+      full_name?: string
+      email: string
+      password: string
+    }) =>
+      authApi.joinCompany(p).then((res) => {
+        if (!res.verification_required) {
+          apply(res)
+        }
+        return res
+      }),
+    [apply],
+  )
+
+  const googleLogin = useCallback(
+    (credential: string) =>
+      authApi.googleAuth(credential).then((res) => {
+        if (isMfaResponse(res)) {
+          const err = new Error('mfa_required') as Error & { mfa?: MfaLoginResponse }
+          err.mfa = res
+          throw err
+        }
+        apply(res)
+        return res
+      }),
+    [apply],
+  )
+
+  const onboardCompany = useCallback(
+    (p: {
+      action: 'create' | 'join'
+      company_name?: string
+      access_code?: string
+      full_name?: string
+    }) =>
+      authApi.onboardCompany(p).then((res) => {
+        apply(res)
+        return res
+      }),
+    [apply],
+  )
   const refreshUser = useCallback(() => {
     return authApi
       .me()
@@ -147,9 +217,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* clearing cookies server-side is best-effort */
     }
+    try {
+      window.localStorage.setItem('deskwise:logout-at', String(Date.now()))
+    } catch {
+      /* ignore storage errors */
+    }
     setSessionExpired(false)
     setUser(null)
   }, [])
+
+  const isPlat = !!user && (!!user.is_platform_admin || !!user.is_superuser)
+  const needsOnboarding = !!user && !isPlat && !user.company_id
 
   return (
     <AuthContext.Provider
@@ -158,11 +236,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         sessionExpired,
         isEnterprise: !!user,
-        isPlatformAdmin: !!user && (!!user.is_platform_admin || !!user.is_superuser),
+        isPlatformAdmin: isPlat,
+        needsOnboarding,
         language: isUiLanguage(user?.language) ? user.language : 'en',
         setLanguage,
         enterpriseLogin,
         enterpriseRegister,
+        joinCompany,
+        googleLogin,
+        onboardCompany,
         completeMfa,
         refreshUser,
         logout,

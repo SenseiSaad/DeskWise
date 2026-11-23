@@ -22,8 +22,16 @@ function detectBase(): string {
 
 export const API_BASE = detectBase()
 
-const AUTH_SESSION_PATHS = new Set(['/auth/me', '/auth/update-me', '/auth/mfa/setup'])
+const AUTH_SESSION_PATHS = new Set(['/auth/me', '/auth/update-me', '/auth/mfa/setup', '/auth/onboard'])
 export const SESSION_EXPIRED_EVENT = 'deskwise:session-expired'
+export const SERVER_WAKING_EVENT = 'deskwise:server-waking'
+
+export interface ApiError extends Error {
+  status?: number
+  code?: string
+  retryAfter?: number
+  fields?: Record<string, string[]>
+}
 
 function canRefreshPath(path: string): boolean {
   return !path.startsWith('/auth/') || AUTH_SESSION_PATHS.has(path)
@@ -85,28 +93,86 @@ async function fetchWithRefresh(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tiny client: response shapes are typed at each call site
 async function handle(res: Response, sessionExpiredOn401: boolean): Promise<any> {
   if (res.status === 401 && sessionExpiredOn401) {
-    throw new Error('Session expired. Please sign in again.')
+    const err = new Error('Session expired. Please sign in again.') as ApiError
+    err.status = 401
+    throw err
   }
   if (!res.ok) {
-    let detail = `Request failed (${res.status})`
+    let detail =
+      res.status >= 500
+        ? 'The server could not complete this request right now. Please try again in a moment.'
+        : `Request failed (${res.status})`
+    let code: string | undefined
+    let retryAfter: number | undefined
+    let fields: Record<string, string[]> | undefined
+    const headerRetry = res.headers?.get?.('Retry-After')
+    if (headerRetry && !Number.isNaN(Number(headerRetry))) {
+      retryAfter = Number(headerRetry)
+    }
     try {
       const data = await res.json()
+      if (data && typeof data === 'object') {
+        if (typeof data.code === 'string') code = data.code
+        if (typeof data.retry_after === 'number') retryAfter = data.retry_after
+        const fieldMap: Record<string, string[]> = {}
+        for (const [k, v] of Object.entries(data)) {
+          if (k !== 'detail' && k !== 'code' && k !== 'retry_after' && Array.isArray(v)) {
+            fieldMap[k] = v.map(String)
+          }
+        }
+        if (Object.keys(fieldMap).length > 0) fields = fieldMap
+      }
       // DRF returns {detail: "..."} or field-keyed {field: ["msg"]}
       const first = data.detail ?? Object.values(data)[0]
       detail = Array.isArray(first) ? first[0] : first || detail
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(detail)
+    const err = new Error(detail) as ApiError
+    err.status = res.status
+    if (code) err.code = code
+    if (retryAfter !== undefined) err.retryAfter = retryAfter
+    if (fields) err.fields = fields
+    throw err
   }
   if (res.status === 204) return null
   return res.json()
 }
 
+async function fetchWithTimeoutAndRetry(url: string, init: RequestInit, timeoutMs = 15000): Promise<Response> {
+  const attempt = async () => {
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null
+    try {
+      return await fetch(url, ctrl ? { ...init, signal: ctrl.signal } : init)
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+  try {
+    return await attempt()
+  } catch {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(SERVER_WAKING_EVENT, { detail: { waking: true } }))
+    }
+    try {
+      return await attempt()
+    } catch {
+      const netErr = new Error('Server is taking too long to respond. Please check your connection and try again.') as ApiError
+      netErr.code = 'network_timeout'
+      throw netErr
+    } finally {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(SERVER_WAKING_EVENT, { detail: { waking: false } }))
+      }
+    }
+  }
+}
+
 function request(method: string, path: string, body?: unknown, isForm = false) {
   const allowRefresh = canRefreshPath(path)
   const run = () =>
-    fetch(`${API_BASE}/api${path}`, {
+    fetchWithTimeoutAndRetry(`${API_BASE}/api${path}`, {
       method,
       credentials: 'include',
       headers: isForm || body == null ? undefined : { 'Content-Type': 'application/json' },
@@ -410,6 +476,7 @@ let _directUploadEnabled: boolean | null = null
 export interface AuthResponse {
   user: User
   verification_required?: boolean
+  onboarding_required?: boolean
 }
 
 // Platform-admin sign-ins stop after the password and return this instead —
@@ -449,6 +516,21 @@ export const authApi = {
     email: string
     password: string
   }): Promise<AuthResponse> => api.post('/auth/register', p),
+  joinCompany: (p: {
+    access_code?: string
+    invite_token?: string
+    full_name?: string
+    email: string
+    password: string
+  }): Promise<AuthResponse> => api.post('/auth/join', p),
+  googleAuth: (credential: string): Promise<AuthResponse | MfaLoginResponse> =>
+    api.post('/auth/google', { credential }),
+  onboardCompany: (p: {
+    action: 'create' | 'join'
+    company_name?: string
+    access_code?: string
+    full_name?: string
+  }): Promise<AuthResponse> => api.post('/auth/onboard', p),
   logout: (): Promise<{ ok: boolean }> => api.post('/auth/logout'),
   logoutAll: (): Promise<{ ok: boolean }> => api.post('/auth/logout-all'),
   updateMe: (p: { full_name?: string; title?: string; language?: UiLanguage;
@@ -701,7 +783,7 @@ export interface NewUser {
   title?: string
   department_id?: number | null
   email: string
-  password: string
+  password?: string
   role: Role
   is_dept_admin?: boolean
   clearance?: '' | Clearance

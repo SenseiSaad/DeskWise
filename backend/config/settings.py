@@ -153,7 +153,7 @@ SIMPLE_JWT = {
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-     "OPTIONS": {"min_length": 8}},
+     "OPTIONS": {"min_length": 10}},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
@@ -330,15 +330,26 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "false").lower() in ("1", "true", "yes")
 EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "false").lower() in ("1", "true", "yes")
-EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "15"))
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Deskwise <no-reply@deskwise.local>")
+SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL", "support@saadops.site").strip()
+EMAIL_ASYNC = os.getenv("EMAIL_ASYNC", "false").lower() in ("1", "true", "yes")
 
-# ── Google Calendar (meeting scheduling) ──
+# ── Google OAuth & Calendar ──
+GOOGLE_CLIENT_ID = (
+    os.getenv("GOOGLE_CLIENT_ID") or os.getenv("NEXT_PUBLIC_GOOGLE_CLIENT_ID") or ""
+).strip()
 GOOGLE_CALENDAR_CREDENTIALS = os.getenv("GOOGLE_CALENDAR_CREDENTIALS", "")
 GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "primary")
 
 # Absolute origin used for emailed links and generated-form download URLs.
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+PUBLIC_BASE_URL = (os.getenv("FRONTEND_URL") or os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
+FRONTEND_URL = PUBLIC_BASE_URL or "http://localhost:3000"
+if PUBLIC_BASE_URL.startswith(("http://", "https://")):
+    if PUBLIC_BASE_URL not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(PUBLIC_BASE_URL)
+    if PUBLIC_BASE_URL not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(PUBLIC_BASE_URL)
 
 # ── Attendance / strike policy (Feature 5) ──
 ATTENDANCE_MONTHLY_ABSENCE_LIMIT = int(os.getenv("ATTENDANCE_MONTHLY_ABSENCE_LIMIT", "3"))
