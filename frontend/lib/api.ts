@@ -227,6 +227,26 @@ export interface WorkflowResult {
   detail?: string
 }
 
+// AI-01: the assistant only *proposes* an action. Nothing runs until the user
+// confirms, which posts the signed single-use token to /api/workflow/confirm.
+export interface WorkflowProposal {
+  type: 'workflow_proposal'
+  action: 'schedule_meeting' | 'leave_request' | string
+  message: string
+  preview: {
+    title?: string
+    date?: string
+    time?: string
+    participants?: string[]
+    leave_reason?: string
+  }
+  token: string
+}
+
+export const workflowApi = {
+  confirm: (token: string): Promise<WorkflowResult> => api.post('/workflow/confirm', { token }),
+}
+
 // One NDJSON line from POST /api/ask.
 // A finished, copy/paste/send-ready document produced from a template.
 export interface Artifact {
@@ -289,6 +309,7 @@ export type AskEvent =
   | { type: 'artifact'; artifact: Artifact }
   | { type: 'missing_fields'; fields: string[] }
   | WorkflowResult
+  | WorkflowProposal
   | { type: 'done' }
   | { type: 'error'; message: string }
 
@@ -808,7 +829,8 @@ export const workApi = {
         if (presign?.upload_url && presign?.key) {
           const putRes = await fetch(presign.upload_url, {
             method: 'PUT',
-            headers: { 'Content-Type': file.type || 'application/octet-stream' },
+            // The server signs the content type it derives from the extension; send exactly that.
+            headers: { 'Content-Type': presign.content_type || file.type || 'application/octet-stream' },
             body: file,
           })
           if (putRes.ok) {

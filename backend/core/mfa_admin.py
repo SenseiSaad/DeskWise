@@ -35,6 +35,12 @@ class AdminMFAMiddleware:
 
     def __call__(self, request):
         path = request.path
+        if path.startswith("/admin/"):
+            from django.conf import settings
+            from django.http import Http404
+            allowed = getattr(settings, "ADMIN_ALLOWED_IPS", set())
+            if allowed and _client_ip(request) not in allowed:
+                raise Http404
         if path.startswith("/admin/") and not path.startswith("/admin/mfa"):
             user = getattr(request, "user", None)
             if user and user.is_authenticated and user.is_staff:
@@ -73,7 +79,7 @@ def admin_mfa_enroll(request):
         if _mfa_rate_limited(request, "enroll"):
             return HttpResponse("Too many verification attempts. Please wait a few minutes.", status=429)
         secret = request.session.get("mfa_enroll_secret", "")
-        if secret and mfa.verify_code(secret, request.POST.get("code", "")):
+        if secret and mfa.verify_user_code(user.pk, secret, request.POST.get("code", "")):
             user.mfa_secret = secret
             user.mfa_enabled = True
             user.save(update_fields=["mfa_secret", "mfa_enabled"])
@@ -102,7 +108,7 @@ def admin_mfa_verify(request):
     if request.method == "POST":
         if _mfa_rate_limited(request, "verify"):
             return HttpResponse("Too many verification attempts. Please wait a few minutes.", status=429)
-        if mfa.verify_code(user.mfa_secret, request.POST.get("code", "")):
+        if mfa.verify_user_code(user.pk, user.mfa_secret, request.POST.get("code", "")):
             return _finish(request, request.GET.get("next"))
         error = "That code did not match. Wait for the next code and try again."
     return render(request, "core/admin_mfa.html", {"mode": "verify", "error": error})

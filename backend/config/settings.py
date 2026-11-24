@@ -27,6 +27,14 @@ if RENDER_EXTERNAL_HOSTNAME and RENDER_EXTERNAL_HOSTNAME not in ALLOWED_HOSTS:
 
 # Vercel provides runtime hostnames automatically for preview and production deployments.
 IS_VERCEL = os.getenv("VERCEL", "").strip() in ("1", "true")
+# Vercel sets VERCEL_ENV=production|preview|development. A Vercel production
+# deploy is treated as production even if ENVIRONMENT was never set, so the
+# fail-closed guards at the bottom of this file always apply there.
+VERCEL_ENV = os.getenv("VERCEL_ENV", "").strip().lower()
+IS_PRODUCTION = (
+    os.getenv("ENVIRONMENT", "").strip().lower() in ("production", "prod")
+    or VERCEL_ENV == "production"
+)
 for _vercel_var in ("VERCEL_URL", "VERCEL_BRANCH_URL", "VERCEL_PROJECT_PRODUCTION_URL"):
     _v_host = os.getenv(_vercel_var, "").strip()
     if _v_host and _v_host not in ALLOWED_HOSTS:
@@ -58,6 +66,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.middleware.OriginCheckMiddleware",
+    "core.middleware.SecurityHeadersMiddleware",
     "core.mfa_admin.AdminMFAMiddleware",
 ]
 
@@ -90,8 +99,14 @@ if os.getenv("DATABASE_URL"):
             default=os.environ["DATABASE_URL"],
             conn_max_age=_conn_max_age,
             conn_health_checks=True,
+            ssl_require=IS_PRODUCTION,
         )
     }
+    # Neon's pooled endpoint (host contains "-pooler") is PgBouncer in
+    # transaction mode, which cannot hold server-side cursors across
+    # statements (QuerySet.iterator(), e.g. the audit CSV export).
+    if "-pooler." in os.environ["DATABASE_URL"] or os.getenv("DB_POOLED", "").lower() in ("1", "true", "yes"):
+        DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 elif os.getenv("POSTGRES_DB"):
     DATABASES = {
         "default": {
@@ -161,7 +176,8 @@ AUTH_PASSWORD_VALIDATORS = [
 # Cookies are HttpOnly + SameSite=Lax by default; set COOKIE_SECURE=true over
 # HTTPS. Set COOKIE_SAMESITE=None only if serving frontend/backend across
 # different root domains (e.g., *.vercel.app preview calling a custom API host).
-SESSION_COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
+# Vercel only serves HTTPS, so cookies are Secure there unless explicitly overridden.
+SESSION_COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true" if IS_VERCEL else "false").lower() in ("1", "true", "yes")
 CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "Lax").strip() or "Lax"
 COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", "").strip() or None
@@ -282,6 +298,10 @@ if CELERY_BROKER_URL or CELERY_TASK_ALWAYS_EAGER:
             "task": "core.tasks.prune_asklogs_task",
             "schedule": crontab(hour=3, minute=15),
         },
+        "purge-expired-uploads": {
+            "task": "core.tasks.purge_expired_pending_uploads",
+            "schedule": 3600.0,  # hourly (AI-04)
+        },
     }
 
 # ── LLM provider config ──
@@ -307,7 +327,9 @@ EMBED_DIM = int(os.getenv("EMBED_DIM", "1024"))
 RETRIEVAL_MAX_POOL = int(os.getenv("RETRIEVAL_MAX_POOL", "2000"))
 
 # Gate login on a verified email address (off for local dev convenience).
-REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() in ("1", "true", "yes")
+REQUIRE_EMAIL_VERIFICATION = os.getenv(
+    "REQUIRE_EMAIL_VERIFICATION", "true" if IS_PRODUCTION else "false"
+).lower() in ("1", "true", "yes")
 
 # ── Media (generated artefacts: auto-filled leave forms, etc.) ──
 MEDIA_URL = os.getenv("MEDIA_URL", "/media/")
@@ -373,6 +395,13 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "").strip()
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
 
+# ── Django /admin/ exposure ──
+# Off by default in production: platform admins work through /api/admin/* and
+# the TOTP-gated Django admin is only needed for break-fix. When enabled it
+# can be limited to an IP allowlist (client IP via core.ratelimit._client_ip).
+ADMIN_ENABLED = os.getenv("ADMIN_ENABLED", "false" if IS_PRODUCTION else "true").lower() in ("1", "true", "yes")
+ADMIN_ALLOWED_IPS = {ip.strip() for ip in os.getenv("ADMIN_ALLOWED_IPS", "").split(",") if ip.strip()}
+
 # ── Security headers (HTTPS deployments) ──
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
@@ -390,14 +419,28 @@ if SESSION_COOKIE_SECURE:
     SECURE_REDIRECT_EXEMPT = [r"^api/health/?$"]
     SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+    # Preload is a long-term commitment for the whole domain; opt in explicitly.
+    SECURE_HSTS_PRELOAD = os.getenv("SECURE_HSTS_PRELOAD", "false").lower() in ("1", "true", "yes")
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Fail fast instead of silently serving production traffic over plain HTTP or
 # with a wildcard host. Set ENVIRONMENT=production in real deployments; local
 # Docker/HTTP runs either leave it unset or set ALLOW_INSECURE_HTTP=true.
-IS_PRODUCTION = os.getenv("ENVIRONMENT", "").strip().lower() in ("production", "prod")
-if not DEBUG and IS_PRODUCTION:
+# IS_PRODUCTION is computed near the top (ENVIRONMENT=production or VERCEL_ENV=production).
+if IS_PRODUCTION:
+    if DEBUG:
+        raise ValueError("DEBUG must be false in production.")
+    if len(SECRET_KEY) < 50 or any(w in SECRET_KEY.lower() for w in ("insecure", "change-me", "replace", "example")):
+        raise ValueError("SECRET_KEY must be a random value of at least 50 characters in production.")
+    if CORS_ALLOW_ALL_ORIGINS:
+        raise ValueError("CORS_ALLOW_ALL_ORIGINS cannot be used with credentialed cookies in production.")
+    if any(b in EMAIL_BACKEND for b in ("console", "locmem", "dummy", "filebased")) and not os.getenv("RESEND_API_KEY", "").strip():
+        raise ValueError("Configure RESEND_API_KEY or a real EMAIL_BACKEND in production "
+                         "(the console backend writes reset/verification links into logs).")
+    if RATELIMIT_ENABLED and "locmem" in CACHES["default"]["BACKEND"].lower():
+        raise ValueError("Rate limiting needs a shared cache in production: set CACHE_URL to a "
+                         "redis:// or rediss:// URL (e.g. Upstash). In-memory counters are per-instance.")
+if IS_PRODUCTION:
     if os.getenv("LLM_PROVIDER", "").strip().lower() == "fake":
         raise ValueError("LLM_PROVIDER=fake is a load-test/demo provider and is "
                          "refused in production.")
@@ -480,5 +523,8 @@ if SENTRY_DSN:
         integrations=[DjangoIntegration()],
         traces_sample_rate=float(os.getenv("SENTRY_TRACES_RATE", "0.1")),
         send_default_pii=False,
+        # Request bodies carry passwords, reset tokens, chat questions and
+        # document text; never ship them to Sentry.
+        max_request_body_size="never",
         environment=os.getenv("ENVIRONMENT", "development"),
     )

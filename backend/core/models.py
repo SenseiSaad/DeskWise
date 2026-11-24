@@ -191,6 +191,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     mfa_secret = EncryptedCharField(max_length=64, blank=True, default="")
     mfa_enabled = models.BooleanField(default=False)
     email_verified = models.BooleanField(default=False)
+    # Google account identity (the ID token's `sub`), bound on first Google
+    # sign-in. Emails can be reassigned; `sub` never is (AUTHN-01).
+    google_sub = models.CharField(max_length=255, unique=True, null=True, blank=True)
     language = models.CharField(max_length=2, choices=LANGUAGES, default="en")
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
@@ -298,16 +301,32 @@ class OneTimeToken(models.Model):
         return obj, raw
 
     @classmethod
+    def peek(cls, raw, purpose):
+        """The token row when it is currently valid, without consuming it."""
+        import hashlib
+        h = hashlib.sha256((raw or "").encode()).hexdigest()
+        obj = cls.objects.select_related("user").filter(token_hash=h, purpose=purpose).first()
+        return obj if obj and obj.is_valid() else None
+
+    @classmethod
     def consume(cls, raw, purpose):
-        """Return the token row when valid, marking it used. None otherwise."""
+        """Return the token row when valid, marking it used. None otherwise.
+
+        The write is a conditional UPDATE (used_at IS NULL, not expired), so two
+        concurrent requests can never both consume one token."""
         import hashlib
         from django.utils import timezone
         h = hashlib.sha256((raw or "").encode()).hexdigest()
         obj = cls.objects.filter(token_hash=h, purpose=purpose).first()
         if not obj or not obj.is_valid():
             return None
-        obj.used_at = timezone.now()
-        obj.save(update_fields=["used_at"])
+        now = timezone.now()
+        claimed = cls.objects.filter(
+            pk=obj.pk, used_at__isnull=True, expires_at__gt=now,
+        ).update(used_at=now)
+        if claimed != 1:
+            return None
+        obj.used_at = now
         return obj
 
 

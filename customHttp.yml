@@ -1,0 +1,28 @@
+# AWS Amplify custom headers for the STATIC-EXPORT frontend (BUILD_TARGET=static).
+#
+# This is the weaker of the two CSP modes (see docs/security/hardening.md):
+# a static host cannot mint per-request nonces, and Next.js static HTML
+# contains inline bootstrap scripts, so script-src must allow 'unsafe-inline'.
+# It does NOT allow 'unsafe-eval'. The Vercel/server build uses the strict
+# nonce + 'strict-dynamic' policy from frontend/proxy.ts instead.
+#
+# connect-src is "https: wss:" because this file cannot read NEXT_PUBLIC_API_URL;
+# replace it with your exact API origin (https://api.example.com
+# wss://api.example.com) to tighten it.
+applications:
+  - appRoot: frontend
+    customHeaders:
+      - pattern: '**/*'
+        headers:
+          - key: 'Content-Security-Policy'
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self' data: blob: https://*.googleusercontent.com; font-src 'self' data:; connect-src 'self' https: wss:; frame-src https://accounts.google.com/gsi/; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+          - key: 'X-Content-Type-Options'
+            value: 'nosniff'
+          - key: 'X-Frame-Options'
+            value: 'DENY'
+          - key: 'Referrer-Policy'
+            value: 'strict-origin-when-cross-origin'
+          - key: 'Permissions-Policy'
+            value: 'camera=(), microphone=(), geolocation=(), payment=()'
+          - key: 'Strict-Transport-Security'
+            value: 'max-age=31536000; includeSubDomains'

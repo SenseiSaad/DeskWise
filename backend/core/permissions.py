@@ -7,13 +7,20 @@ def is_platform_admin(user):
     return bool(user and user.is_authenticated and user.is_platform_admin)
 
 
+def _platform_level_in_tenant(u):
+    """AUTHZ-05: a platform-level account that is attached to a company (e.g.
+    promoted with `create_platform_admin --promote`) gets no tenant-admin rights."""
+    return bool((u.is_superuser or u.is_platform_admin) and getattr(u, "company_id", None))
+
+
 class IsAdmin(BasePermission):
     """Company admins, platform admins, and superusers."""
 
     def has_permission(self, request, view):
         u = request.user
         return bool(
-            u and u.is_authenticated and (u.role == "admin" or u.is_superuser or u.is_platform_admin)
+            u and u.is_authenticated and not _platform_level_in_tenant(u)
+            and (u.role == "admin" or u.is_superuser or u.is_platform_admin)
         )
 
 
@@ -42,7 +49,7 @@ class IsAdminOrDeptAdmin(BasePermission):
     def has_permission(self, request, view):
         u = request.user
         return bool(
-            u and u.is_authenticated
+            u and u.is_authenticated and not _platform_level_in_tenant(u)
             and (u.role == "admin" or u.is_superuser or u.is_platform_admin or is_dept_admin(u))
         )
 

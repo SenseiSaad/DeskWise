@@ -803,12 +803,16 @@ def profile_prompt_block(fields: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def template_context(user, plan: RequestPlan, question: str = "") -> str:
-    """Whole template text for the prompt (never chunks). Empty when no
-    template was requested. Picks the same best-matching template as
-    ``build_artifacts`` so a mixed request gets the right document."""
+def template_context_with_sources(user, plan: RequestPlan, question: str = "") -> tuple[str, list[int]]:
+    """Whole template text for the prompt (never chunks) plus the ids of the
+    uploaded documents it was built from. Empty when no template was requested.
+    Picks the same best-matching template as ``build_artifacts`` so a mixed
+    request gets the right document.
+
+    The ids matter for revocation: an answer written from a template must be
+    masked later if the reader loses access to that template (S7-08)."""
     if not plan.artifacts:
-        return ""
+        return "", []
     uploaded = collect_uploaded_templates(user, plan.artifacts, include_like=True)
     builtin = load_builtin_templates()
     chosen: list[TemplateDoc] = []
@@ -822,7 +826,14 @@ def template_context(user, plan: RequestPlan, question: str = "") -> str:
             chosen.append(candidates[0])
     if not chosen:
         chosen = (uploaded or builtin)[:3]
-    return "\n\n---\n\n".join(t.text for t in chosen)[:50_000]
+    text = "\n\n---\n\n".join(t.text for t in chosen)[:50_000]
+    ids = sorted({t.document_id for t in chosen if getattr(t, "document_id", None)})
+    return text, ids
+
+
+def template_context(user, plan: RequestPlan, question: str = "") -> str:
+    """Whole template text for the prompt; see template_context_with_sources."""
+    return template_context_with_sources(user, plan, question)[0]
 
 
 # ------------------------------------------------------------------ storage

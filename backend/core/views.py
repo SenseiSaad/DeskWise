@@ -47,7 +47,10 @@ from .auth import (
     ACCESS_COOKIE, REFRESH_COOKIE,
 )
 from .ratelimit import rate_limit
-from .uploads import UploadRejected, guard_zip_archive, validate_extension, validate_filename
+from .uploads import (
+    UploadRejected, content_type_for, guard_zip_archive, index_error_message, validate_extension,
+    validate_filename, validate_magic,
+)
 from .models import (
     Announcement, AnnouncementAck, AskLog, AuditLog, ChatConversation, ChatMessage, Company,
     Department, Document, DocumentAccess, DocumentShare, DocumentVersion, LLMConfig, Plan,
@@ -92,6 +95,8 @@ def _upload_rejection(f):
         clean_name = validate_filename(f.name)
         f.name = clean_name
         validate_extension(f.name)
+        validate_magic(f.name, f.read(2048))
+        f.seek(0)
         if (f.name or "").lower().endswith((".docx", ".pptx")):
             guard_zip_archive(f.read())
             f.seek(0)
@@ -259,6 +264,9 @@ def _platform_admin_blocked(request):
     """403 for a platform/root admin trying to touch tenant-scoped data, or an
     authenticated user who has not yet finished company onboarding.
     """
+    if _is_platform_level(request.user) and getattr(request.user, "company_id", None):
+        # AUTHZ-05: platform-level accounts never act inside a tenant.
+        return Response({"detail": "Platform admins cannot access company data."}, status=403)
     if not getattr(request.user, "company_id", None):
         if _is_platform_level(request.user):
             return Response(
@@ -444,12 +452,23 @@ def login(request):
     s = LoginSerializer(data=request.data)
     s.is_valid(raise_exception=True)
     raw_email = s.validated_data["email"].strip()
+    from .ratelimit import clear_login_failures, login_locked, record_login_failure
+    if login_locked(raw_email):
+        resp = Response(
+            {"detail": "Too many failed sign-in attempts for this account. "
+                       "Try again in 15 minutes or reset your password.",
+             "code": "account_locked"},
+            status=429,
+        )
+        resp["Retry-After"] = str(int(getattr(settings, "LOGIN_LOCKOUT_SECONDS", 900)))
+        return resp
     canonical_email = (
         User.objects.filter(email__iexact=raw_email).values_list("email", flat=True).first()
         or raw_email.lower()
     )
     user = authenticate(username=canonical_email, password=s.validated_data["password"])
     if user is None:
+        record_login_failure(raw_email)
         existing = User.objects.select_related("company").filter(email__iexact=raw_email).first()
         if existing and existing.company_id:
             audit(
@@ -458,7 +477,21 @@ def login(request):
                 company=existing.company, user=existing,
             )
         return Response({"detail": "Invalid email or password."}, status=401)
+    clear_login_failures(raw_email)
     if _require_email_verification(user):
+        from django.core.cache import cache
+        from . import email_service
+
+        auto_key = f"rl:login_verify_auto:{user.email}"
+        if not cache.get(auto_key):
+            cache.set(auto_key, 1, timeout=60)
+            _, raw_v = OneTimeToken.issue(user, "verify_email", minutes=60 * 24)
+            email_service.send_auth_email(
+                user,
+                "verify",
+                company_name=user.company.name if user.company else "your workspace",
+                url=_frontend_url("/auth/verify?token=" + raw_v),
+            )
         if user.company_id:
             audit(
                 request, "login_failed", "email_unverified",
@@ -466,7 +499,7 @@ def login(request):
                 company=user.company, user=user,
             )
         return Response({"detail": "Please verify your email before signing in. "
-                                   "Check your inbox for the verification link.",
+                                   "We have sent a verification link to your inbox (check spam too).",
                          "code": "email_unverified"}, status=403)
     if _is_platform_level(user):
         from . import mfa
@@ -492,28 +525,55 @@ def login(request):
 @permission_classes([AllowAny])
 @rate_limit("mfa", rate=10, per_seconds=60, key="ip")
 def mfa_activate(request):
-    """Finish first-time TOTP enrollment: challenge (from login) + 6-digit code.
+    """Finish TOTP enrollment: challenge + 6-digit code.
+
+    Two challenge purposes reach this endpoint:
+      * "enroll": issued after a password-only login to an account that has no
+        authenticator yet. It can ONLY enable MFA on an account where it is
+        still off; an account that already has an authenticator rejects it
+        (S7-02), so a leftover enrollment cannot replace the owner's device.
+      * "rotate": issued by the authenticated /auth/mfa/setup, i.e. someone who
+        already completed MFA; it replaces the existing authenticator.
+    Both are bound to the user's session generation (S7-01).
 
     Saving the secret only happens after the authenticator app proves it can
     produce valid codes, so a typo during setup cannot lock the admin out.
     """
     from . import mfa
-    payload = mfa.read_challenge(str((request.data or {}).get("challenge") or ""), "enroll")
-    code = str((request.data or {}).get("code") or "")
+    raw_challenge = str((request.data or {}).get("challenge") or "")
+    purpose = "enroll"
+    payload = mfa.read_challenge(raw_challenge, "enroll")
     if not payload:
-        return Response({"detail": "This verification session expired. Sign in again."}, status=400)
+        purpose = "rotate"
+        payload = mfa.read_challenge(raw_challenge, "rotate")
+    code = str((request.data or {}).get("code") or "")
+    expired = Response({"detail": "This verification session expired. Sign in again."}, status=400)
+    if not payload or mfa.challenge_burned(raw_challenge):
+        return expired
     try:
         user = User.objects.get(pk=payload.get("u"), is_active=True)
     except User.DoesNotExist:
-        return Response({"detail": "This verification session expired. Sign in again."}, status=400)
-    if not mfa.verify_code(payload.get("s") or "", code):
+        return expired
+    if not mfa.challenge_is_current(payload, user):
+        return expired
+    if purpose == "enroll" and user.mfa_enabled:
+        return expired
+    if purpose == "rotate" and not user.mfa_enabled:
+        return expired
+    if not mfa.verify_user_code(user.pk, payload.get("s") or "", code):
+        mfa.record_challenge_failure(raw_challenge)
         return Response({"detail": "That code did not match. Check your authenticator app."}, status=400)
-    user.mfa_secret = payload["s"]
-    user.mfa_enabled = True
-    user.save(update_fields=["mfa_secret", "mfa_enabled"])
-    audit(_as(request, user), "mfa_enrolled")
+    mfa.burn_challenge(raw_challenge)
+    # Conditional write: of two concurrent enrollments only one can win.
+    guard = {"pk": user.pk, "token_version": user.token_version}
+    if purpose == "enroll":
+        guard["mfa_enabled"] = False
+    if not User.objects.filter(**guard).update(mfa_secret=payload["s"], mfa_enabled=True):
+        return expired
+    user.refresh_from_db(fields=["mfa_secret", "mfa_enabled"])
+    audit(_as(request, user), "mfa_enrolled" if purpose == "enroll" else "mfa_rotated")
     resp = Response({"user": UserSerializer(user, context={"request": request}).data})
-    return set_auth_cookies(resp, user)
+    return set_auth_cookies(resp, user, mfa=True)
 
 
 @api_view(["POST"])
@@ -523,19 +583,24 @@ def mfa_activate(request):
 def mfa_verify(request):
     """Complete a platform-admin login: login challenge + TOTP code -> cookies."""
     from . import mfa
-    payload = mfa.read_challenge(str((request.data or {}).get("challenge") or ""), "login")
+    raw_challenge = str((request.data or {}).get("challenge") or "")
+    payload = mfa.read_challenge(raw_challenge, "login")
     code = str((request.data or {}).get("code") or "")
-    if not payload:
+    if not payload or mfa.challenge_burned(raw_challenge):
         return Response({"detail": "This verification session expired. Sign in again."}, status=400)
     try:
         user = User.objects.get(pk=payload.get("u"), is_active=True)
     except User.DoesNotExist:
         return Response({"detail": "This verification session expired. Sign in again."}, status=400)
-    if not (user.mfa_enabled and mfa.verify_code(user.mfa_secret, code)):
+    if not mfa.challenge_is_current(payload, user):
+        return Response({"detail": "This verification session expired. Sign in again."}, status=400)
+    if not (user.mfa_enabled and mfa.verify_user_code(user.pk, user.mfa_secret, code)):
+        mfa.record_challenge_failure(raw_challenge)
         return Response({"detail": "That code did not match. Check your authenticator app."}, status=400)
+    mfa.burn_challenge(raw_challenge)
     audit(_as(request, user), "login")
     resp = Response({"user": UserSerializer(user, context={"request": request}).data})
-    return set_auth_cookies(resp, user)
+    return set_auth_cookies(resp, user, mfa=True)
 
 
 @api_view(["POST"])
@@ -549,7 +614,7 @@ def mfa_setup(request):
     return Response({
         "secret": secret,
         "uri": mfa.provisioning_uri(secret, request.user.email),
-        "challenge": mfa.issue_challenge(request.user.pk, "enroll", secret=secret),
+        "challenge": mfa.issue_challenge(request.user.pk, "rotate", secret=secret),
     })
 
 
@@ -557,14 +622,30 @@ def mfa_setup(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def logout(request):
-    """Clear the auth cookies and revoke the refresh token server-side."""
+    """Clear the auth cookies, revoke the refresh token server-side, and
+    denylist this session's access token until it expires (AUTHN-06)."""
+    from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
+    from rest_framework_simplejwt.exceptions import TokenError
+    from .auth import deny_access_token, deny_session
     raw = request.COOKIES.get(REFRESH_COOKIE)
     if raw:
-        from rest_framework_simplejwt.tokens import RefreshToken
-        from rest_framework_simplejwt.exceptions import TokenError
         try:
-            RefreshToken(raw).blacklist()
+            refresh_token = RefreshToken(raw)
+            # S7-04: the refresh token knows the session id, so access tokens
+            # minted earlier in this session (copied before a rotation) die too.
+            deny_session(refresh_token.get("sid"))
+            refresh_token.blacklist()
         except (TokenError, AttributeError):
+            pass
+    raw_access = request.COOKIES.get(ACCESS_COOKIE)
+    if not raw_access:
+        header = request.META.get("HTTP_AUTHORIZATION", "")
+        if header.lower().startswith("bearer "):
+            raw_access = header[7:].strip()
+    if raw_access:
+        try:
+            deny_access_token(AccessToken(raw_access))
+        except TokenError:
             pass
     resp = Response({"ok": True})
     return clear_auth_cookies(resp)
@@ -577,6 +658,44 @@ def logout_all(request):
     revoke_user_refresh_tokens(request.user)
     audit(request, "logout_all")
     resp = Response({"ok": True})
+    return clear_auth_cookies(resp)
+
+
+def _refresh_reuse_response(request, raw):
+    """AUTHN-07: a correctly signed refresh token that is already blacklisted
+    means two parties hold it. Revoke every session of that user, unless:
+
+    * it was retired seconds ago (two tabs refreshing at once): a 401 that
+      does not clear cookies (they may be the other tab's fresh ones) and
+      revokes nothing;
+    * it is from an older generation (tv changed by a reset or logout-all): a
+      plain 401, so an old device waking up can't kill the new session.
+
+    Returns None when the token isn't a blacklisted refresh token."""
+    from rest_framework_simplejwt.exceptions import TokenError
+    from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+    from rest_framework_simplejwt.tokens import UntypedToken
+    try:
+        token = UntypedToken(raw)  # signature + expiry only, no blacklist lookup
+    except TokenError:
+        return None
+    if token.get("token_type") != "refresh" or not token.get("jti"):
+        return None
+    entry = BlacklistedToken.objects.filter(token__jti=token["jti"]).first()
+    if entry is None:
+        return None
+    grace = int(getattr(settings, "REFRESH_REUSE_GRACE_SECONDS", 10))
+    if entry.blacklisted_at > timezone.now() - timedelta(seconds=grace):
+        # Don't clear cookies here: they may be the fresh ones from the other tab.
+        return Response({"detail": "Session was just refreshed. Retry the request."}, status=401)
+    user = User.objects.select_related("company").filter(pk=token.get("user_id"), is_active=True).first()
+    if user is not None and int(token.get("tv", user.token_version)) == int(user.token_version):
+        revoke_user_refresh_tokens(user)
+        logger.warning("Refresh-token reuse detected; revoked all sessions for user %s", user.pk)
+        if user.company_id:
+            audit(_as(request, user), "refresh_token_reuse", "all sessions revoked",
+                  outcome="denied", target_type="user", target_id=str(user.id))
+    resp = Response({"detail": "Session expired. Sign in again."}, status=401)
     return clear_auth_cookies(resp)
 
 
@@ -597,6 +716,9 @@ def refresh(request):
     raw = request.COOKIES.get(REFRESH_COOKIE)
     if not raw:
         return Response({"detail": "No refresh token."}, status=401)
+    reuse = _refresh_reuse_response(request, raw)
+    if reuse is not None:
+        return reuse
     try:
         token = RefreshToken(raw)
         token.check_blacklist()
@@ -607,7 +729,7 @@ def refresh(request):
         resp = Response({"detail": "Session expired. Sign in again."}, status=401)
         return clear_auth_cookies(resp)
     resp = Response({"ok": True, "user": UserSerializer(user).data})
-    set_auth_cookies(resp, user)
+    set_auth_cookies(resp, user, sid=token.get("sid"), mfa=bool(token.get("mfa")))
     # New cookies exist; retire the old refresh token.
     try:
         token.blacklist()
@@ -747,15 +869,23 @@ def forgot_password(request):
     """Email a one-time password-reset link (never reveals account existence)."""
     from . import email_service
 
+    from django.core.cache import cache
+
     email = str((request.data or {}).get("email") or "").strip().lower()
     user = User.objects.filter(email__iexact=email, is_active=True).first()
     if user:
-        tok, raw = OneTimeToken.issue(user, "password_reset", minutes=30)
-        email_service.send_auth_email(
-            user,
-            "reset",
-            url=_frontend_url("/auth/reset?token=" + raw),
-        )
+        # AUTHN-11: per-account cooldown and daily cap, independent of the IP.
+        # A throttled request gets the same 200 body so nothing is revealed.
+        cd_key = f"rl:reset_cd:{user.pk}"
+        day_key = f"rl:reset_day:{user.pk}"
+        if cache.add(cd_key, 1, timeout=60) and int(cache.get(day_key) or 0) < 10:
+            cache.set(day_key, int(cache.get(day_key) or 0) + 1, timeout=86400)
+            tok, raw = OneTimeToken.issue(user, "password_reset", minutes=30)
+            email_service.send_auth_email(
+                user,
+                "reset",
+                url=_frontend_url("/auth/reset?token=" + raw),
+            )
     return Response({"detail": "If that account exists, a reset link has been sent."})
 
 
@@ -769,16 +899,29 @@ def reset_password(request):
 
     raw = str((request.data or {}).get("token") or "")
     password = str((request.data or {}).get("password") or "")
+    # AUTHN-12: validate the new password first; a rejected password must not
+    # burn the link. consume() below stays the atomic single-use gate.
+    peeked = OneTimeToken.peek(raw, "password_reset")
+    if not peeked:
+        return Response({"detail": "This reset link is invalid or has expired."}, status=400)
+    err = _password_error(password, peeked.user)
+    if err:
+        return Response({"detail": err}, status=400)
     tok = OneTimeToken.consume(raw, "password_reset")
     if not tok:
         return Response({"detail": "This reset link is invalid or has expired."}, status=400)
-    err = _password_error(password, tok.user)
-    if err:
-        return Response({"detail": err}, status=400)
     tok.user.set_password(password)
     tok.user.email_verified = True  # a working reset link proves mailbox ownership
     tok.user.save(update_fields=["password", "email_verified"])
+    # AUTHN-05: any other reset link still sitting in the mailbox dies with this one.
+    # S7-03: an outstanding invitation is also a way to set a password, so a
+    # recovery must retire it as well.
+    OneTimeToken.objects.filter(
+        user=tok.user, purpose__in=("password_reset", "invite"), used_at__isnull=True,
+    ).update(used_at=timezone.now())
     revoke_user_refresh_tokens(tok.user)
+    from .ratelimit import clear_login_failures
+    clear_login_failures(tok.user.email)
     email_service.send_auth_email(tok.user, "password_changed")
     return Response({"detail": "Password updated. You can sign in now."})
 
@@ -825,8 +968,11 @@ def google_auth(request):
 
     Rules:
       - Google must assert `email_verified == True`.
-      - Existing user with same email: links/signs in (requires active user;
-        prompts onboarding if user has no company yet).
+      - The Google account is identified by `sub` (AUTHN-01). An account
+        already bound to a `sub` is signed in by it. Otherwise an account with
+        the same email is linked on first use, unless it is bound to a
+        different `sub` (403). Linking an unverified password account first
+        invalidates that password and its sessions (pre-hijack guard).
       - New user: creates account with unusable password + `email_verified=True`
         and `company=None`, sets session cookies, and returns
         `onboarding_required: True` so the frontend displays the Create/Join screen.
@@ -837,7 +983,8 @@ def google_auth(request):
     try:
         claims = verify_google_id_token(credential)
     except Exception as exc:
-        return Response({"detail": f"Invalid or expired Google sign-in token. ({exc})"}, status=401)
+        logger.info("Google ID token rejected: %s", type(exc).__name__)
+        return Response({"detail": "Invalid or expired Google sign-in token."}, status=401)
 
     email = str(claims.get("email") or "").strip().lower()
     email_verified = claims.get("email_verified") in (True, "true", "True", 1)
@@ -847,13 +994,44 @@ def google_auth(request):
             {"detail": "Your Google account email is not verified by Google."},
             status=403,
         )
+    from .serializers import ascii_email_error
+    email_err = ascii_email_error(email)
+    if email_err:
+        return Response({"detail": email_err}, status=400)
 
-    user = User.objects.select_related("company").filter(email__iexact=email).first()
+    # AUTHN-01: the Google account is identified by `sub`, never by email alone.
+    sub = str(claims.get("sub") or "").strip()[:255]
+    if not sub:
+        return Response({"detail": "Invalid or expired Google sign-in token."}, status=401)
+
+    from django.db import IntegrityError, transaction
+    user = User.objects.select_related("company").filter(google_sub=sub).first()
+    if user is None:
+        user = User.objects.select_related("company").filter(email__iexact=email).first()
+        if user is not None and user.google_sub and user.google_sub != sub:
+            audit(request, "login_google_denied", "email bound to a different Google account",
+                  outcome="denied", target_type="user", target_id=str(user.id), user=user)
+            return Response(
+                {"detail": "This email is linked to a different Google account. "
+                           "Sign in with that account or with your password."},
+                status=403,
+            )
     created_new = False
     if user is not None:
         if not user.is_active:
             return Response({"detail": "This account has been deactivated. Contact your administrator."}, status=403)
         updates = []
+        invalidated_password = False
+        if not user.google_sub:
+            if not user.email_verified and user.has_usable_password():
+                # Pre-hijack guard: nobody proved ownership of this mailbox when
+                # the password was set, so that password must not survive the
+                # real owner signing in with Google.
+                user.set_unusable_password()
+                updates.append("password")
+                invalidated_password = True
+            user.google_sub = sub
+            updates.append("google_sub")
         if not user.email_verified:
             user.email_verified = True
             updates.append("email_verified")
@@ -861,7 +1039,16 @@ def google_auth(request):
             user.full_name = full_name
             updates.append("full_name")
         if updates:
-            user.save(update_fields=updates)
+            try:
+                with transaction.atomic():
+                    user.save(update_fields=updates)
+            except IntegrityError:
+                return Response({"detail": "Google sign-in is already in progress for this account. "
+                                           "Try again."}, status=409)
+        if invalidated_password:
+            revoke_user_refresh_tokens(user)
+            audit(request, "google_link_password_invalidated", "unverified password account linked to Google",
+                  target_type="user", target_id=str(user.id), user=user)
         if _is_platform_level(user):
             from . import mfa
             if not user.mfa_enabled:
@@ -883,9 +1070,15 @@ def google_auth(request):
             role="employee",
             email_verified=True,
             company=None,
+            google_sub=sub,
         )
         user.set_unusable_password()
-        user.save()
+        try:
+            with transaction.atomic():
+                user.save()
+        except IntegrityError:
+            return Response({"detail": "Google sign-in is already in progress for this account. "
+                                       "Try again."}, status=409)
 
     needs_onboarding = not _is_platform_level(user) and user.company_id is None
     if user.company_id:
@@ -940,6 +1133,12 @@ def join_company(request):
             {"detail": "This invitation link was issued for a different email address."},
             status=400,
         )
+    # S7-03: an invitation only completes a *pending* account (admin-created,
+    # no password yet). It is never a way to replace an existing password
+    # (e.g. after a recovery), and never a way into a platform-level account,
+    # which must go through the TOTP login.
+    if _is_platform_level(target_user) or not target_user.is_active or target_user.has_usable_password():
+        return Response({"detail": "This invitation link is invalid or has expired."}, status=400)
     err = _password_error(password, target_user)
     if err:
         return Response({"detail": err}, status=400)
@@ -951,6 +1150,8 @@ def join_company(request):
     if full_name:
         target_user.full_name = full_name
     target_user.save(update_fields=["password", "email_verified", "full_name"])
+    # Any session that existed before the password was set is now stale.
+    revoke_user_refresh_tokens(target_user)
     if target_user.company_id:
         audit(_as(request, target_user), "invite_accepted", target_user.email)
         email_service.send_auth_email(
@@ -968,6 +1169,9 @@ def onboard_company(request):
     from . import email_service
 
     user = request.user
+    if _is_platform_level(user):
+        # AUTHZ-04: platform/root admins must never join a tenant.
+        return Response({"detail": "Platform admins cannot create or join a company."}, status=403)
     if user.company_id:
         return Response({"user": UserSerializer(user).data, "onboarding_required": False})
 
@@ -1051,6 +1255,13 @@ def _paginate(request, qs, default_page_size=50, max_page_size=200):
     pages = max(1, -(-count // page_size))
     return {"qs": qs[(page - 1) * page_size: page * page_size],
             "count": count, "page": page, "pages": pages}
+
+
+def _storage_used(company):
+    """Bytes stored for a company: current files plus retained old versions (AUTHZ-06)."""
+    current = company.documents.aggregate(total=Sum("size"))["total"] or 0
+    old = DocumentVersion.objects.filter(document__company=company).aggregate(total=Sum("size"))["total"] or 0
+    return current + old
 
 
 def _plan_for(company):
@@ -1175,7 +1386,7 @@ def upload_document(request):
             return Response({"detail": f"Plan limit reached ({plan.max_documents} documents). "
                                        "Upgrade your plan to upload more."}, status=402)
         if plan.storage_mb is not None:
-            used = company.documents.aggregate(total=Sum("size"))["total"] or 0
+            used = _storage_used(company)
             if used + f.size > plan.storage_mb * 1024 * 1024:
                 return Response({"detail": "Storage quota for your plan is full. "
                                            "Upgrade to upload more."}, status=402)
@@ -1194,7 +1405,7 @@ def upload_document(request):
     with transaction.atomic():
         doc = Document.objects.create(
             company=company, filename=safe_name, stored_path=stored,
-            content_type=f.content_type or "", size=f.size,
+            content_type=content_type_for(safe_name), size=f.size,
             category=category, description=description, tags=tags,
             is_okf=is_okf, access_scope=access_scope, department=department,
             sensitivity=sensitivity, status=doc_status,
@@ -1235,14 +1446,20 @@ def upload_presign(request):
         validate_extension(filename)
     except UploadRejected as exc:
         return Response({"detail": str(exc)}, status=400)
-    size = int(request.data.get("size") or 0)
+    try:
+        size = int(request.data.get("size") or 0)
+    except (TypeError, ValueError):
+        size = 0
+    if size <= 0:
+        # AI-04: the size is signed into the URL, so it must always be present.
+        return Response({"detail": "size (bytes) is required."}, status=400)
     max_size = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 50 * 1024 * 1024)
     if size > max_size:
         return Response({"detail": f"File too large. Max size is {max_size // (1024*1024)} MB."}, status=413)
     company = request.user.company
     if company is None:
         return Response({"detail": "Your account is not attached to a company."}, status=400)
-    content_type = str(request.data.get("content_type") or "application/octet-stream")
+    content_type = content_type_for(filename)
     key = f"{company.slug}/{uuid.uuid4().hex}_{filename}"
     url = storage.generate_presigned_put(key, content_type=content_type, size=size)
     PendingUpload.objects.create(
@@ -1253,7 +1470,7 @@ def upload_presign(request):
         size=max(0, size),
         expires_at=timezone.now() + timedelta(minutes=15),
     )
-    return Response({"upload_url": url, "key": key, "filename": filename})
+    return Response({"upload_url": url, "key": key, "filename": filename, "content_type": content_type})
 
 
 @api_view(["POST"])
@@ -1266,15 +1483,9 @@ def upload_confirm(request):
     if not storage.is_s3_enabled():
         return Response({"detail": "Direct S3 upload is not enabled on this server."}, status=400)
     key = str(request.data.get("key") or "").strip().lstrip("/")
-    filename = os.path.basename(str(request.data.get("filename") or "").strip())
     company = request.user.company
     if company is None or not key or ".." in key or "\\" in key or not key.startswith(f"{company.slug}/"):
         return Response({"detail": "Invalid storage key for your company."}, status=400)
-    try:
-        validate_filename(filename)
-        validate_extension(filename)
-    except UploadRejected as exc:
-        return Response({"detail": str(exc)}, status=400)
 
     # Server-side key binding: key must match an unconsumed, unexpired PendingUpload issued to this exact user.
     pending = (
@@ -1288,26 +1499,58 @@ def upload_confirm(request):
         audit(request, "upload_confirm_denied", "invalid_or_unowned_key", outcome="denied")
         return Response({"detail": "Upload session expired or storage key is invalid."}, status=403)
 
+    # S7-05: the name (and so the type and byte signature that are checked)
+    # is the one authorised at presign time. A client-supplied name here is
+    # ignored, so renaming cannot move an object to a weaker type check.
+    filename = pending.filename
+    try:
+        validate_filename(filename)
+        validate_extension(filename)
+    except UploadRejected as exc:
+        return Response({"detail": str(exc)}, status=400)
+
     real_size = storage.object_size(key)
     if real_size is None:
         return Response({"detail": "Uploaded object not found in storage."}, status=404)
+
+    def _discard(detail, code):
+        # AI-04: an object confirm refuses for what it *is* (size, bytes,
+        # quota) can never become a document, so it is deleted now rather than
+        # left for the expiry sweep. Fixable request-field errors below keep
+        # the object so the client can retry before the session expires.
+        # S7-06: only burn the pending row once the object is really gone. If
+        # the delete failed the row stays (unconsumed, and it expires on its
+        # own), so the expiry sweep retries instead of forgetting the object.
+        if storage.delete_checked(key):
+            PendingUpload.objects.filter(pk=pending.pk).update(consumed=True)
+        audit(request, "upload_confirm_rejected", detail[:120], outcome="denied")
+        return Response({"detail": detail}, status=code)
+
     max_size = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 50 * 1024 * 1024)
     if real_size <= 0 or real_size > max_size:
-        return Response({"detail": "Uploaded object is empty or exceeds the size limit."}, status=400)
+        return _discard("Uploaded object is empty or exceeds the size limit.", 400)
+
+    # AI-07: byte-check the direct upload with a ranged GET of its first 2 KB.
+    try:
+        validate_magic(filename, storage.object_head(key, 2048))
+    except UploadRejected as exc:
+        return _discard(str(exc), 400)
+    except Exception:
+        logger.exception("Could not read the head of uploaded object for confirm")
+        return Response({"detail": "The uploaded file could not be verified. Try again."}, status=502)
 
     size = real_size
     plan = _plan_for(company)
     if plan:
         if plan.max_documents is not None and company.documents.count() >= plan.max_documents:
-            return Response({"detail": f"Plan limit reached ({plan.max_documents} documents). "
-                                       "Upgrade your plan to upload more."}, status=402)
+            return _discard(f"Plan limit reached ({plan.max_documents} documents). "
+                            "Upgrade your plan to upload more.", 402)
         if plan.storage_mb is not None:
-            used = company.documents.aggregate(total=Sum("size"))["total"] or 0
+            used = _storage_used(company)
             if used + size > plan.storage_mb * 1024 * 1024:
-                return Response({"detail": "Storage quota for your plan is full. "
-                                           "Upgrade to upload more."}, status=402)
+                return _discard("Storage quota for your plan is full. Upgrade to upload more.", 402)
 
-    content_type = str(request.data.get("content_type") or "")
+    content_type = content_type_for(filename)
     is_okf = _parse_bool(request.data.get("is_okf"), False)
     access_scope = (request.data.get("access_scope") or "company").strip().lower()
     if access_scope not in {"company", "restricted", "department"}:
@@ -1430,7 +1673,7 @@ def _index_in_background(doc: Document):
                 return
         except Exception as exc:
             doc.indexing_status = "failed"
-            doc.index_error = str(exc)[:300]
+            doc.index_error = index_error_message(exc)
             try:
                 if Document.objects.filter(pk=doc.pk).exists():
                     doc.save(update_fields=["indexing_status", "index_error"])
@@ -1448,7 +1691,7 @@ def _index_in_background(doc: Document):
                 doc.index_error = ""
             except Exception as exc:
                 doc.indexing_status = "failed"
-                doc.index_error = str(exc)[:300]
+                doc.index_error = index_error_message(exc)
             finally:
                 try:
                     if Document.objects.filter(pk=doc.pk).exists():
@@ -1702,6 +1945,10 @@ def _can_manage_document(request, doc):
     u = request.user
     if not getattr(u, "company_id", None) or doc.company_id != u.company_id:
         return False
+    # AUTHZ-09: submitting for review needs read access (break-glass for admins
+    # on restricted docs), not just a role.
+    if not access.decide(u, "view_ask", doc, context={"include_unapproved": True}).allowed:
+        return False
     return bool(
         _is_platform_level(u)
         or u.role == "admin"
@@ -1790,7 +2037,7 @@ def document_new_version(request, pk):
                         status=413)
     plan = _plan_for(company)
     if plan and plan.storage_mb is not None:
-        used = company.documents.aggregate(total=Sum("size"))["total"] or 0
+        used = _storage_used(company)
         if used + f.size > plan.storage_mb * 1024 * 1024:
             return Response({"detail": "Storage quota for your plan is full. Upgrade to upload more."}, status=402)
     rejected = _upload_rejection(f)
@@ -1821,7 +2068,7 @@ def document_new_version(request, pk):
         )
         doc.stored_path = stored
         doc.filename = safe_name
-        doc.content_type = f.content_type or ""
+        doc.content_type = content_type_for(safe_name)
         doc.size = f.size
         doc.version += 1
         doc.indexing_status = "pending"
@@ -1993,7 +2240,10 @@ def ask(request):
     else:
         doc_plan = docgen.classify(question, outputs=s.validated_data.get("outputs"))
     overrides = s.validated_data.get("fields") or {}
-    template_text = docgen.template_context(request.user, doc_plan, question) if doc_plan.artifacts else ""
+    template_text, template_source_ids = (
+        docgen.template_context_with_sources(request.user, doc_plan, question)
+        if doc_plan.artifacts else ("", [])
+    )
 
     # Provider selection is a bring-your-own-key feature: without the company's
     # own stored key a caller could steer shared platform spend at a costlier
@@ -2084,6 +2334,7 @@ def ask(request):
             request.user, question, mode=mode, provider_override=provider,
             moderation_flags=moderation_flags, conversation=conversation,
             template_text=template_text, template_rules=template_rules,
+            template_source_ids=template_source_ids,
         ):
             if not audited_ask:
                 try:
@@ -2329,6 +2580,9 @@ def users(request):
 @permission_classes([IsAdminOrDeptAdmin])
 def user_detail(request, pk):
     """Edit (role/department/clearance/name/title/password/active) or remove a company member."""
+    if not getattr(request.user, "company_id", None):
+        # AUTHZ-03: company=None would match every not-yet-onboarded account.
+        raise Http404
     if pk == request.user.id and request.method == "DELETE":
         return Response({"detail": "You can't remove yourself."}, status=400)
     try:
@@ -2366,6 +2620,13 @@ def user_detail(request, pk):
         return Response(status=204)
 
     data = request.data or {}
+    # AUTHZ-01/02: nobody may choose another member's password (it bypasses
+    # clearance caps and break-glass). Members reset via the emailed link.
+    if "password" in data:
+        audit(request, "update_user_denied", f"user#{user.id} DENY_PASSWORD_SET",
+              outcome="denied", target_type="user", target_id=str(user.id))
+        return Response({"detail": "Member passwords cannot be set by others. "
+                                   "Ask the member to use 'Forgot password'."}, status=403)
     prev_role, prev_dept, prev_dadmin, prev_clr, prev_active = (
         user.role, user.department_id, user.is_dept_admin, user.effective_clearance, user.is_active,
     )
@@ -2588,8 +2849,12 @@ def member_effective_access(request, pk):
     )
 
     docs_list = []
+    caller_is_admin = access.is_company_admin(request.user)
     for doc in workspace_qs.order_by("-updated_at")[:100]:
         masked = doc.id not in caller_readable_ids
+        if masked and not caller_is_admin:
+            # AUTHZ-10: dept managers get no metadata for docs they cannot read.
+            continue
         docs_list.append({
             "id": doc.id,
             "filename": f"Restricted document #{doc.id}" if masked else doc.filename,
@@ -3383,7 +3648,7 @@ def usage(request):
     month_start = timezone.localtime().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     asks_used = AskLog.objects.filter(company=company, created_at__gte=month_start).count()
     doc_count = company.documents.count()
-    storage_bytes = company.documents.aggregate(total=Sum("size"))["total"] or 0
+    storage_bytes = _storage_used(company)
     member_count = company.users.count()
     department_count = company.departments.count()
 
@@ -3481,7 +3746,7 @@ def billing_checkout(request):
         return Response({"detail": str(exc)}, status=400)
     except Exception as exc:
         logger.exception("Stripe checkout session creation failed: %s", exc)
-        return Response({"detail": f"Stripe error: {exc}"}, status=502)
+        return Response({"detail": "The payment provider returned an error. Please try again."}, status=502)
 
 
 @api_view(["POST"])
@@ -3498,7 +3763,7 @@ def billing_portal(request):
         return Response({"detail": str(exc)}, status=400)
     except Exception as exc:
         logger.exception("Stripe customer portal creation failed: %s", exc)
-        return Response({"detail": f"Stripe error: {exc}"}, status=502)
+        return Response({"detail": "The payment provider returned an error. Please try again."}, status=502)
 
 
 @csrf_exempt
@@ -3591,10 +3856,35 @@ def detach_company(request):
 
 
 # ------------------------------------------------- workflow document downloads
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@rate_limit("workflow_confirm", rate=10, per_seconds=60, key="user")
+def workflow_confirm(request):
+    """AI-01: run a chat-proposed action only after the user clicks Confirm.
+
+    The proposal token is signed, bound to this user, expires after 15 minutes
+    and works once (core.workflow.confirm_proposal)."""
+    _guard = _platform_admin_blocked(request) or _ai_chat_disabled(request)
+    if _guard:
+        return _guard
+    from . import workflow
+    try:
+        result = workflow.confirm_proposal(str((request.data or {}).get("token") or ""), request.user)
+    except workflow.ProposalForbidden as exc:
+        return Response({"detail": str(exc)}, status=403)
+    except workflow.ProposalError as exc:
+        return Response({"detail": str(exc)}, status=400)
+    if not result:
+        return Response({"detail": "There was nothing to do for this suggestion."}, status=400)
+    audit(request, "workflow_confirmed", f"{result.get('action')} status={result.get('status')}",
+          target_type="workflow")
+    return Response({"type": "workflow", **result})
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def workflow_form_download(request, user_id, name):
-    _guard = _platform_admin_blocked(request)
+    _guard = _platform_admin_blocked(request) or _docgen_disabled(request)
     if _guard:
         return _guard
     """Serve a generated workflow document (e.g. an auto-filled leave form) to
@@ -4047,11 +4337,18 @@ def unified_search(request):
         rooms = list(accessible_rooms_for(request.user))
         room_ids = [r.id for r in rooms]
         if room_ids:
-            msgs = (
-                TeamMessage.objects.filter(room_id__in=room_ids, content__icontains=q)
-                .select_related("room", "sender")
-                .order_by("-created_at")[:20]
-            )
+            from .team_chat import BotSourceFilter
+            reader = BotSourceFilter(request.user)
+            # S7-09: bot answers derived from documents this reader can't open
+            # never appear in search results (not even masked).
+            msgs = [
+                m for m in (
+                    TeamMessage.objects.filter(room_id__in=room_ids, content__icontains=q)
+                    .select_related("room", "sender")
+                    .order_by("-created_at")[:60]
+                )
+                if reader.can_read(m)
+            ][:20]
             msg_hits = [
                 {
                     "id": m.id,
@@ -4197,7 +4494,7 @@ def cron_maintenance(request):
             reindexed += 1
         except Exception as exc:
             doc.indexing_status = "failed"
-            doc.index_error = str(exc)[:300]
+            doc.index_error = index_error_message(exc)
             failed += 1
         doc.save(update_fields=["indexing_status", "index_error"])
 
@@ -4217,10 +4514,17 @@ def cron_maintenance(request):
 
     out = StringIO()
     call_command("prune_asklogs", days=90, stdout=out)
+    from .tasks import purge_expired_pending_uploads
+    try:
+        purged_uploads = purge_expired_pending_uploads()
+    except Exception:
+        logger.exception("purge_expired_pending_uploads failed")
+        purged_uploads = 0
     return Response({
         "ok": True,
         "reindexed": reindexed,
         "failed": failed,
         "pruned_ephemeral_docs": pruned_ephemeral_docs,
+        "purged_expired_uploads": purged_uploads,
         "prune_output": out.getvalue().strip(),
     })

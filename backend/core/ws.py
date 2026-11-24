@@ -116,6 +116,9 @@ def _authenticate_scope(scope):
 
     try:
         validated = AccessToken(raw_token)
+        from .auth import is_access_token_denied
+        if is_access_token_denied(validated):
+            return AnonymousUser()
         user_id = validated.get("user_id")
         if not user_id:
             return AnonymousUser()
@@ -127,6 +130,9 @@ def _authenticate_scope(scope):
         if user is None:
             return AnonymousUser()
         if "tv" in validated and int(validated["tv"]) != int(getattr(user, "token_version", 1)):
+            return AnonymousUser()
+        from .auth import token_allowed_for_user
+        if not token_allowed_for_user(validated, user):
             return AnonymousUser()
         return user
     except Exception:

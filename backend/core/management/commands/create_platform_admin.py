@@ -88,8 +88,18 @@ class Command(BaseCommand):
 
     @staticmethod
     def _promote(user):
+        from core.auth import revoke_user_refresh_tokens
+
         user.is_platform_admin = True
         user.is_staff = True
         user.is_superuser = True
         user.email_verified = True
         user.save(update_fields=["is_platform_admin", "is_staff", "is_superuser", "email_verified"])
+        # S7-10: every session, refresh token and pending MFA/invite step that
+        # existed while this was an ordinary account was issued without the
+        # TOTP gate. Revoke them all so platform authority is only reachable
+        # through a fresh two-factor login.
+        revoke_user_refresh_tokens(user)
+        from core.models import OneTimeToken
+        from django.utils import timezone
+        OneTimeToken.objects.filter(user=user, used_at__isnull=True).update(used_at=timezone.now())

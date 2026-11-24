@@ -30,6 +30,11 @@ from . import docgen, moderation, providers, workflow
 from .uploads import MAX_PDF_PAGES, UploadRejected, guard_zip_archive, truncate_text
 
 # ---------------------------------------------------------------- extraction
+OCR_MAX_SIDE_PX = 2000          # rendered page width cap
+OCR_MAX_PIXELS = 40_000_000      # ~40 MP per uploaded image
+OCR_TIMEOUT_S = 30               # per page / per image
+
+
 def _ocr_pdf_bytes(raw: bytes, max_pages: int = 10) -> str:
     """OCR a scanned PDF via pdf2image + pytesseract. Returns '' when the
     optional stack is unavailable so callers fall back silently."""
@@ -39,8 +44,11 @@ def _ocr_pdf_bytes(raw: bytes, max_pages: int = 10) -> str:
     except Exception:
         return ""
     try:
-        pages = convert_from_bytes(raw, dpi=200, first_page=1, last_page=max_pages)
-        return "\n".join(pytesseract.image_to_string(p) for p in pages)
+        # AI-08: bound raster size and wall time so a PDF with huge page boxes
+        # cannot exhaust memory or hold a worker indefinitely.
+        pages = convert_from_bytes(raw, dpi=150, first_page=1, last_page=max_pages,
+                                   size=(OCR_MAX_SIDE_PX, None), timeout=OCR_TIMEOUT_S)
+        return "\n".join(pytesseract.image_to_string(p, timeout=OCR_TIMEOUT_S) for p in pages)
     except Exception:
         return ""
 
@@ -91,7 +99,9 @@ def extract_text(raw: bytes, filename: str, content_type: str) -> str:
                 import pytesseract
                 from PIL import Image
                 image = Image.open(io.BytesIO(raw))
-                return truncate_text(pytesseract.image_to_string(image))
+                if image.width * image.height > OCR_MAX_PIXELS:
+                    return ""  # AI-08: refuse oversized rasters instead of OCR-ing them
+                return truncate_text(pytesseract.image_to_string(image, timeout=OCR_TIMEOUT_S))
             except Exception:
                 return ""
     except UploadRejected:
@@ -869,9 +879,11 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
                   moderation_flags: list[str] | None = None,
                   conversation=None, template_text: str = "",
                   template_rules: str = "", doc_ids_override: set | None = None,
-                  history_override: list[dict] | None = None):
+                  history_override: list[dict] | None = None,
+                  propose_workflows: bool = True,
+                  template_source_ids: list[int] | None = None):
     """Yield NDJSON lines: sources first, an optional policy flag, then token
-    deltas, then any detected workflow result, then done.
+    deltas, then any workflow proposal, then done.
 
     When `conversation` (a ChatConversation) is given, the prior turns are sent
     to the model for context and both sides of THIS turn are persisted when the
@@ -879,8 +891,9 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
 
     The assistant appends a machine-readable intent block at the end of its reply
     (see SYSTEM_PROMPT). We strip that block from the visible token stream, parse
-    it once the model finishes, and run the matching workflow action
-    (schedule_meeting / leave_request) via core.workflow. Every call is recorded
+    it once the model finishes, and emit a signed `workflow_proposal` for
+    schedule_meeting / leave_request. Nothing is executed here: the action runs
+    only when the user confirms it (views.workflow_confirm). Every call is recorded
     in AskLog for usage analytics (per user/department, unanswered, flagged).
     """
     from .models import AskLog, ChatMessage
@@ -901,7 +914,10 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
             "chunk_ord": c.ord,
             "snippet": snippet,
         })
-    source_doc_ids = sorted({c.document_id for c in chunks})
+    # Template requests send the whole template instead of chunks, so its
+    # document ids are carried explicitly: they feed the mid-stream access
+    # re-check and the provenance saved with the answer (S7-08).
+    source_doc_ids = sorted({c.document_id for c in chunks} | set(template_source_ids or []))
     yield json.dumps({
         "type": "sources",
         "sources": sources,
@@ -1055,7 +1071,9 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
             )
         except Exception:
             pass
-        yield json.dumps({"type": "error", "message": f"Model error: {e}"}) + "\n"
+        logging.getLogger(__name__).exception("chat provider stream failed")
+        # AI-06: never echo provider/internal exception text to the client.
+        yield json.dumps({"type": "error", "message": "The AI provider returned an error. Please try again."}) + "\n"
         return
 
     # Final pre-flush & pre-save revocation check.
@@ -1083,26 +1101,29 @@ def stream_answer(user, question: str, mode: str | None = None, provider_overrid
 
     visible_answer = answer_buf[:emitted].strip()
 
-    # Features 1 -> 2/3: dispatch a detected actionable intent to the workflow layer.
+    # AI-01: a detected intent is only *proposed*. Nothing runs during the
+    # stream; the user confirms through POST /api/workflow/confirm. The
+    # team-chat bot passes propose_workflows=False and gets no proposal at all.
     intent_name = (intent_obj or {}).get("intent") if intent_obj else None
-    workflow_result = None
-    if intent_name and intent_name != "none":
+    if intent_name and intent_name != "none" and propose_workflows:
         yield json.dumps({
             "type": "intent",
             "intent": intent_name,
             "data": intent_obj.get("data") or {},
         }) + "\n"
         try:
-            result = workflow.handle_ai_workflow_intent(intent_obj, user)
-        except Exception as e:  # defensive: workflow already guards, but never break the stream
-            result = {"action": intent_name, "status": "error", "message": "Action failed.", "detail": str(e)[:200]}
-        if result:
-            workflow_result = result
-            yield json.dumps({"type": "workflow", **result}) + "\n"
+            proposal = workflow.build_proposal(intent_obj, user)
+        except Exception:
+            logging.getLogger(__name__).exception("workflow proposal failed")
+            proposal = None
+        if proposal:
+            yield json.dumps(proposal) + "\n"
 
     # Persist this turn so history/analytics survive the stream.
     if conversation is not None:
-        source_doc_ids = list(dict.fromkeys(c.document_id for c in chunks))
+        source_doc_ids = list(dict.fromkeys(
+            [c.document_id for c in chunks] + list(template_source_ids or [])
+        ))
         saved = ChatMessage.objects.create(
             conversation=conversation, role="assistant", content=visible_answer,
             sources=json.dumps(sources),

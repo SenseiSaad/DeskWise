@@ -16,10 +16,10 @@ def _make_platform_admin(make_company, make_user):
                      is_platform_admin=True, is_superuser=True, is_staff=True)
 
 
-def _code_for(secret):
+def _code_for(secret, offset=0):
     import time
     from core.mfa import _code_at
-    return _code_at(secret, int(time.time()) // 30)
+    return _code_at(secret, int(time.time()) // 30 + offset)
 
 
 def test_platform_admin_login_requires_enrollment_then_activate(api, make_company, make_user):
@@ -66,9 +66,11 @@ def test_platform_admin_second_login_uses_verify_step(api, make_company, make_us
     assert wrong.status_code == 400
     assert "openvault_access" not in api.cookies
 
+    # AUTHN-04: activation already used the current step, so the login uses the
+    # next one (still inside the ±1 window); replaying the same code is refused.
     ok = api.post("/api/auth/mfa/verify",
                   {"challenge": second["challenge"], "code": _code_for(User.objects.get(
-                      email="root@openvault.test").mfa_secret)}, format="json")
+                      email="root@openvault.test").mfa_secret, offset=1)}, format="json")
     assert ok.status_code == 200
     assert api.get("/api/auth/me").status_code == 200
 

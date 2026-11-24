@@ -105,6 +105,9 @@ def has_company_context(user: User | None) -> bool:
         and getattr(user, "is_authenticated", False)
         and getattr(user, "is_active", False)
         and getattr(user, "company_id", None)
+        # AUTHZ-05: platform-level accounts never get tenant context (REST or WebSocket).
+        and not getattr(user, "is_platform_admin", False)
+        and not getattr(user, "is_superuser", False)
     )
 
 
@@ -333,6 +336,63 @@ def serialize_message(msg: TeamMessage) -> dict:
         "edit_expires_at": edit_expires_at,
         "created_at": msg.created_at.isoformat(),
     }
+
+
+MASKED_BOT_TEXT = "[This answer used a document you do not have access to.]"
+
+
+class BotSourceFilter:
+    """Per-reader check for DeskWise answers in shared rooms (S7-09).
+
+    A bot answer was safe for the members who were in the room when it was
+    written. Someone admitted later, or a member whose access to a cited
+    document was since revoked, must not read text derived from a document
+    they cannot open. The reader's current document access is computed once,
+    lazily, and only if the page holds a bot answer with sources."""
+
+    def __init__(self, user):
+        self.user = user
+        self._ids: set[int] | None = None
+        self._names: set[str] | None = None
+
+    def _load(self):
+        if self._ids is None:
+            from . import access
+            qs = access.accessible_documents_qs(
+                self.user, action="view_ask", include_unapproved=False, include_external_shares=False,
+            )
+            rows = list(qs.values_list("id", "filename"))
+            self._ids = {r[0] for r in rows}
+            self._names = {r[1] for r in rows}
+
+    def can_read(self, msg) -> bool:
+        if getattr(msg, "sender_type", "") != "deskwise":
+            return True
+        try:
+            sources = json.loads(msg.sources) if msg.sources else []
+        except Exception:
+            sources = []
+        if not sources:
+            return True
+        self._load()
+        for src in sources:
+            if not isinstance(src, dict):
+                return False
+            doc_id = src.get("document_id")
+            if doc_id is not None:
+                if doc_id not in self._ids:
+                    return False
+            elif src.get("filename") not in self._names:
+                return False
+        return True
+
+    def mask(self, payload: dict) -> dict:
+        masked = dict(payload)
+        masked.update({
+            "content": MASKED_BOT_TEXT, "sources": [], "metadata": {"masked": True},
+            "flag": None, "masked": True,
+        })
+        return masked
 
 
 def _message_queryset():
@@ -924,6 +984,7 @@ def generate_deskwise_reply(
         doc_plan = docgen.classify(question)
         template_text = ""
         template_rules = ""
+        template_source_ids: list[int] = []
         if getattr(room.company, "enable_docgen", True) and doc_plan.artifacts:
             safe_templates = [
                 tpl for tpl in docgen.collect_uploaded_templates(user, doc_plan.artifacts, include_like=True)
@@ -934,6 +995,7 @@ def generate_deskwise_reply(
                 if docgen.template_match_score(question, best) > 0:
                     template_text = best.text[:6000]
                     template_rules = docgen.TEMPLATE_SYSTEM_RULES
+                    template_source_ids = [best.document_id]
 
         tokens: list[str] = []
         source_names: list[str] = []
@@ -948,6 +1010,8 @@ def generate_deskwise_reply(
             history_override=history,
             template_text=template_text,
             template_rules=template_rules,
+            propose_workflows=False,  # AI-01: the room bot never proposes or runs actions
+            template_source_ids=template_source_ids,
         ):
             try:
                 evt = json.loads(raw_line)
@@ -1005,6 +1069,12 @@ def generate_deskwise_reply(
             {"filename": name, "document_id": doc_map.get(name)}
             for name in source_names
         ]
+        # The template an answer was written from is a source too: it is what
+        # lets the reply be masked for readers without access (S7-08/S7-09).
+        known_ids = {p["document_id"] for p in sources_payload}
+        for tpl_doc in Document.objects.filter(id__in=template_source_ids).values("id", "filename"):
+            if tpl_doc["id"] not in known_ids:
+                sources_payload.append({"filename": tpl_doc["filename"], "document_id": tpl_doc["id"]})
         meta = {"stream_id": sid, "error": bool(err_msg and not tokens)}
 
         return _save_and_broadcast_bot_message(
@@ -1056,14 +1126,20 @@ def spawn_deskwise_reply(room_id: int, trigger_message_id: int, user_id: int, st
     return sid
 
 
-def summarize_room_messages(room: TeamRoom, limit: int = 50) -> dict:
-    """Summarize recent room discussion into pinned highlights, open questions, and action items."""
+def summarize_room_messages(room: TeamRoom, limit: int = 50, viewer: User | None = None) -> dict:
+    """Summarize recent room discussion into pinned highlights, open questions, and action items.
+
+    With `viewer`, bot answers derived from documents that reader can't open are
+    left out of the transcript (S7-09), so a summary can't relay them."""
     rows = list(
         TeamMessage.objects.filter(room=room)
         .select_related("sender")
         .order_by("-id")[:max(1, min(100, limit))]
     )
     rows.reverse()
+    if viewer is not None:
+        flt = BotSourceFilter(viewer)
+        rows = [m for m in rows if flt.can_read(m)]
     if not rows:
         return {
             "room_id": room.id,

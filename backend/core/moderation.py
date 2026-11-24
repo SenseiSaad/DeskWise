@@ -116,9 +116,41 @@ def scan(text: str) -> ModerationResult:
 _SECRET_VALUE_PATTERNS = [
     re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"(?i)\b(api[_-]?key|secret[_-]?key|access[_-]?token|password|passwd)\s*[:=]\s*['\"]?([^\s'\"]{6,})['\"]?"),
 ]
+
+# AI-05: private-key blocks are paired with a linear scan instead of a lazy
+# `BEGIN[\s\S]*?END` regex, which was quadratic on repeated BEGIN headers.
+_PK_BEGIN = re.compile(r"-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----")
+_PK_END = re.compile(r"-----END [A-Z ]{0,40}PRIVATE KEY-----")
+
+
+def _private_key_spans(text: str) -> list[tuple[int, int]]:
+    ends = [m.end() for m in _PK_END.finditer(text)]
+    if not ends:
+        return []
+    spans, j, pos = [], 0, 0
+    for m in _PK_BEGIN.finditer(text):
+        if m.start() < pos:
+            continue
+        while j < len(ends) and ends[j] <= m.end():
+            j += 1
+        if j == len(ends):
+            break
+        spans.append((m.start(), ends[j]))
+        pos = ends[j]
+    return spans
+
+
+def _redact_private_keys(text: str) -> str:
+    out, last = [], 0
+    for start, end in _private_key_spans(text):
+        out.append(text[last:start])
+        out.append("[REDACTED:SECRET]")
+        last = end
+    out.append(text[last:])
+    return "".join(out)
+
 
 _EXFIL_PATTERNS = [
     re.compile(r"\b(dump|print|output|copy|extract|export|reveal)\b.{0,30}\b(entire|whole|full|all|every word of)\b.{0,25}\b(documents?|files?|vault|database|chunks?)\b", re.IGNORECASE),
@@ -132,7 +164,7 @@ def detect_pii(text: str) -> bool:
         return False
     if any(p.search(text) for p in _COMPILED["pii_exposure"]):
         return True
-    return any(p.search(text) for p in _SECRET_VALUE_PATTERNS)
+    return bool(_private_key_spans(text)) or any(p.search(text) for p in _SECRET_VALUE_PATTERNS)
 
 
 def redact_pii(text: str) -> tuple[str, list[str]]:
@@ -146,6 +178,9 @@ def redact_pii(text: str) -> tuple[str, list[str]]:
             cleaned = p.sub("[REDACTED:PII]", cleaned)
             if "pii_exposure" not in redacted:
                 redacted.append("pii_exposure")
+    if _private_key_spans(cleaned):
+        cleaned = _redact_private_keys(cleaned)
+        redacted.append("secret_exposure")
     for p in _SECRET_VALUE_PATTERNS:
         if p.search(cleaned):
             cleaned = p.sub("[REDACTED:SECRET]", cleaned)

@@ -25,6 +25,7 @@ import {
   type EnterpriseDoc,
   type LlmStatus,
   type Role,
+  type WorkflowProposal,
   type WorkflowResult,
 } from '@/lib/api'
 import { toast } from '@/components/toaster'
@@ -42,6 +43,7 @@ export type WorkspaceChatMessage = {
   error?: boolean
   flag?: { message: string; categories: string[] }
   workflow?: WorkflowResult
+  proposal?: WorkflowProposal
   artifacts?: Artifact[]
   missingFields?: string[]
 }
@@ -733,6 +735,7 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
                 updated.redacted = e.categories
               } else if (e.type === 'token') updated.content += e.token
               else if (e.type === 'workflow') updated.workflow = e
+              else if (e.type === 'workflow_proposal') updated.proposal = e
               else if (e.type === 'artifact') {
                 updated.artifacts = [...(updated.artifacts || []), e.artifact]
                 if (!updated.content) updated.content = e.artifact.content_md

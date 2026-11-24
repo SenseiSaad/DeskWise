@@ -164,6 +164,34 @@ def delete(key_or_path: str, base_dir: str | None = None) -> None:
             pass
 
 
+def delete_checked(key_or_path: str, base_dir: str | None = None) -> bool:
+    """Delete an object and report whether it is really gone (S7-06).
+
+    `delete()` deliberately swallows errors for best-effort callers. Cleanup
+    jobs must know when a deletion failed so they keep the record that lets
+    them retry. A key that no longer exists counts as gone (S3 returns success
+    for a missing key)."""
+    if not key_or_path:
+        return True
+    if is_s3_enabled() and not os.path.exists(key_or_path):
+        try:
+            _s3_client().delete_object(Bucket=_bucket(), Key=key_or_path.lstrip("/"))
+            return True
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("object delete failed: %s", type(exc).__name__)
+            return False
+    try:
+        path = _resolve_local_path(key_or_path, base_dir=base_dir)
+        if os.path.exists(path):
+            os.remove(path)
+        return True
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("local delete failed: %s", type(exc).__name__)
+        return False
+
+
 def object_size(key_or_path: str, base_dir: str | None = None) -> int | None:
     """The stored object's real byte size, or None when it does not exist.
 
@@ -184,6 +212,22 @@ def object_size(key_or_path: str, base_dir: str | None = None) -> int | None:
     if not os.path.isfile(path):
         return None
     return os.path.getsize(path)
+
+
+def object_head(key_or_path: str, length: int = 2048, base_dir: str | None = None) -> bytes:
+    """The first `length` bytes of a stored object (AI-07).
+
+    On S3/R2 this is a ranged GET, so confirming a large direct upload doesn't
+    download the whole object into the request."""
+    length = max(1, int(length))
+    if is_s3_enabled() and not os.path.exists(key_or_path):
+        resp = _s3_client().get_object(
+            Bucket=_bucket(), Key=key_or_path.lstrip("/"), Range=f"bytes=0-{length - 1}",
+        )
+        return resp["Body"].read(length)
+    path = _resolve_local_path(key_or_path, base_dir=base_dir)
+    with open(path, "rb") as fh:
+        return fh.read(length)
 
 
 def generate_presigned_put(key: str, content_type: str = "application/octet-stream",

@@ -224,7 +224,12 @@ def test_scope_change_and_delete_need_admin_or_uploader(auth_client, make_compan
                                  format="json").status_code == 403
 
     # Admins can widen via break-glass and delete; viewers can do neither.
-    assert auth_client(admin).delete(f"/api/documents/{doc.id}").status_code == 204
+    # (AUTHZ-08: deleting a restricted document also requires break-glass first.)
+    admin_client = auth_client(admin)
+    assert admin_client.delete(f"/api/documents/{doc.id}").status_code == 403
+    assert admin_client.post(f"/api/documents/{doc.id}/break-glass",
+                             {"reason": "retention cleanup"}, format="json").status_code == 200
+    assert admin_client.delete(f"/api/documents/{doc.id}").status_code == 204
 
 
 # ------------------------------------------------- provider override rule

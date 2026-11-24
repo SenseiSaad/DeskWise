@@ -40,7 +40,7 @@ def test_open_json_helper():
         resp.__exit__.return_value = False
         return resp
 
-    with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+    with patch("core.providers._NO_REDIRECT_OPENER.open", side_effect=mock_urlopen):
         res = providers._json("http://test.api/ping", {"test": 1})
         assert res == {"status": "ok"}
         assert len(calls) == 1
@@ -62,7 +62,7 @@ def test_gemini_stream_chat():
         b'data: {"candidates": [{"content": {"parts": [{"text": "from Gemini!"}]}}]}\n',
     ]
 
-    with patch("urllib.request.urlopen", return_value=_FakeStreamResponse(sse_data)):
+    with patch("core.providers._NO_REDIRECT_OPENER.open", return_value=_FakeStreamResponse(sse_data)):
         tokens = list(p.stream_chat([{"role": "user", "content": "Hi"}]))
         assert "".join(tokens) == "Hello from Gemini!"
 
@@ -74,7 +74,7 @@ def test_anthropic_stream_chat():
         b'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "from Claude!"}}\n',
     ]
 
-    with patch("urllib.request.urlopen", return_value=_FakeStreamResponse(sse_data)):
+    with patch("core.providers._NO_REDIRECT_OPENER.open", return_value=_FakeStreamResponse(sse_data)):
         tokens = list(p.stream_chat([{"role": "user", "content": "Hi"}]))
         assert "".join(tokens) == "Hello from Claude!"
 

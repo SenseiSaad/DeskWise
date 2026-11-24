@@ -91,3 +91,62 @@ def truncate_text(text: str) -> str:
     if text and len(text) > MAX_EXTRACTED_CHARS:
         return text[:MAX_EXTRACTED_CHARS]
     return text
+
+
+# AI-07: the server, not the client, decides the stored content type, and the
+# first bytes must match the claimed binary format.
+CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".csv": "text/csv",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+}
+
+_MAGIC = {
+    ".docx": (b"PK\x03\x04",),
+    ".pptx": (b"PK\x03\x04",),
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+}
+
+
+def content_type_for(filename: str) -> str:
+    name = (filename or "").lower()
+    dot = name.rfind(".")
+    return CONTENT_TYPES.get(name[dot:] if dot >= 0 else "", "application/octet-stream")
+
+
+def validate_magic(filename: str, head: bytes) -> None:
+    """Reject a binary upload whose leading bytes do not match its extension."""
+    ext = validate_extension(filename)
+    head = head or b""
+    if ext == ".pdf":
+        # The PDF header may appear anywhere in the first 1024 bytes.
+        if b"%PDF-" not in head[:1024]:
+            raise UploadRejected("The file content does not match its .pdf extension.")
+        return
+    sigs = _MAGIC.get(ext)
+    if sigs and not any(head.startswith(s) for s in sigs):
+        raise UploadRejected(f"The file content does not match its {ext} extension.")
+
+
+INDEX_FAILED_MESSAGE = "This file could not be indexed. Try re-indexing it, or re-upload it in another format."
+
+
+def index_error_message(exc: BaseException) -> str:
+    """The text stored in Document.index_error (AI-06).
+
+    UploadRejected messages are written for users and kept. Anything else is a
+    parser/provider/storage exception that can name internal hosts or paths, so
+    the client gets a generic message and the detail goes to the server log."""
+    if isinstance(exc, UploadRejected):
+        return str(exc)[:300]
+    import logging
+    logging.getLogger(__name__).warning("document indexing failed: %s", type(exc).__name__, exc_info=exc)
+    return INDEX_FAILED_MESSAGE

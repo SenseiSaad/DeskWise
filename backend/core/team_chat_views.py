@@ -12,6 +12,7 @@ from .ratelimit import _client_ip as client_ip, rate_limit
 from .team_chat import (
     ALLOWED_REACTION_EMOJIS,
     _message_queryset,
+    BotSourceFilter,
     accessible_rooms_for,
     broadcast_group_event_sync,
     company_group_name,
@@ -38,9 +39,8 @@ from .ws import _COMPANY_PRESENCE
 
 def _require_company(request):
     user = request.user
-    if (
-        getattr(user, "is_platform_admin", False) or getattr(user, "is_superuser", False)
-    ) and not getattr(user, "company_id", None):
+    if getattr(user, "is_platform_admin", False) or getattr(user, "is_superuser", False):
+        # AUTHZ-05: platform-level accounts never act inside a tenant, even when attached.
         return Response(
             {"detail": "Platform admins must select a company to access Team Chat."},
             status=403,
@@ -259,10 +259,25 @@ def team_chat_messages(request, room_id: int):
         if not query_str and not before_id_raw and request.query_params.get("mark_read", "true").lower() != "false":
             mark_room_read(request.user, room)
 
+        # S7-09: bot answers built from documents this reader can't open are
+        # masked; in a search they are dropped so matching text can't leak.
+        reader = BotSourceFilter(request.user)
+
+        def _visible(messages, drop_hidden):
+            out = []
+            for m in messages:
+                payload = serialize_message(m)
+                if not reader.can_read(m):
+                    if drop_hidden:
+                        continue
+                    payload = reader.mask(payload)
+                out.append(payload)
+            return out
+
         return Response({
             "room": serialize_room(room, user=request.user),
-            "results": [serialize_message(m) for m in rows],
-            "pinned": [serialize_message(m) for m in pinned_rows],
+            "results": _visible(rows, bool(query_str)),
+            "pinned": _visible(pinned_rows, False),
             "has_more": has_more,
             "edit_window_seconds": edit_window_seconds(),
         })
@@ -382,4 +397,12 @@ def team_chat_room_summarize(request, room_id: int):
     room, err = _get_accessible_room_or_error(request.user, room_id)
     if err:
         return err
-    return Response(summarize_room_messages(room))
+    import time as _time
+    from . import rag
+    started = _time.time()
+    result = summarize_room_messages(room, viewer=request.user)
+    if result.get("mode") not in (None, "deterministic"):
+        # AUTHZ-11: an LLM summary consumes the same monthly ask quota as /api/ask.
+        rag._log_ask(request.user, f"[team chat summary] room #{room.id}", "summary",
+                     str(result.get("mode") or ""), 0, True, False, started)
+    return Response(result)

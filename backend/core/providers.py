@@ -52,7 +52,16 @@ def _open(url, payload=None, headers=None, method=None, timeout=30.0):
     # The only urlopen in the codebase. The only URL reaching it from tenant
     # input is LLMConfig.base_url, validated as https-to-public-host in
     # core.netguard before use — hence the nosec with justification.
-    return urllib.request.urlopen(req, timeout=timeout)  # nosec B310
+    # AI-02: never follow redirects — only the validated first hop may be contacted.
+    return _NO_REDIRECT_OPENER.open(req, timeout=timeout)  # nosec B310
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # urllib then raises HTTPError for the 3xx response
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 def _json(url, payload=None, headers=None, method=None, timeout=30.0):

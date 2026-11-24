@@ -140,6 +140,12 @@ def _send_via_resend_api(to_email: str, subject: str, text_body: str, html_body:
         return 200 <= resp.status < 300
 
 
+def _mask_email(addr: str) -> str:
+    """Log-safe recipient: first character of the local part plus the domain."""
+    local, _, domain = str(addr or "").partition("@")
+    return f"{local[:1]}***@{domain}" if domain else "***"
+
+
 def _deliver_now(to_email: str, subject: str, text_body: str, html_body: str) -> bool:
     """Attempt delivery up to 3 times with short backoff. Never raises."""
     attempts = 3 if getattr(settings, "EMAIL_ASYNC", False) else 1
@@ -163,12 +169,29 @@ def _deliver_now(to_email: str, subject: str, text_body: str, html_body: str) ->
             msg.attach_alternative(html_body, "text/html")
             msg.send(fail_silently=False)
             return True
+        except urllib.error.HTTPError as exc:
+            err_body = ""
+            try:
+                err_body = exc.read().decode("utf-8", errors="replace")[:240]
+            except Exception:
+                pass
+            logger.warning(
+                "Resend HTTP %s on attempt %d/%d (to=%s, from=%s): %s",
+                exc.code,
+                attempt,
+                attempts,
+                _mask_email(to_email),
+                settings.DEFAULT_FROM_EMAIL,
+                err_body,
+            )
+            if attempt < attempts:
+                time.sleep(0.4 * attempt)
         except Exception as exc:
             logger.warning(
                 "Email delivery attempt %d/%d failed (to=%s, subject=%r, err=%s)",
                 attempt,
                 attempts,
-                to_email,
+                _mask_email(to_email),
                 subject,
                 type(exc).__name__,
             )

@@ -54,10 +54,12 @@ import {
   docgenApi,
   downloadGeneratedForm,
   workApi,
+  workflowApi,
   type ChatMode,
   type Conversation,
   type Artifact,
   type LlmStatus,
+  type WorkflowProposal,
   type WorkflowResult,
 } from '@/lib/api'
 import type { UiLanguage } from '@/lib/api'
@@ -1225,7 +1227,11 @@ function Bubble({
             <span>Sensitive fields masked before AI lookup ({msg.redacted.join(', ')})</span>
           </div>
         ) : null}
-        {msg.workflow ? <WorkflowCard wf={msg.workflow} /> : null}
+        {msg.workflow ? (
+          <WorkflowCard wf={msg.workflow} />
+        ) : msg.proposal ? (
+          <WorkflowProposalCard key={msg.proposal.token} proposal={msg.proposal} />
+        ) : null}
         {artifacts.map((a) => (
           <ArtifactCard key={a.id} a={a} />
         ))}
@@ -1394,6 +1400,83 @@ function FlagBanner({ flag }: { flag: { message: string; categories: string[] } 
             ))}
           </div>
         ) : null}
+      </div>
+    </div>
+  )
+}
+
+// AI-01: a suggested action is shown for review and only runs when the user
+// clicks Confirm. The result then replaces the card.
+function WorkflowProposalCard({ proposal }: { proposal: WorkflowProposal }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'dismissed'>('idle')
+  const [result, setResult] = useState<WorkflowResult | null>(null)
+  const [err, setErr] = useState('')
+
+  if (result) return <WorkflowCard wf={result} />
+  if (state === 'dismissed') {
+    return <p className="mt-2 text-[11px] text-muted-foreground">Suggestion dismissed. Nothing was sent.</p>
+  }
+
+  async function onConfirm() {
+    setState('busy')
+    setErr('')
+    try {
+      setResult(await workflowApi.confirm(proposal.token))
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'The action could not be completed.')
+      setState('idle')
+    }
+  }
+
+  const p = proposal.preview || {}
+  const meeting = proposal.action === 'schedule_meeting'
+  const when = [p.date, p.time].filter(Boolean).join(' ')
+  return (
+    <div className="mt-2 rounded-2xl border border-info/35 bg-info-soft p-3.5">
+      <div className="flex items-start gap-2.5">
+        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-surface-elevated/80 text-info">
+          {meeting ? <CalendarCheck className="size-4" aria-hidden /> : <FileText className="size-4" aria-hidden />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">{proposal.message}</p>
+          {meeting ? (
+            <>
+              {when ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  <span className="font-medium text-info">When:</span> {when}
+                </p>
+              ) : null}
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                <span className="font-medium text-info">Email goes to:</span>{' '}
+                {['you', ...(p.participants || [])].join(', ')}
+              </p>
+            </>
+          ) : p.date || p.leave_reason ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {[p.date, p.leave_reason].filter(Boolean).join(' · ')}
+            </p>
+          ) : null}
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={state === 'busy'}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#2f5b36] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#274b2d] dark:bg-[#3e7849] dark:hover:bg-[#498b55] disabled:opacity-50"
+            >
+              {state === 'busy' ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+              {state === 'busy' ? 'Working…' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setState('dismissed')}
+              disabled={state === 'busy'}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+            >
+              Dismiss
+            </button>
+          </div>
+          {err ? <p className="mt-1.5 text-[11px] text-danger">{err}</p> : null}
+        </div>
       </div>
     </div>
   )

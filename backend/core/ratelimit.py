@@ -61,7 +61,9 @@ def _identity(request, key):
     if key == "ip_email":
         email = ""
         if isinstance(request.data, dict):
-            email = str(request.data.get("email") or request.data.get("username") or "").lower()
+            # Normalise exactly like the views do (strip + lower) so padded
+            # variants of one address share a single bucket.
+            email = str(request.data.get("email") or request.data.get("username") or "").strip().lower()
         return f"{_client_ip(request)}:{email}"
     return _client_ip(request)
 
@@ -106,3 +108,31 @@ def _increment(cache_key, per_seconds):
             return cache.incr(cache_key)
         except ValueError:
             return 1
+
+
+# AUTHN-02: per-account login lockout, independent of the client IP. The key is
+# the normalised email whether or not the account exists, so the response does
+# not reveal which emails are registered.
+def _lockout_key(email):
+    return f"lockout:login:{str(email or '').strip().lower()}"
+
+
+def _lockout_threshold():
+    return int(getattr(settings, "LOGIN_LOCKOUT_THRESHOLD", 10))
+
+
+def _lockout_window():
+    return int(getattr(settings, "LOGIN_LOCKOUT_SECONDS", 900))
+
+
+def login_locked(email):
+    return int(cache.get(_lockout_key(email)) or 0) >= _lockout_threshold()
+
+
+def record_login_failure(email):
+    # The window starts at the first failure (cache.add sets the TTL once).
+    return _increment(_lockout_key(email), _lockout_window())
+
+
+def clear_login_failures(email):
+    cache.delete(_lockout_key(email))

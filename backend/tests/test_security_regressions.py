@@ -111,6 +111,7 @@ def test_regress_F02_upload_confirm_requires_own_presigned_key(auth_client, make
     c_emp = auth_client(emp)
     with patch.object(storage, "is_s3_enabled", return_value=True), \
          patch.object(storage, "object_size", return_value=123), \
+         patch.object(storage, "object_head", return_value=b"plain text head"), \
          patch.object(storage, "generate_presigned_put", return_value="https://s3.example/put"):
         # Forging victim's existing key (never presigned by emp) must be rejected.
         bad = c_emp.post(

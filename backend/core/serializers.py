@@ -159,6 +159,29 @@ class AuditSerializer(serializers.ModelSerializer):
         ]
 
 
+def ascii_email_error(email):
+    """AUTHN-08: a reason to refuse a homograph-prone address, else None.
+
+    Non-ASCII characters anywhere, or a punycode (xn--) domain label, are
+    refused so `ceo@аcme.test` (Cyrillic а) can't pose as `ceo@acme.test`."""
+    value = str(email or "").strip()
+    try:
+        value.encode("ascii")
+    except UnicodeEncodeError:
+        return "Email addresses must use plain ASCII characters (no accented or non-Latin letters)."
+    domain = value.rpartition("@")[2].lower()
+    if any(label.startswith("xn--") for label in domain.split(".")):
+        return "Internationalised (punycode) email domains are not supported."
+    return None
+
+
+def _validate_ascii_email(value):
+    err = ascii_email_error(value)
+    if err:
+        raise serializers.ValidationError(err)
+    return value
+
+
 class RegisterCompanySerializer(serializers.Serializer):
     company_name = serializers.CharField()
     admin_name = serializers.CharField(required=False, allow_blank=True, default="")
@@ -168,7 +191,7 @@ class RegisterCompanySerializer(serializers.Serializer):
     contact_email = serializers.CharField(required=False, allow_blank=True, default="")
     phone = serializers.CharField(required=False, allow_blank=True, default="")
     max_employees = serializers.IntegerField(required=False, allow_null=True, min_value=1)
-    email = serializers.EmailField()
+    email = serializers.EmailField(validators=[_validate_ascii_email])
     password = serializers.CharField(min_length=10)
 
     def validate_password(self, value):
@@ -188,7 +211,7 @@ class UserCreateSerializer(serializers.Serializer):
     full_name = serializers.CharField(required=False, allow_blank=True, default="")
     title = serializers.CharField(required=False, allow_blank=True, default="")
     department_id = serializers.IntegerField(required=False, allow_null=True, default=None)
-    email = serializers.EmailField()
+    email = serializers.EmailField(validators=[_validate_ascii_email])
     password = serializers.CharField(required=False, allow_blank=True, default="")
     role = serializers.ChoiceField(choices=["admin", "employee", "viewer"], default="employee")
     is_dept_admin = serializers.BooleanField(required=False, default=False)

@@ -79,15 +79,32 @@ class OriginCheckMiddleware:
         origin = request.META.get("HTTP_ORIGIN", "").strip()
         if request.method in UNSAFE_METHODS and origin:
             if origin.rstrip("/").lower() not in _trusted_origins(request):
-                from rest_framework.response import Response
-                from rest_framework import status
-                import logging
+                from django.http import JsonResponse
                 logging.getLogger(__name__).warning(
                     "Rejected request with untrusted Origin %s for %s",
                     origin, request.path,
                 )
-                return Response(
-                    {"detail": "Request blocked: untrusted origin."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+                # AUTHN-09: a plain Django response; a DRF Response returned
+                # from middleware has no renderer and surfaced as a 500.
+                return JsonResponse({"detail": "Request blocked: untrusted origin."}, status=403)
         return self.get_response(request)
+
+
+class SecurityHeadersMiddleware:
+    """Baseline headers for API responses (JSON/files never need to run script).
+
+    Django admin pages are excluded because they serve their own HTML/JS.
+    """
+
+    API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if request.path.startswith("/api/"):
+            response.setdefault("Content-Security-Policy", self.API_CSP)
+        response.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+        response.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        return response

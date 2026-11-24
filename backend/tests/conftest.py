@@ -15,6 +15,16 @@ def _no_rate_limit(settings):
 
 
 @pytest.fixture(autouse=True)
+def _fresh_cache():
+    """Lockout, MFA-attempt, TOTP-replay and token-denylist state lives in the
+    cache; user PKs and emails repeat across tests, so start each one clean."""
+    from django.core.cache import cache
+    cache.clear()
+    yield
+    cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def _isolated_storage(settings, tmp_path):
     """Keep uploaded files and generated artefacts out of the repo."""
     settings.MEDIA_ROOT = tmp_path / "media"

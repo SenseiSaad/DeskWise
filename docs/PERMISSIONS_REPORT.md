@@ -1,6 +1,6 @@
 # Deskwise Permissions Verification Report
 
-> Generated automatically by `backend/tests/test_permission_matrix.py` on 2026-11-21 09:37:54 UTC.
+> Generated automatically by `backend/tests/test_permission_matrix.py` on 2026-11-24 15:25:04 UTC.
 
 ## Summary
 

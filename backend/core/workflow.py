@@ -57,9 +57,102 @@ def handle_ai_workflow_intent(intent_data: dict | None, user) -> dict | None:
             "action": intent,
             "status": "error",
             "message": "The assistant could not complete that action automatically.",
-            "detail": str(exc)[:200],
         }
     return None
+
+
+# ─────────────────────────── proposals (AI-01) ──────────────────────────────
+# The model can only *propose* an action. The chat stream returns a signed,
+# user-bound, single-use proposal; nothing runs until the user clicks Confirm,
+# which calls confirm_proposal() through an authenticated endpoint.
+
+PROPOSAL_SALT = "openvault.workflow.proposal"
+PROPOSAL_MAX_AGE = 15 * 60
+PROPOSABLE = {"schedule_meeting", "leave_request"}
+
+
+def build_proposal(intent_data: dict | None, user) -> dict | None:
+    """A `workflow_proposal` event for the chat stream, or None. Never executes."""
+    from django.core import signing
+    import secrets
+
+    if not isinstance(intent_data, dict):
+        return None
+    intent = str(intent_data.get("intent") or "none").strip()
+    if intent not in PROPOSABLE or not getattr(user, "pk", None):
+        return None
+    if _feature_blocked(intent, user):
+        return None  # don't offer an action the workspace has switched off
+    data = intent_data.get("data") or {}
+    if not isinstance(data, dict):
+        data = {}
+    if intent == "schedule_meeting":
+        participants = data.get("participants") or []
+        if not isinstance(participants, list):
+            participants = [str(participants)]
+        participants = [str(p).strip()[:200] for p in participants if str(p).strip()][:50]
+        clean = {
+            "title": str(data.get("title") or "Meeting").strip()[:200],
+            "date": str(data.get("date") or "").strip()[:20],
+            "time": str(data.get("time") or "").strip()[:10],
+            "participants": _same_company_participants(participants, user),
+        }
+        when = " ".join(v for v in (clean["date"], clean["time"]) if v) or "a time to be confirmed"
+        message = f"Schedule '{clean['title']}' for {when}?"
+    else:
+        clean = {
+            "leave_reason": str(data.get("leave_reason") or data.get("reason") or "").strip()[:500],
+            "date": str(data.get("date") or "").strip()[:20],
+        }
+        message = "Generate a leave application form?"
+    token = signing.dumps(
+        {"u": user.pk, "i": intent, "d": clean, "n": secrets.token_hex(12)},
+        salt=PROPOSAL_SALT, compress=True,
+    )
+    return {"type": "workflow_proposal", "action": intent, "message": message,
+            "preview": clean, "token": token}
+
+
+class ProposalError(ValueError):
+    """A user-facing reason the proposal can't run."""
+
+
+class ProposalForbidden(ProposalError):
+    """The proposal is valid but the workspace has disabled the feature."""
+
+
+def _feature_blocked(intent: str, user) -> bool:
+    """S7-07: a workflow must honour the same company feature switches as the
+    equivalent API. Generating a leave form is document generation."""
+    company = getattr(user, "company", None)
+    if company is None:
+        return False
+    if intent == "leave_request" and not getattr(company, "enable_docgen", True):
+        return True
+    return False
+
+
+def confirm_proposal(token: str, user) -> dict | None:
+    """Run a proposal the signed-in user explicitly confirmed. Single use."""
+    from django.core import signing
+    from django.core.cache import cache
+
+    try:
+        payload = signing.loads(str(token or ""), salt=PROPOSAL_SALT, max_age=PROPOSAL_MAX_AGE)
+    except signing.SignatureExpired:
+        raise ProposalError("This suggestion has expired. Ask the assistant again.")
+    except signing.BadSignature:
+        raise ProposalError("This suggestion is not valid.")
+    if not isinstance(payload, dict) or payload.get("u") != user.pk or payload.get("i") not in PROPOSABLE:
+        raise ProposalError("This suggestion is not valid.")
+    # Checked live, before the single-use marker: a proposal made while the
+    # feature was on must not run after an admin switches it off, and a refusal
+    # must not burn the token.
+    if _feature_blocked(payload["i"], user):
+        raise ProposalForbidden("This action is disabled for your company.")
+    if not cache.add(f"wf:proposal:{payload.get('n')}", 1, PROPOSAL_MAX_AGE + 60):
+        raise ProposalError("This action was already confirmed.")
+    return handle_ai_workflow_intent({"intent": payload["i"], "data": payload.get("d") or {}}, user)
 
 
 # ─────────────────────────── schedule_meeting ───────────────────────────────
@@ -72,6 +165,7 @@ def _schedule_meeting(data: dict, user) -> dict:
     if not isinstance(participants, list):
         participants = [str(participants)]
     participants = [str(p).strip() for p in participants if str(p).strip()]
+    participants = _same_company_participants(participants, user)
 
     start_dt, end_dt = _meeting_window(date, time)
     calendar = _create_calendar_event(title, start_dt, end_dt, participants, user)
@@ -93,6 +187,23 @@ def _schedule_meeting(data: dict, user) -> dict:
         "calendar": calendar,
         "email": email,
     }
+
+
+def _same_company_participants(participants: list[str], user) -> list[str]:
+    """Security audit AI-01: the intent comes from model output, which retrieved
+    text can steer, so only email addresses of active members of the asker's own
+    company are kept. Names and other values are kept as plain labels."""
+    from .models import User
+
+    emails = [p for p in participants if _EMAIL_RE.match(p)]
+    allowed = set()
+    if emails and getattr(user, "company_id", None):
+        allowed = {
+            e.lower() for e in User.objects.filter(
+                company_id=user.company_id, is_active=True, email__in=[e.lower() for e in emails],
+            ).values_list("email", flat=True)
+        }
+    return [p for p in participants if not _EMAIL_RE.match(p) or p.lower() in allowed]
 
 
 def _meeting_window(date: str, time: str):
@@ -146,7 +257,7 @@ def _create_calendar_event(title, start_dt, end_dt, participants, user) -> dict:
         return {"status": "simulated", "reason": "google-api-python-client not installed"}
     except Exception as exc:
         log.warning("calendar event creation failed: %s", exc)
-        return {"status": "error", "reason": str(exc)[:200]}
+        return {"status": "error", "reason": "calendar service error"}
 
 
 def _send_meeting_email(title, start_dt, participants, user, calendar) -> dict:
@@ -177,7 +288,7 @@ def _send_meeting_email(title, start_dt, participants, user, calendar) -> dict:
         return {"status": "sent" if sent else "skipped", "recipients": recipients}
     except Exception as exc:
         log.warning("meeting email failed: %s", exc)
-        return {"status": "error", "reason": str(exc)[:200], "recipients": recipients}
+        return {"status": "error", "reason": "email delivery failed", "recipients": recipients}
 
 
 # ──────────────────────────── leave_request ─────────────────────────────────
@@ -200,8 +311,6 @@ def _leave_request(data: dict, user) -> dict:
         "download_url": download_url,
         "leave_reason": reason,
         "leave_date": leave_date,
-        # path is internal only; handy for logs/tests, harmless to the client.
-        "stored_path": rel_path,
     }
 
 

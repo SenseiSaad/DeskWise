@@ -67,6 +67,7 @@ urlpatterns = [
     path("team-chat/messages/<int:msg_id>/pin", team_chat_views.team_chat_message_pin),
     path("team-chat/messages/<int:msg_id>/react", team_chat_views.team_chat_message_react),
     # generated workflow document downloads (Features 2 & 3)
+    path("workflow/confirm", views.workflow_confirm),
     path("workflow/forms/<int:user_id>/<str:name>", views.workflow_form_download),
     # attendance + 3-strike discipline (Feature 5)
     path("attendance/scan", views.attendance_scan),

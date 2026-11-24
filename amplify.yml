@@ -1,6 +1,6 @@
 # AWS Amplify Hosting build spec for the Deskwise frontend.
 #
-# next.config.mjs already selects `output: 'export'` for Amplify (a static
+# BUILD_TARGET=static makes next.config.mjs select `output: 'export'` (a static
 # export to out/), and pnpm-workspace.yaml sets nodeLinker: hoisted because
 # Amplify's dependency tracer does not follow pnpm's symlinked layout.
 #
@@ -22,7 +22,9 @@ applications:
           commands:
             # Bake NEXT_PUBLIC_* into the static export at build time.
             - env | grep -E '^NEXT_PUBLIC_' >> .env.production || true
-            - pnpm run build
+            # Static export: no proxy.ts / no nonce CSP. The (weaker) static CSP
+            # is served by Amplify from customHttp.yml at the repo root.
+            - BUILD_TARGET=static pnpm run build
       artifacts:
         baseDirectory: out
         files:

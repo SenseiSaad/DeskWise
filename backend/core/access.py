@@ -527,6 +527,10 @@ def decide(
             chain.append("Legal hold denied: document is under legal hold and cannot be deleted.")
             return Decision(False, "DENY_LEGAL_HOLD", tuple(chain))
         if is_adm:
+            # AUTHZ-08: same break-glass rule as every other admin action on restricted docs.
+            if document.access_scope == "restricted" and not is_uploader and grant is None:
+                chain.append("Scope denied: admin needs break-glass grant before deleting a restricted document.")
+                return Decision(False, "DENY_ADMIN_NEEDS_BREAK_GLASS", tuple(chain), metadata_only=True)
             chain.append("Allowed: company admin deleting own-company document (no legal hold).")
             return Decision(True, "ALLOW_ADMIN_DELETE", tuple(chain))
         if is_dm and (is_uploader or (in_doc_dept and document.access_scope != "restricted" and doc_sens != "confidential")):
